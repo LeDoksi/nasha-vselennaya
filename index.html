@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>💜 Наша вселенная</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💜</text></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">💜 Наша вселенная</div>
+      <nav class="nav">
+        <button class="nav-btn active" data-view="home">Главная</button>
+        <button class="nav-btn" data-view="calendar">Календарь</button>
+        <button class="nav-btn" data-view="notes">Заметки</button>
+        <button class="nav-btn" data-view="lists">Списки</button>
+        <button class="nav-btn" data-view="wishlist">Хотелки</button>
+        <button class="nav-btn" data-view="photos">Фото</button>
+        <button class="nav-btn" data-view="song">Песня</button>
+        <button class="nav-btn" data-view="settings">Настройки</button>
+      </nav>
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0">
+        <button class="btn theme-toggle" id="themeToggle" title="Сменить тему" style="padding:9px 14px">🌙</button>
+        <button class="user-chip" id="userChip" title="Кто сейчас с нами?">👦 Гоша ▾</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ===== ГЛАВНАЯ ===== -->
+    <section class="view active" id="view-home">
+      <div class="hero-zone">
+        <div class="float-photos" id="floatPhotos"></div>
+        <div class="hero-card">
+          <span class="hero-deco" style="bottom:26px;left:42%;animation-delay:2s">✨</span>
+          <h1>Наша вселенная</h1>
+        <p class="hero-names">Гоша <span>&</span> Даша</p>
+        <div class="counter">
+          <b id="daysCount">0</b>
+          <span>дней вместе</span>
+          <small>с 30 марта 2026</small>
+        </div>
+      </div>
+      </div>
+      <div class="countdown" id="countdown" hidden></div>
+      <div class="compliment" id="compliment"></div>
+      <div class="reminders" id="reminders"></div>
+      <div class="date-bar">
+        <button class="btn btn-date" id="addDateBtn">💘 Назначить свидание</button>
+      </div>
+      <div class="dates" id="dates"></div>
+      <div class="mobile-photos" id="mobilePhotos">
+        <div class="mobile-photos-title">📸 Наши моменты</div>
+        <div class="mobile-photos-grid" id="mobilePhotosGrid"></div>
+      </div>
+    </section>
+
+    <!-- ===== КАЛЕНДАРЬ ===== -->
+    <section class="view" id="view-calendar">
+      <div class="cal-head">
+        <button class="cal-nav" id="calPrev">‹</button>
+        <h3 id="calTitle"></h3>
+        <button class="cal-nav" id="calNext">›</button>
+        <button class="btn" id="addEventBtn">＋ Добавить дату</button>
+      </div>
+      <div class="calendar" id="calendar"></div>
+      <div class="day-panel" id="dayPanel"></div>
+    </section>
+
+    <!-- ===== ЗАМЕТКИ ===== -->
+    <section class="view" id="view-notes">
+      <div class="note-add">
+        <textarea id="noteText" placeholder="Напиши что-нибудь нежное… (Ctrl+Enter — добавить)"></textarea>
+        <button class="btn" id="noteAddBtn">💌 Добавить</button>
+      </div>
+      <div class="notes-grid" id="notesGrid"></div>
+    </section>
+
+    <!-- ===== СПИСКИ ===== -->
+    <section class="view" id="view-lists">
+      <div class="lists-wrap">
+        <div class="list-card">
+          <h3>🛒 Покупки <small id="shopCount"></small></h3>
+          <div class="list-add">
+            <input type="text" id="shopInput" placeholder="Что купить?">
+            <button class="btn" id="shopAddBtn">＋</button>
+          </div>
+          <ul class="items" id="shopList"></ul>
+        </div>
+        <div class="list-card">
+          <h3>✅ Дела <small id="todoCount"></small></h3>
+          <div class="list-add">
+            <input type="text" id="todoInput" placeholder="Что сделать?">
+            <button class="btn" id="todoAddBtn">＋</button>
+          </div>
+          <ul class="items" id="todoList"></ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== ХОТЕЛКИ ===== -->
+    <section class="view" id="view-wishlist">
+      <div class="wishlist-bar">
+        <h3>🎁 Хотелки</h3>
+        <button class="btn" id="addWishBtn">＋ Добавить</button>
+      </div>
+      <div class="wishlist-grid" id="wishlistGrid"></div>
+    </section>
+
+    <!-- ===== ФОТО ===== -->
+    <section class="view" id="view-photos">
+      <div class="photo-bar">
+        <h3>📸 Наши моменты</h3>
+        <label class="btn file-btn">Загрузить фото<input type="file" id="photoInput" accept="image/*" multiple hidden></label>
+      </div>
+      <div class="album-bar" id="labelBar"></div>
+      <div class="sel-bar" id="photoSelBar" style="display:none">
+        <span class="sel-count">Выбрано: <b id="selCount">0</b></span>
+        <button class="btn album-add-btn" id="selAddLabelBtn">🏷 Добавить лейбл</button>
+        <button class="btn album-add-btn" id="selClearBtn">✕ Снять выбор</button>
+      </div>
+      <p class="drag-hint" id="dragHint" style="display:none">↕ Перетаскивай фото для порядка. Клик по ○ на фото — выбрать несколько.</p>
+      <div class="photos-grid" id="photosGrid"></div>
+    </section>
+
+    <!-- ===== ПЕСНЯ ===== -->
+    <section class="view" id="view-song">
+      <div class="song-card">
+        <div class="song-disc">🎵</div>
+        <h3>Наша песня</h3>
+        <p class="song-name">«Ошибся номером» — ТКС</p>
+        <audio id="songAudio" controls preload="none" src="music/nasha-pesnya.mp3"></audio>
+        <p class="song-hint" id="songHint">Положи файл nasha-pesnya.mp3 в папку music/ — и трек заиграет прямо здесь.</p>
+        <a class="btn" target="_blank" rel="noopener" href="https://www.youtube.com/results?search_query=ошибся+номером+ТКС">Слушать на YouTube</a>
+      </div>
+    </section>
+
+    <!-- ===== НАСТРОЙКИ ===== -->
+    <section class="view" id="view-settings">
+      <div class="settings-card">
+        <h3>💾 Данные</h3>
+        <p>Пока всё хранится в этом браузере на этом компьютере. Скачивай резервную копию — так ничего не потеряется.</p>
+        <div id="backupHint" style="margin-bottom:14px"></div>
+        <div style="margin-bottom:14px;font-size:13px;color:var(--muted)">Занято в браузере: <b id="storageInfo" style="color:var(--ink)">0 КБ</b></div>
+        <div class="settings-btns">
+          <button class="btn" id="exportBtn">⬇ Скачать копию</button>
+          <label class="btn file-btn">⬆ Загрузить копию<input type="file" id="importInput" accept=".json" hidden></label>
+          <button class="btn btn-danger" id="resetBtn">🗑 Сбросить всё</button>
+        </div>
+      </div>
+      <div class="settings-card">
+        <h3>🌙 Оформление</h3>
+        <p>Тёмная тема — нежнее для глаз вечером.</p>
+        <div class="settings-btns">
+          <button class="btn" id="settingsThemeBtn">🌙 Включить тёмную тему</button>
+        </div>
+      </div>
+      <div class="settings-card">
+        <h3>🌐 Синхронизация</h3>
+        <p>Скоро подключим облако — тогда заметки и списки будут открываться и с телефона. Пока всё живёт локально.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== Модалка «добавить дату» ===== -->
+  <div class="overlay" id="eventOverlay" hidden>
+    <div class="modal">
+      <button class="modal-x" data-close="eventOverlay">✕</button>
+      <h3 id="evModalTitle">💜 Памятная дата</h3>
+      <label>Название</label>
+      <input type="text" id="evTitle" placeholder="Например: наш первый поцелуй">
+      <label>Дата</label>
+      <input type="date" id="evDate">
+      <label>Эмодзи</label>
+      <input type="text" id="evEmoji" value="💜" maxlength="4">
+      <label class="check"><input type="checkbox" id="evRepeat" checked> Повторять каждый год</label>
+      <button class="btn" id="evSave">Сохранить</button>
+    </div>
+  </div>
+
+  <!-- ===== Модалка «назначить свидание» ===== -->
+  <div class="overlay" id="dateOverlay" hidden>
+    <div class="modal">
+      <button class="modal-x" data-close="dateOverlay">✕</button>
+      <h3>💘 Назначить свидание</h3>
+      <label>Когда</label>
+      <div class="two-col">
+        <div><label>Дата</label><input type="date" id="dtDate"></div>
+        <div><label>Во сколько</label><input type="time" id="dtTime"></div>
+      </div>
+      <label>Кто приглашает?</label>
+      <select id="dtFrom">
+        <option value="gosha">👦 Гоша</option>
+        <option value="dasha">👧 Даша</option>
+        <option value="both">💜 Вместе</option>
+      </select>
+      <label>Место</label>
+      <input type="text" id="dtPlace" placeholder="Например: кофейня на углу">
+      <label>Идея / заметка</label>
+      <textarea id="dtNote" placeholder="Что будем делать, что взять с собой…"></textarea>
+      <label>Эмодзи</label>
+      <input type="text" id="dtEmoji" value="💘" maxlength="4">
+      <button class="btn" id="dtSave">Сохранить свидание 💜</button>
+    </div>
+  </div>
+
+  <!-- ===== Модалка «лейбл» ===== -->
+  <div class="overlay" id="labelOverlay" hidden>
+    <div class="modal">
+      <button class="modal-x" data-close="labelOverlay">✕</button>
+      <h3>🏷 Лейбл</h3>
+      <p class="cal-tip" id="labelModalHint" style="margin-bottom:12px"></p>
+      <label>Новый лейбл</label>
+      <div class="list-add">
+        <input type="text" id="labelNewName" placeholder="Например: Свидание, Семья…">
+        <button class="btn album-add-btn" id="labelNewBtn">＋ Создать</button>
+      </div>
+      <label>Или добавь готовый выбранным фото</label>
+      <select id="labelPick"></select>
+      <button class="btn" id="labelApplyBtn">Добавить выбранным фото 💜</button>
+    </div>
+  </div>
+
+  <!-- ===== Модалка «хотелка» ===== -->
+  <div class="overlay" id="wishOverlay" hidden>
+    <div class="modal">
+      <button class="modal-x" data-close="wishOverlay">✕</button>
+      <h3>🎁 Хотелка</h3>
+      <label>Что хочешь? (обязательно)</label>
+      <textarea id="wishText" placeholder="Например: кофемашина, поездка к морю…"></textarea>
+      <label>Фото (необязательно)</label>
+      <div class="list-add">
+        <label class="btn file-btn" style="flex:none">📷 Выбрать<input type="file" id="wishPhoto" accept="image/*" hidden></label>
+        <span id="wishPhotoName" style="align-self:center;color:var(--muted);font-size:13px"></span>
+      </div>
+      <label>Ссылка (необязательно)</label>
+      <input type="text" id="wishLink" placeholder="https://…">
+      <label>Для кого хотелка?</label>
+      <select id="wishOwner">
+        <option value="gosha">👦 Гоша</option>
+        <option value="dasha">👧 Даша</option>
+      </select>
+      <button class="btn" id="wishSave">Сохранить 💜</button>
+    </div>
+  </div>
+
+  <!-- ===== Кто ты? ===== -->
+  <div class="overlay" id="userOverlay" hidden>
+    <div class="modal modal-center">
+      <h3>💜 Привет!</h3>
+      <p class="user-sub">Кто сейчас с нами?</p>
+      <div class="user-btns">
+        <button class="user-btn" data-user="gosha">👦<br>Гоша</button>
+        <button class="user-btn" data-user="dasha">👧<br>Даша</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Просмотр фото ===== -->
+  <div class="overlay" id="lightbox" hidden>
+    <button class="modal-x" data-close="lightbox">✕</button>
+    <img id="lightboxImg" alt="Фото">
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
