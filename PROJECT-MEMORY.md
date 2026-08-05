@@ -77,11 +77,19 @@
 ├── run-tests.cmd       ← двойной клик = запуск смоук-теста
 ├── README.md           ← «человеческая» инструкция
 ├── PROJECT-MEMORY.md   ← этот файл (памятка для новых чатов)
+├── .gitignore          ← git: музыка и системные файлы не коммитятся
 ├── tests/
 │   └── uni-smoke.js    ← смоук-тест (57 проверок, запуск node tests\uni-smoke.js app.js)
 └── music/
     └── nasha-pesnya.mp3 ← наша песня (положить вручную)
 ```
+
+**Git-репозиторий есть** (ветка `main`, первый коммит сделан). Песня `music/`
+в git не попадает (личная, кладётся вручную). Git установлен через winget:
+`C:\Program Files\Git\cmd\git.exe` (в текущей сессии может быть не в PATH —
+используй полный путь). Идентичность для коммитов локальная:
+`user.name=Georgy`, `user.email=georgy@local`. Команды:
+`git add -A && git commit -m "..."`, `git log --oneline`, `git status`.
 
 ## 3. Вкладки (views)
 
