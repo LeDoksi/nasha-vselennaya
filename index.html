@@ -181,6 +181,11 @@
         <div class="settings-btns">
           <button class="btn" id="settingsThemeBtn">🌙 Включить тёмную тему</button>
         </div>
+        <p class="cal-tip" style="margin-top:18px;margin-bottom:10px">Летающие сердечки, конфетти и плавные переходы можно выключить.</p>
+        <label class="motion-toggle">
+          <input type="checkbox" id="motionToggle">
+          <span>Отключить анимации</span>
+        </label>
       </div>
       <div class="settings-card">
         <h3>🌐 Синхронизация</h3>
@@ -349,20 +354,21 @@
   </section>
 
   <!-- Кастомный календарь (вместо системного у input[type=date]) -->
-  <div class="date-pop" id="datePop" hidden>
+  <div class="date-pop" id="datePop" role="dialog" aria-modal="false" aria-label="Выбор даты" hidden>
     <div class="dp-head">
-      <button type="button" class="dp-nav" data-dp-nav="-1" title="Предыдущий месяц">‹</button>
+      <button type="button" class="dp-nav" data-dp-nav="-1" aria-label="Предыдущий месяц" title="Предыдущий месяц">‹</button>
       <div class="dp-jump">
-        <select class="dp-select" id="dpMonth" title="Месяц"></select>
-        <select class="dp-select" id="dpYear" title="Год"></select>
+        <select class="dp-select" id="dpMonth" aria-label="Месяц" title="Месяц"></select>
+        <select class="dp-select" id="dpYear" aria-label="Год" title="Год"></select>
       </div>
-      <button type="button" class="dp-nav" data-dp-nav="1" title="Следующий месяц">›</button>
+      <button type="button" class="dp-nav" data-dp-nav="1" aria-label="Следующий месяц" title="Следующий месяц">›</button>
     </div>
-    <div class="dp-grid" id="dpDays"></div>
+    <div class="dp-grid" id="dpDays" role="grid" aria-label="Дни месяца"></div>
     <div class="dp-foot">
       <button type="button" class="dp-mini" data-dp-today>Сегодня</button>
       <button type="button" class="dp-mini clear" data-dp-clear>Очистить</button>
     </div>
+    <div class="dp-live" id="dpLive" role="status" aria-live="polite"></div>
   </div>
 
   <div id="appToast" class="app-toast" hidden role="status" aria-live="polite"></div>

@@ -87,7 +87,28 @@ function filteredPhotos() {
   }
   return list;
 }
+// Дебаунс: несколько вызовов renderPhotos() в одном кадре схлопываются в один
+// рендер (requestAnimationFrame). Без rAF (песочница тестов) — рендер синхронный.
+let photosRenderQueued = false;
 function renderPhotos() {
+  if (photosRenderQueued) return 'coalesced';
+  photosRenderQueued = true;
+  if (typeof requestAnimationFrame === 'function') {
+    let done = false;
+    const flush = () => {
+      if (done) return;
+      done = true;
+      photosRenderQueued = false;
+      renderPhotosNow();
+    };
+    requestAnimationFrame(flush);
+    if (typeof setTimeout === 'function') setTimeout(flush, 120); // вкладка в фоне: rAF спит
+  } else {
+    photosRenderQueued = false;
+    renderPhotosNow();
+  }
+}
+function renderPhotosNow() {
   const grid = $('#photosGrid');
   if (!grid) return;
   renderLabels();

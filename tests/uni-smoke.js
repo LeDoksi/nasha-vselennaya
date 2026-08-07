@@ -74,6 +74,11 @@ function __TEST__(s){
   Object.defineProperty(s, 'dpM', { get: () => dpM, set: v => { dpM = v; }, configurable: true });
   Object.defineProperty(s, 'dpY', { get: () => dpY, set: v => { dpY = v; }, configurable: true });
   s.renderDatePop = renderDatePop; s.pickDpDate = pickDpDate; s.dpIso = dpIso;
+  s.openDatePop = openDatePop; s.closeDatePop = closeDatePop;
+  Object.defineProperty(s, 'dpFocus', { get: () => dpFocus, set: v => { dpFocus = v; }, configurable: true });
+  s.datePopKeydown = datePopKeydown;
+  s.getMotion = getMotion; s.applyMotion = applyMotion; s.setMotion = setMotion; s.motionReduced = motionReduced;
+  Object.defineProperty(s, 'photosRenderQueued', { get: () => photosRenderQueued, set: v => { photosRenderQueued = v; }, configurable: true });
   s.selectedPhotos = selectedPhotos; s.renderLabels = renderLabels;
   s.deleteLabel = deleteLabel; s.deletePhoto = deletePhoto; s.applyLabelToSelected = applyLabelToSelected; s.openLabelOverlay = openLabelOverlay;
   s.applyLabelToPhotos = applyLabelToPhotos; s.removeLabelFromPhoto = removeLabelFromPhoto;
@@ -243,6 +248,46 @@ const fakeDp = w('(s)=>{s.dpInput={value:"",dispatchEvent(){}};return s.dpInput;
 w('(s)=>s.pickDpDate("2026-08-09")');
 assert(fakeDp.value === '2026-08-09', 'выбор даты пишет ISO в поле');
 assert(registry['#datePop'].hidden === true, 'после выбора попап закрывается');
+// --- date-picker: aria-паттерн «dialog + grid» и клавиатура ---
+w('(s)=>{s.dpM=7;s.dpY=2026;s.dpFocus="2026-08-09";s.renderDatePop();}');
+assert(registry['#dpDays'].innerHTML.includes('role="columnheader"'), 'шапка дней — columnheader');
+assert(registry['#dpDays'].innerHTML.includes('aria-label="9 августа 2026 года"'), 'кнопка дня несёт полное aria-label');
+assert(registry['#dpDays'].innerHTML.includes('aria-current="date"'), 'сегодня помечено aria-current');
+const dpTab0 = (registry['#dpDays'].innerHTML.match(/tabindex="0"/g) || []).length;
+assert(dpTab0 === 1, 'ровно одна ячейка с tabindex=0 (roving tabindex)');
+assert(registry['#dpDays'].innerHTML.includes('aria-hidden="true"'), 'пустые ячейки скрыты от скринридера');
+registry['#datePop'].hidden = false;
+w('(s)=>{s.datePopKeydown({key:"ArrowRight",preventDefault(){}});}');
+assert(w('(s)=>s.dpFocus') === '2026-08-10', 'ArrowRight: фокус на день вперёд');
+w('(s)=>{s.datePopKeydown({key:"ArrowDown",preventDefault(){}});}');
+assert(w('(s)=>s.dpFocus') === '2026-08-17', 'ArrowDown: фокус на неделю вперёд');
+w('(s)=>{s.datePopKeydown({key:"ArrowLeft",preventDefault(){}});}');
+assert(w('(s)=>s.dpFocus') === '2026-08-16', 'ArrowLeft: фокус на день назад');
+w('(s)=>{s.datePopKeydown({key:"Home",preventDefault(){}});}');
+assert(w('(s)=>s.dpFocus') === '2026-08-01', 'Home: первый день месяца');
+w('(s)=>{s.datePopKeydown({key:"End",preventDefault(){}});}');
+assert(w('(s)=>s.dpFocus') === '2026-08-31', 'End: последний день месяца');
+w('(s)=>{s.datePopKeydown({key:"PageDown",preventDefault(){}});}');
+assert(w('(s)=>s.dpM') === 8 && w('(s)=>s.dpFocus') === '2026-09-30', 'PageDown: следующий месяц, день зажат в границы');
+w('(s)=>{s.datePopKeydown({key:"PageUp",preventDefault(){}});}');
+assert(w('(s)=>s.dpM') === 7 && w('(s)=>s.dpFocus') === '2026-08-30', 'PageUp: возврат в август');
+w('(s)=>{s.dpFocus="2026-08-01";s.datePopKeydown({key:"ArrowLeft",preventDefault(){}});}');
+assert(w('(s)=>s.dpFocus') === '2026-08-01', 'ArrowLeft не уводит за границу месяца');
+w('(s)=>{s.dpFocus="2026-08-31";s.datePopKeydown({key:"ArrowRight",preventDefault(){}});}');
+assert(w('(s)=>s.dpFocus') === '2026-08-31', 'ArrowRight не уводит за границу месяца');
+// Enter выбирает сфокусированный день и возвращает фокус в поле
+const fakeDp2 = w('(s)=>{s.dpInput={value:"",dispatchEvent(){},focus(){}};return s.dpInput;}');
+w('(s)=>{s.dpFocus="2026-08-15";s.datePopKeydown({key:"Enter",preventDefault(){}});}');
+assert(fakeDp2.value === '2026-08-15', 'Enter выбирает сфокусированный день');
+assert(registry['#datePop'].hidden === true, 'после Enter попап закрывается');
+registry['#datePop'].hidden = false;
+w('(s)=>{s.datePopKeydown({key:"Escape",preventDefault(){}});}');
+assert(registry['#datePop'].hidden === true, 'Esc закрывает попап');
+// Открытие: roving tabindex сразу на выбранной дате
+w('(s)=>{const el={value:"2026-08-09",focus(){}};s.openDatePop(el);}');
+assert(registry['#datePop'].hidden === false, 'openDatePop открывает попап');
+assert(registry['#dpDays'].innerHTML.includes('data-dp-date="2026-08-09" tabindex="0"'), 'при открытии tabindex=0 на выбранной дате');
+w('(s)=>s.closeDatePop()');
 w('(s)=>s.jumpCalendar(0,2026)');
 assert(registry['#calMonthSelect'].value === '0' && registry['#calYearSelect'].value === '2026', 'jumpCalendar умеет возвращаться (селекты)');
 
@@ -431,6 +476,13 @@ assert(!registry['#labelBar'].innerHTML.includes('Семья'), 'лейбл уд
 assert(!registry['#photosGrid'].innerHTML.includes('Семья'), 'лейбл снят с фото, фото на месте');
 w('(s)=>{s.selectedPhotos.clear();s.renderPhotos();}');
 
+// --- Фото: дебаунс рендера (без requestAnimationFrame — синхронно) ---
+w('(s)=>{s.photosRenderQueued=false;s.renderPhotos();}');
+assert(registry['#photosGrid'].innerHTML.length > 0, 'renderPhotos без rAF рендерит синхронно');
+assert(w('(s)=>{s.photosRenderQueued=true;return s.renderPhotos();}') === 'coalesced', 'повторный вызов в одном кадре схлопывается');
+assert(w('(s)=>s.photosRenderQueued') === true, 'флаг очереди держится до фактического рендера');
+w('(s)=>{s.photosRenderQueued=false;s.renderPhotos();}');
+
 // --- Фото: drag&drop лейблов (логика) + крестик ✕ на бейдже фото ---
 w('(s)=>{s.db.photos.push({id:"p4",data:"data:image/jpeg;base64,AA==",title:"п4",labels:[],pinned:false,ts:4,order:4});}');
 w('(s)=>{s.applyLabelToPhotos("Драго",["p4","p2"]);}');
@@ -455,6 +507,20 @@ assert(/КБ|МБ/.test(registry['#storageInfo'].textContent), 'место в б
 assert(registry['#lkUser'].textContent === '👦 Гоша', 'в ЛК видно текущего пользователя');
 assert(registry['#lkPassInfo'].innerHTML.includes('пароль есть') && registry['#lkPassInfo'].innerHTML.includes('пароля нет'), 'ЛК показывает статус паролей');
 assert(registry['#addPassBtn'].style.display === '', 'кнопка «пароль для партнёра» видна');
+
+// --- Настройки: переключатель «Отключить анимации» ---
+w('(s)=>{s.localStorage.removeItem("universe_motion");s.applyMotion(null);}');
+assert(w('(s)=>s.getMotion()') === null, 'анимации: явный выбор не сделан — по умолчанию уважаем систему');
+assert(w('(s)=>s.motionReduced()') === false, 'в песочнице системного reduced-motion нет');
+w('(s)=>s.setMotion("reduced")');
+assert(w('(s)=>s.getMotion()') === 'reduced', 'переключатель запоминает выбор');
+assert(w('(s)=>{const d=s.document.documentElement;return d.dataset.motion;}') === 'reduced', 'на <html> выставлен data-motion=reduced');
+assert(w('(s)=>s.motionReduced()') === true, 'motionReduced видит отключённые анимации');
+assert(registry['#motionToggle'].checked === true, 'чекбокс отмечен при выключенных анимациях');
+w('(s)=>s.setMotion("full")');
+assert(w('(s)=>s.getMotion()') === 'full', 'выбор «оставить анимации» сохраняется');
+assert(w('(s)=>s.motionReduced()') === false, 'явное «full» перекрывает системную настройку');
+assert(registry['#motionToggle'].checked === false, 'чекбокс снят при включённых анимациях');
 
 // --- Пароль для Даши ---
 assert(await w('(s)=>s.savePassFor("dasha","654321")') === true, 'пароль Даши добавлен');

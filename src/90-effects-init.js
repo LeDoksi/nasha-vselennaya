@@ -1,5 +1,6 @@
 /* ===== Летающие сердечки ===== */
 function spawnHeart() {
+  if (motionReduced()) return; // анимации отключены — сердечки не запускаем
   const h = document.createElement('span');
   h.className = 'heart';
   h.textContent = ['💜', '💖', '💕', '🌸', '✨'][Math.floor(Math.random() * 5)];
@@ -17,6 +18,7 @@ $('#settingsThemeBtn').addEventListener('click', toggleTheme);
 function initAuth() {
   renderUserChip();
   setTheme(getTheme());
+  applyMotion(getMotion());
   lastActivity = Date.now();
   startAutoLock();
   document.body.classList.add('auth');

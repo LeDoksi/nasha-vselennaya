@@ -381,6 +381,8 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 [data-theme="dark"] .dp-day:hover{background:#4c3d6a}
 [data-theme="dark"] .dp-day.today{border-color:#ec4899}
 [data-theme="dark"] .dp-foot{border-color:#4c3d6a}
+/* Озвучка даты для скринридера: визуально скрыто, но читается (role=status) */
+.dp-live{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);border:0;white-space:nowrap}
 .modal-center{text-align:center;align-items:center}
 .user-sub{color:var(--muted);font-size:15px}
 .user-btns{display:flex;gap:14px;margin-top:6px;justify-content:center}
@@ -605,6 +607,32 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .app-toast[hidden]{display:none}
 .app-toast.toast-error{background:#fef2f2;border-color:#fecaca;color:#b91c1c}
 [data-theme="dark"] .app-toast.toast-error{background:#3f1d1d;border-color:#7f1d1d;color:#fecaca}
+
+/* ===== Настройки: переключатель «Отключить анимации» ===== */
+.motion-toggle{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:15px;font-weight:700;color:var(--ink);padding:10px 16px;border:1px solid var(--border);border-radius:14px;background:#fff;transition:.2s}
+.motion-toggle:hover{border-color:var(--violet2);background:#fbf5ff}
+.motion-toggle input{width:18px;height:18px;accent-color:var(--pink);cursor:pointer}
+[data-theme="dark"] .motion-toggle{background:var(--card);color:var(--ink)}
+
+/* ===== Уменьшенное движение =====
+   Переключатель в настройках ставит data-motion на <html>:
+   "reduced" — анимаций нет всегда, "full" — анимации всегда (перекрывает систему).
+   Без атрибута уважаем системный prefers-reduced-motion. */
+[data-motion="reduced"] *,
+[data-motion="reduced"] *::before,
+[data-motion="reduced"] *::after{
+  animation:none !important;transition:none !important
+}
+[data-motion="reduced"] .heart,[data-motion="reduced"] .confetti{display:none}
+@media (prefers-reduced-motion: reduce){
+  html:not([data-motion="full"]) *,
+  html:not([data-motion="full"]) *::before,
+  html:not([data-motion="full"]) *::after{
+    animation:none !important;transition:none !important
+  }
+  html:not([data-motion="full"]) .heart,
+  html:not([data-motion="full"]) .confetti{display:none}
+}
 
 
 

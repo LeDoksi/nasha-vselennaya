@@ -481,6 +481,7 @@ setInterval(() => { if (!isHidden()) tickCountdown(); }, 1000);
 
 /* ===== Конфетти ===== */
 function celebrate() {
+  if (motionReduced()) return; // конфетти — декоративное движение, при reduced-motion пропускаем
   const emojis = ['💜', '💖', '✨', '🎉', '🌸', '💞'];
   for (let i = 0; i < 36; i++) {
     const c = document.createElement('span');
@@ -667,6 +668,8 @@ let calY = new Date().getFullYear(), calM = new Date().getMonth(), selectedDate 
 let editingEventId = null;
 const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 const MONTHS_SHORT = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+// Родительный падеж для дат: «9 августа 2026 года»
+const MONTHS_GEN = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 function fmtShort(s) { if (!s) return ''; const [y, m, d] = s.split('-').map(Number); return `${d} ${MONTHS_SHORT[m - 1]}`; }
 
 function iso(y, m, d) { return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; }
@@ -892,6 +895,74 @@ let dpM = new Date().getMonth();      // показываемый месяц
 let dpY = new Date().getFullYear();   // показываемый год
 const dpPad = n => String(n).padStart(2, '0');
 function dpIso(y, m, d) { return y + '-' + dpPad(m + 1) + '-' + dpPad(d); }
+let dpFocus = null; // сфокусированный день (клавиатура, roving tabindex)
+
+// Фокус и клавиатурная навигация: паттерн «date picker dialog + grid» из APG.
+// setDpFocus озвучивает дату скринридеру через #dpLive (role=status, aria-live=polite).
+function setDpFocus(iso) {
+  dpFocus = iso;
+  const live = $('#dpLive');
+  const [yy, mm, dd] = String(iso || '').split('-').map(Number);
+  if (live && yy && mm && dd) live.textContent = `${dd} ${MONTHS_GEN[mm - 1]} ${yy} года`;
+}
+// После смены месяца/года день не должен «пропадать»: зажимаем его в границы месяца
+function clampDpFocus() {
+  const [yy, mm, dd] = String(dpFocus || '').split('-').map(Number);
+  const dim = new Date(dpY, dpM + 1, 0).getDate();
+  setDpFocus(dpIso(dpY, dpM, yy ? Math.min(dd, dim) : Math.min(new Date().getDate(), dim)));
+}
+function focusDpDay(iso) {
+  const btn = document.querySelector(`.dp-day[data-dp-date="${iso}"]`);
+  if (btn && btn.focus) btn.focus();
+}
+function datePopKeydown(e) {
+  if (!e || !e.key) return;
+  const pop = $('#datePop');
+  if (!pop || pop.hidden) return;
+  if (e.key === 'Escape') {
+    const el = dpInput;
+    closeDatePop();
+    if (el && el.focus) el.focus();
+    if (e.preventDefault) e.preventDefault();
+    return;
+  }
+  if (e.key === 'Enter' || e.key === ' ') {
+    if (dpFocus) pickDpDate(dpFocus);
+    if (e.preventDefault) e.preventDefault();
+    return;
+  }
+  if (!dpFocus) return;
+  const [yy, mm, dd] = dpFocus.split('-').map(Number);
+  const dim = () => new Date(dpY, dpM + 1, 0).getDate();
+  const stay = nd => { setDpFocus(dpIso(dpY, dpM, nd)); renderDatePop(); focusDpDay(dpFocus); };
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    if (e.preventDefault) e.preventDefault();
+    const base = new Date(yy, mm - 1, dd + (e.key === 'ArrowLeft' ? -1 : 1));
+    stay(base.getMonth() === mm - 1 ? base.getDate() : (e.key === 'ArrowLeft' ? 1 : dim()));
+  } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    if (e.preventDefault) e.preventDefault();
+    const base = new Date(yy, mm - 1, dd + (e.key === 'ArrowUp' ? -7 : 7));
+    stay(base.getMonth() === mm - 1 ? base.getDate() : (e.key === 'ArrowUp' ? 1 : dim()));
+  } else if (e.key === 'Home' || e.key === 'End') {
+    if (e.preventDefault) e.preventDefault();
+    stay(e.key === 'Home' ? 1 : dim());
+  } else if (e.key === 'PageUp' || e.key === 'PageDown') {
+    if (e.preventDefault) e.preventDefault();
+    let y = dpY, m = dpM;
+    if (e.shiftKey) {
+      y += e.key === 'PageUp' ? -1 : 1;
+    } else {
+      m += e.key === 'PageUp' ? -1 : 1;
+      if (m < 0) { m = 11; y--; }
+      if (m > 11) { m = 0; y++; }
+    }
+    dpY = y; dpM = m;
+    clampDpFocus();
+    renderDatePop(); focusDpDay(dpFocus);
+  }
+}
+// Обработчик висит на сетке дней: стрелки не перехватываются, когда фокус на селектах/кнопках
+$('#dpDays').addEventListener('keydown', datePopKeydown);
 
 function renderDatePop() {
   const pop = $('#datePop');
@@ -910,27 +981,30 @@ function renderDatePop() {
   const firstDow = (new Date(dpY, dpM, 1).getDay() + 6) % 7; // понедельник = 0
   const dim = new Date(dpY, dpM + 1, 0).getDate();
   const now = new Date();
-  let cells = '<div class="dp-dow">Пн</div><div class="dp-dow">Вт</div><div class="dp-dow">Ср</div>' +
-    '<div class="dp-dow">Чт</div><div class="dp-dow">Пт</div><div class="dp-dow">Сб</div><div class="dp-dow">Вс</div>';
-  for (let i = 0; i < firstDow; i++) cells += '<button type="button" class="dp-day empty" tabindex="-1"></button>';
+  let cells = '<div class="dp-dow" role="columnheader">Пн</div><div class="dp-dow" role="columnheader">Вт</div><div class="dp-dow" role="columnheader">Ср</div>' +
+    '<div class="dp-dow" role="columnheader">Чт</div><div class="dp-dow" role="columnheader">Пт</div><div class="dp-dow" role="columnheader">Сб</div><div class="dp-dow" role="columnheader">Вс</div>';
+  for (let i = 0; i < firstDow; i++) cells += '<button type="button" class="dp-day empty" tabindex="-1" aria-hidden="true"></button>';
   for (let d = 1; d <= dim; d++) {
     const iso = dpIso(dpY, dpM, d);
     const isToday = now.getFullYear() === dpY && now.getMonth() === dpM && now.getDate() === d;
     const picked = dpInput && dpInput.value === iso;
-    cells += `<button type="button" class="dp-day${isToday ? ' today' : ''}${picked ? ' picked' : ''}" data-dp-date="${iso}">${d}</button>`;
+    cells += `<button type="button" class="dp-day${isToday ? ' today' : ''}${picked ? ' picked' : ''}" data-dp-date="${iso}" ` +
+      `tabindex="${iso === dpFocus ? '0' : '-1'}" aria-label="${d} ${MONTHS_GEN[dpM]} ${dpY} года"${isToday ? ' aria-current="date"' : ''}>${d}</button>`;
   }
   const grid = $('#dpDays');
   if (grid) grid.innerHTML = cells;
 }
 function pickDpDate(iso) {
-  if (dpInput) {
-    dpInput.value = iso;
+  const el = dpInput;
+  if (el) {
+    el.value = iso;
     try {
-      dpInput.dispatchEvent(new Event('input', { bubbles: true }));
-      dpInput.dispatchEvent(new Event('change', { bubbles: true }));
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
     } catch (err) { /* песочница тестов: Event не определён */ }
   }
   closeDatePop();
+  if (el && el.focus) el.focus();
 }
 function closeDatePop() {
   const pop = $('#datePop');
@@ -944,14 +1018,24 @@ function openDatePop(el) {
   const now = new Date();
   dpY = (d && !isNaN(d)) ? d.getFullYear() : now.getFullYear();
   dpM = (d && !isNaN(d)) ? d.getMonth() : now.getMonth();
+  // Клавиатура: roving tabindex — фокус на выбранной дате или на «сегодня»
+  const picked = (dpInput && /^\d{4}-\d{2}-\d{2}$/.test(dpInput.value)) ? dpInput.value : null;
+  setDpFocus(picked || dpIso(dpY, dpM, Math.min(now.getDate(), new Date(dpY, dpM + 1, 0).getDate())));
   renderDatePop();
   const pop = $('#datePop');
   if (!pop) return;
+  // Не-модальный диалог выбора даты: роль и подпись для скринридера
+  try {
+    pop.setAttribute('role', 'dialog');
+    pop.setAttribute('aria-modal', 'false');
+    pop.setAttribute('aria-label', 'Выбор даты');
+  } catch (err) {}
   pop.hidden = false;
+  focusDpDay(dpFocus);
   // ставим попап под полем, не вылезая за край экрана
   const r = el.getBoundingClientRect && el.getBoundingClientRect();
-  const vw = (window.innerWidth || document.documentElement.clientWidth || 320);
-  const vh = (window.innerHeight || document.documentElement.clientHeight || 480);
+  const vw = (typeof window !== 'undefined' && window.innerWidth) || document.documentElement.clientWidth || 320;
+  const vh = (typeof window !== 'undefined' && window.innerHeight) || document.documentElement.clientHeight || 480;
   if (r) {
     const pw = 272, ph = 330;
     let left = r.left;
@@ -969,7 +1053,10 @@ $('#datePop').addEventListener('click', e => {
     dpM += +nav.dataset.dpNav;
     if (dpM < 0) { dpM = 11; dpY--; }
     if (dpM > 11) { dpM = 0; dpY++; }
-    renderDatePop(); return;
+    clampDpFocus();
+    renderDatePop();
+    focusDpDay(dpFocus);
+    return;
   }
   if (e.target.closest('[data-dp-today]')) {
     const n = new Date();
@@ -979,8 +1066,8 @@ $('#datePop').addEventListener('click', e => {
   const day = e.target.closest('[data-dp-date]');
   if (day) pickDpDate(day.dataset.dpDate);
 });
-$('#dpMonth').addEventListener('change', e => { dpM = +e.target.value; renderDatePop(); });
-$('#dpYear').addEventListener('change', e => { dpY = +e.target.value; renderDatePop(); });
+$('#dpMonth').addEventListener('change', e => { dpM = +e.target.value; clampDpFocus(); renderDatePop(); });
+$('#dpYear').addEventListener('change', e => { dpY = +e.target.value; clampDpFocus(); renderDatePop(); });
 // Закрытие: клик мимо или Esc
 document.addEventListener('pointerdown', e => {
   const pop = $('#datePop');
@@ -1506,7 +1593,28 @@ function filteredPhotos() {
   }
   return list;
 }
+// Дебаунс: несколько вызовов renderPhotos() в одном кадре схлопываются в один
+// рендер (requestAnimationFrame). Без rAF (песочница тестов) — рендер синхронный.
+let photosRenderQueued = false;
 function renderPhotos() {
+  if (photosRenderQueued) return 'coalesced';
+  photosRenderQueued = true;
+  if (typeof requestAnimationFrame === 'function') {
+    let done = false;
+    const flush = () => {
+      if (done) return;
+      done = true;
+      photosRenderQueued = false;
+      renderPhotosNow();
+    };
+    requestAnimationFrame(flush);
+    if (typeof setTimeout === 'function') setTimeout(flush, 120); // вкладка в фоне: rAF спит
+  } else {
+    photosRenderQueued = false;
+    renderPhotosNow();
+  }
+}
+function renderPhotosNow() {
   const grid = $('#photosGrid');
   if (!grid) return;
   renderLabels();
@@ -1883,8 +1991,47 @@ $('#changePassBtn').addEventListener('click', () => openPassModal('change'));
 $('#addPassBtn').addEventListener('click', () => openPassModal('set'));
 $('#lockNowBtn').addEventListener('click', lock);
 
+/* ===== Настройки: уменьшенное движение =====
+   data-motion на <html>: 'reduced' — анимации всегда выключены, 'full' — всегда
+   включены (перекрывает систему). Без атрибута — уважаем prefers-reduced-motion. */
+const MOTION_KEY = 'universe_motion';
+function getMotion() {
+  const v = store.get(MOTION_KEY);
+  return (v === 'reduced' || v === 'full') ? v : null;
+}
+function applyMotion(m) {
+  const doc = document.documentElement;
+  if (!doc || !doc.dataset) return;
+  if (m === 'reduced' || m === 'full') doc.dataset.motion = m;
+  else {
+    try { doc.removeAttribute('data-motion'); } catch (e) {}
+    try { delete doc.dataset.motion; } catch (e) {}
+  }
+  const t = $('#motionToggle');
+  if (t) t.checked = (m === 'reduced');
+}
+function setMotion(m) {
+  const v = m === 'reduced' ? 'reduced' : 'full';
+  store.set(MOTION_KEY, v);
+  applyMotion(v);
+}
+function motionReduced() {
+  const doc = document.documentElement;
+  if (doc && doc.dataset) {
+    if (doc.dataset.motion === 'reduced') return true;
+    if (doc.dataset.motion === 'full') return false;
+  }
+  try {
+    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
+  } catch (e) {}
+  return false;
+}
+const mt = $('#motionToggle');
+if (mt) mt.addEventListener('change', e => setMotion(e.target.checked ? 'reduced' : 'full'));
+
 /* ===== Летающие сердечки ===== */
 function spawnHeart() {
+  if (motionReduced()) return; // анимации отключены — сердечки не запускаем
   const h = document.createElement('span');
   h.className = 'heart';
   h.textContent = ['💜', '💖', '💕', '🌸', '✨'][Math.floor(Math.random() * 5)];
@@ -1902,6 +2049,7 @@ $('#settingsThemeBtn').addEventListener('click', toggleTheme);
 function initAuth() {
   renderUserChip();
   setTheme(getTheme());
+  applyMotion(getMotion());
   lastActivity = Date.now();
   startAutoLock();
   document.body.classList.add('auth');

@@ -128,3 +128,41 @@ $('#changePassBtn').addEventListener('click', () => openPassModal('change'));
 $('#addPassBtn').addEventListener('click', () => openPassModal('set'));
 $('#lockNowBtn').addEventListener('click', lock);
 
+/* ===== Настройки: уменьшенное движение =====
+   data-motion на <html>: 'reduced' — анимации всегда выключены, 'full' — всегда
+   включены (перекрывает систему). Без атрибута — уважаем prefers-reduced-motion. */
+const MOTION_KEY = 'universe_motion';
+function getMotion() {
+  const v = store.get(MOTION_KEY);
+  return (v === 'reduced' || v === 'full') ? v : null;
+}
+function applyMotion(m) {
+  const doc = document.documentElement;
+  if (!doc || !doc.dataset) return;
+  if (m === 'reduced' || m === 'full') doc.dataset.motion = m;
+  else {
+    try { doc.removeAttribute('data-motion'); } catch (e) {}
+    try { delete doc.dataset.motion; } catch (e) {}
+  }
+  const t = $('#motionToggle');
+  if (t) t.checked = (m === 'reduced');
+}
+function setMotion(m) {
+  const v = m === 'reduced' ? 'reduced' : 'full';
+  store.set(MOTION_KEY, v);
+  applyMotion(v);
+}
+function motionReduced() {
+  const doc = document.documentElement;
+  if (doc && doc.dataset) {
+    if (doc.dataset.motion === 'reduced') return true;
+    if (doc.dataset.motion === 'full') return false;
+  }
+  try {
+    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
+  } catch (e) {}
+  return false;
+}
+const mt = $('#motionToggle');
+if (mt) mt.addEventListener('change', e => setMotion(e.target.checked ? 'reduced' : 'full'));
+
