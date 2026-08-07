@@ -5,12 +5,14 @@
   --bg2:#efe3ff;
   --card:#ffffff;
   --ink:#4c1d95;
-  --muted:#8b6bb8;
+  --muted:#7a58a6;
   --violet:#8b5cf6;
   --violet2:#a78bfa;
   --pink:#ec4899;
   --pink2:#f9a8d4;
-  --grad:linear-gradient(135deg,#a78bfa,#ec4899);
+  --pink-ink:#be185d;
+  --violet-ink:#7c3aed;
+  --grad:linear-gradient(135deg,#7c3aed,#d6336c);
   --shadow:0 14px 40px rgba(139,92,246,.16);
   --radius:22px;
   --border:#e9d9ff;
@@ -26,6 +28,8 @@
   --violet2:#8b5cf6;
   --pink:#f472b6;
   --pink2:#ec4899;
+  --pink-ink:#f9a8d4;
+  --violet-ink:#a78bfa;
   --border:#4c3d6a;
   --heart-opacity:.35;
 }
@@ -77,9 +81,9 @@ main{max-width:1100px;margin:0 auto;padding:28px 20px 90px}
   box-shadow:0 8px 20px rgba(236,72,153,.25);
 }
 .btn:hover{transform:translateY(-2px)}
-.btn-danger{background:linear-gradient(135deg,#f87171,#ec4899)}
+.btn-danger{background:linear-gradient(135deg,#dc2626,#be185d)}
 .file-btn{position:relative;overflow:hidden;cursor:pointer}
-input[type=text],input[type=date],textarea,select{
+input[type=text],input[type=date],input[type=time],input[type=password],textarea,select{
   background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px 14px;
   font:inherit;color:var(--ink);outline:none;transition:border-color .2s;
 }
@@ -136,7 +140,7 @@ h3{font-weight:800}
 /* ===== Свидания ===== */
 .date-bar{display:flex;justify-content:center;margin-top:22px}
 .btn-date{
-  font-size:16px;padding:13px 26px;background:linear-gradient(135deg,#ec4899,#a78bfa);
+  font-size:16px;padding:13px 26px;background:linear-gradient(135deg,#d6336c,#7c3aed);
   box-shadow:0 10px 26px rgba(236,72,153,.35);animation:pulseBtn 2.4s ease-in-out infinite;
 }
 @keyframes pulseBtn{0%,100%{box-shadow:0 10px 26px rgba(236,72,153,.35)}50%{box-shadow:0 10px 34px rgba(236,72,153,.6)}}
@@ -153,15 +157,15 @@ h3{font-weight:800}
 .date-btns{display:flex;gap:8px;flex:none}
 .date-side{display:flex;flex-direction:column;gap:6px;flex:none;align-items:flex-end}
 .resp-row{display:flex;gap:10px;font-size:13px;color:var(--muted);font-weight:700}
-.resp-me{color:var(--pink);font-weight:800}
+.resp-me{color:var(--pink-ink);font-weight:800}
 .resp-btns{display:flex;gap:8px}
 .resp-btn{border:1px solid var(--border);background:#fff;border-radius:999px;padding:6px 14px;font-size:13px;font-weight:800;cursor:pointer;transition:.2s;color:var(--ink)}
 .resp-btn:hover{transform:translateY(-2px);border-color:var(--violet2)}
 .resp-btn.on{background:var(--grad);color:#fff;border-color:transparent}
-.resp-btn.no.on{background:linear-gradient(135deg,#f87171,#fca5a5);border-color:transparent}
-.date-from{font-weight:700;color:var(--violet)}
+.resp-btn.no.on{background:linear-gradient(135deg,#dc2626,#be123c);border-color:transparent}
+.date-from{font-weight:700;color:var(--violet-ink)}
 .tag{display:inline-block;background:var(--grad);color:#fff;font-size:12px;font-weight:800;padding:3px 10px;border-radius:999px;margin-left:8px;white-space:nowrap}
-.tag-today{background:linear-gradient(135deg,#ec4899,#f9a8d4)}
+.tag-today{background:linear-gradient(135deg,#be185d,#d6336c)}
 
 /* ===== Модалка «свидание» ===== */
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -173,7 +177,7 @@ h3{font-weight:800}
 .cal-head h3{font-size:22px;font-weight:800;flex:1;text-align:center}
 .cal-nav{
   width:40px;height:40px;border-radius:12px;border:1px solid var(--border);
-  background:#fff;font-size:20px;cursor:pointer;color:var(--violet);transition:.2s;
+  background:#fff;font-size:20px;cursor:pointer;color:var(--violet-ink);transition:.2s;
 }
 .cal-nav:hover{background:#fbf5ff;transform:translateY(-2px)}
 .calendar{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)}
@@ -193,7 +197,7 @@ h3{font-weight:800}
 .cal-dot{font-size:11px;line-height:1.1}
 .cal-cell.has-date{border-color:var(--pink2)}
 .date-dot{background:#fff0f7;border-radius:99px;padding:1px 4px;line-height:1.4}
-.day-sub{font-size:12px;font-weight:800;color:var(--pink);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px}
+.day-sub{font-size:12px;font-weight:800;color:var(--pink-ink);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px}
 .date-evt{background:#fff0f7;border:1px dashed var(--pink2)}
 .day-panel{margin-top:16px;background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:0 8px 24px rgba(139,92,246,.08)}
 .day-head{font-size:17px;margin-bottom:12px}
@@ -325,7 +329,7 @@ h3{font-weight:800}
 /* ===== Комплимент дня ===== */
 .compliment-card{background:linear-gradient(160deg,#fff5fb,#f3e8ff);border:1px solid var(--border);border-radius:20px;padding:20px 24px;margin-top:24px;text-align:center;box-shadow:0 8px 24px rgba(236,72,153,.12)}
 .compliment-card h4{font-size:14px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
-.compliment-text{font-size:18px;font-weight:700;color:var(--pink);font-style:italic}
+.compliment-text{font-size:18px;font-weight:700;color:var(--pink-ink);font-style:italic}
 
 /* ===== Вишлист ===== */
 .wishlist-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:18px}
@@ -336,7 +340,7 @@ h3{font-weight:800}
 .wish-img{width:100%;aspect-ratio:16/9;object-fit:cover;background:linear-gradient(135deg,#f3e8ff,#fce7f3)}
 .wish-body{padding:14px}
 .wish-title{font-weight:800;font-size:15px;margin-bottom:6px}
-.wish-link{display:inline-flex;align-items:center;gap:4px;color:var(--violet);font-size:13px;font-weight:700;text-decoration:none;margin-top:8px}
+.wish-link{display:inline-flex;align-items:center;gap:4px;color:var(--violet-ink);font-size:13px;font-weight:700;text-decoration:none;margin-top:8px}
 .wish-link:hover{text-decoration:underline}
 .wish-btns{display:flex;gap:8px;margin-top:10px}
 
@@ -358,7 +362,7 @@ h3{font-weight:800}
 
 /* ===== Дополнительно: таймер, бейджи, хотелки, фото ===== */
 .countdown-time{font-size:26px;font-weight:900;color:var(--ink);margin-top:6px;letter-spacing:.5px}
-.both-yes{color:#db2777;font-weight:800;font-size:14px;margin-top:6px}
+.both-yes{color:var(--pink-ink);font-weight:800;font-size:14px;margin-top:6px}
 .sel-photo{
   position:absolute;top:8px;left:8px;width:30px;height:30px;border-radius:50%;border:none;cursor:pointer;
   font-size:14px;background:rgba(255,255,255,.92);box-shadow:0 2px 8px rgba(0,0,0,.18);transition:.2s;
@@ -439,5 +443,33 @@ h3{font-weight:800}
 [data-theme="dark"] .sel-photo{background:#2a1f3a;color:#e9dcff;border:1px solid #4c3d6a}
 [data-theme="dark"] .mini-x,[data-theme="dark"] .cal-nav,[data-theme="dark"] .modal-x{background:#3d2a50;border-color:#4c3d6a;color:#e9dcff}
 [data-theme="dark"] .check{background:var(--card);border-color:#4c3d6a;color:var(--ink)}
+
+/* ===== Личный кабинет: замок и создание пароля ===== */
+body.auth .header, body.auth main{display:none} /* пока замок закрыт — приложения нет */
+.auth-screen{
+  position:fixed;inset:0;z-index:300;display:grid;place-items:center;
+  padding:20px;background:linear-gradient(160deg,var(--bg1),var(--bg2));
+}
+.auth-screen[hidden]{display:none}
+body:not(.auth) .auth-screen{display:none}
+.auth-card{
+  width:min(400px,100%);background:var(--card);border:1px solid var(--border);
+  border-radius:28px;padding:34px 30px;box-shadow:var(--shadow);text-align:center;
+  display:flex;flex-direction:column;gap:12px;animation:pop .4s ease;
+}
+.auth-logo{font-size:44px;line-height:1}
+.auth-card h1{font-size:24px;font-weight:900;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.auth-sub{color:var(--muted);font-size:14px;margin:-4px 0 6px;line-height:1.5}
+.auth-who{display:flex;gap:14px;justify-content:center;margin:6px 0}
+.auth-user{width:auto;flex:1;padding:16px 8px;border-radius:18px}
+.auth-user.auth-on{border-color:var(--violet2);box-shadow:0 8px 22px rgba(236,72,153,.3);transform:translateY(-3px)}
+.auth-label{font-weight:800;font-size:13px;color:var(--muted);text-align:left;margin-top:4px}
+.auth-card input[type=password],.auth-card select{width:100%;text-align:center;font-size:16px;letter-spacing:2px}
+.auth-card select{letter-spacing:normal;text-align:left}
+.auth-err{color:#dc2626;font-weight:700;font-size:13px;min-height:18px}
+.auth-hint{color:var(--muted);font-size:12px;line-height:1.5}
+[data-theme="dark"] .auth-err{color:#fca5a5}
+[data-theme="dark"] .auth-user{background:linear-gradient(160deg,#3d2a50,#2a1f3a);color:var(--ink)}
+[data-theme="dark"] .auth-card{background:var(--card)}
 
 

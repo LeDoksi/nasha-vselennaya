@@ -17,7 +17,7 @@
 ├── README.md
 ├── PROJECT-MEMORY.md  ← памятка для разработки: схема данных, механики, тесты
 ├── tests/
-│   └── uni-smoke.js   ← смоук-тест (57 проверок)
+│   └── uni-smoke.js   ← смоук-тест (60 проверок)
 └── music/          ← сюда положить нашу песню
     └── nasha-pesnya.mp3  (mp3-файл «Ошибся номером» — ТКС)
 ```
@@ -56,7 +56,7 @@
 node tests\uni-smoke.js app.js
 ```
 
-Ожидаемо: `OK: 57 checks passed`.
+Ожидаемо: `OK: 60 checks passed`.
 
 ## 🎵 Наша песня
 

@@ -11,9 +11,50 @@ const esc = s => String(s).replace(/[&<>"']/g, c => (
   {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
 ));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const isHidden = () => !!(document.hidden || document.visibilityState === 'hidden');
 
-/* ===== Хранилище ===== */
-const DB_VERSION = 3; // версия схемы данных — для миграций
+/* ===== Крипто-ядро (WebCrypto) =====
+   Все данные зашифрованы мастер-ключом K (AES-GCM-256).
+   K живёт только в памяти браузера.
+   Для каждого пароля K «обёрнут» ключом, полученным из пароля через
+   PBKDF2-SHA256 (~150k итераций). В localStorage лежит только
+   зашифрованный «сейф» — прочитать его без пароля нельзя. */
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+const VAULT_KEY = 'universe_vault';      // зашифрованный сейф
+const PBKDF2_ITERS = 150000;             // стойкость обёртки паролем
+const AUTO_LOCK_MS = 30 * 60 * 1000;     // автозамок после 30 минут без действий
+
+function b64(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function unb64(s) {
+  const bin = atob(s);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+function randBytes(n) { const a = new Uint8Array(n); crypto.getRandomValues(a); return a; }
+
+async function pbkdf2Key(pass, salt, iters) {
+  const base = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iters }, base,
+    { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function aesEnc(key, bytes) {
+  const iv = randBytes(12);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes));
+  return { i: b64(iv), d: b64(ct) };
+}
+async function aesDec(key, blob) {
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(blob.i) }, key, unb64(blob.d)));
+}
+
+/* ===== Схема данных и миграции ===== */
+const DB_VERSION = 3;
 function defaultDB() {
   return {
     version: DB_VERSION,
@@ -39,7 +80,23 @@ function migrateDB(d) {
   d.version = DB_VERSION;
   return d;
 }
-function loadDB() {
+
+/* ===== Состояние сессии — только в памяти, в localStorage не пишется ===== */
+let masterKey = null;      // мастер-ключ K — никуда не записывается
+let currentUser = null;    // кто вошёл (gosha/dasha)
+let db = defaultDB();
+let authLocked = true;     // пока замок закрыт — приложение невидимо
+let lastActivity = Date.now();
+
+function getUser() { return currentUser || 'gosha'; }
+function setUser(u) { currentUser = u; renderUserChip(); renderHome(); renderCalendar(); }
+function renderUserChip() {
+  const chip = $('#userChip');
+  if (chip) chip.textContent = getUser() === 'dasha' ? '👧 Даша ▾' : '👦 Гоша ▾';
+}
+
+/* ===== Хранилище ===== */
+function legacyDB() {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return defaultDB();
@@ -47,36 +104,186 @@ function loadDB() {
     return { ...defaultDB(), ...migrateDB(d) };
   } catch (e) { return defaultDB(); }
 }
-let db = loadDB();
+function loadVault() {
+  try { return JSON.parse(localStorage.getItem(VAULT_KEY)); } catch (e) { return null; }
+}
+// Сохранение всегда идёт через шифрование; очередь снимков не даёт
+// гонке записать более старый снимок поверх свежего.
+let saveChain = Promise.resolve();
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(db)); }
-  catch (e) { alert('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜'); }
+  if (!masterKey) return Promise.resolve();
+  const snap = JSON.stringify(db);
+  saveChain = saveChain.then(async () => {
+    const vault = loadVault();
+    if (!vault) return;
+    vault.db = await aesEnc(masterKey, enc.encode(snap));
+    try { localStorage.setItem(VAULT_KEY, JSON.stringify(vault)); }
+    catch (e) { alert('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜'); }
+  });
+  return saveChain;
 }
 
-/* ===== Кто ты? ===== */
-const USER_KEY = 'universe_user';
-function getStoredUser() { return localStorage.getItem(USER_KEY); }
-function getUser() { return getStoredUser() || 'gosha'; }
-function setUser(u) {
-  localStorage.setItem(USER_KEY, u);
+/* ===== Создание сейфа, вход, пароли ===== */
+async function createVault(who, pass, legacyDb) {
+  masterKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+  const kraw = new Uint8Array(await crypto.subtle.exportKey('raw', masterKey));
+  db = migrateDB({ ...defaultDB(), ...(legacyDb || legacyDB()) });
+  const dbBlob = await aesEnc(masterKey, enc.encode(JSON.stringify(db)));
+  const salt = randBytes(16);
+  const pwdKey = await pbkdf2Key(pass, salt, PBKDF2_ITERS);
+  const wrap = { who, s: b64(salt), ...(await aesEnc(pwdKey, kraw)) };
+  localStorage.setItem(VAULT_KEY, JSON.stringify({ ver: 1, a: PBKDF2_ITERS, db: dbBlob, keys: [wrap] }));
+  localStorage.removeItem(KEY); // старый открытый файл больше не нужен — всё уже зашифровано
+  currentUser = who;
+  return true;
+}
+async function unlockWith(who, pass) {
+  const vault = loadVault();
+  if (!vault) return false;
+  const wrap = (vault.keys || []).find(k => k.who === who);
+  if (!wrap) return false;
+  try {
+    const pwdKey = await pbkdf2Key(pass, unb64(wrap.s), vault.a || PBKDF2_ITERS);
+    const kraw = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(wrap.i) }, pwdKey, unb64(wrap.d)));
+        masterKey = await crypto.subtle.importKey('raw', kraw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+    currentUser = who;
+    const raw = await aesDec(masterKey, vault.db);
+    db = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(raw)) });
+    unlockApp();
+    return true;
+  } catch (e) { return false; }
+}
+async function savePassFor(who, pass) {
+  const vault = loadVault();
+  if (!vault || !masterKey) return false;
+  const kraw = new Uint8Array(await crypto.subtle.exportKey('raw', masterKey));
+  const salt = randBytes(16);
+  const pwdKey = await pbkdf2Key(pass, salt, vault.a || PBKDF2_ITERS);
+  const wrap = { who, s: b64(salt), ...(await aesEnc(pwdKey, kraw)) };
+  vault.keys = (vault.keys || []).filter(x => x.who !== who).concat(wrap);
+  try { localStorage.setItem(VAULT_KEY, JSON.stringify(vault)); return true; } catch (e) { return false; }
+}
+async function changePass(cur, next) {
+  const vault = loadVault();
+  if (!vault || !masterKey || !currentUser) return false;
+  const wrap = (vault.keys || []).find(k => k.who === currentUser);
+  if (!wrap) return false;
+  try {
+    const pwdKey = await pbkdf2Key(cur, unb64(wrap.s), vault.a || PBKDF2_ITERS);
+    const kraw = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(wrap.i) }, pwdKey, unb64(wrap.d)));
+    const newSalt = randBytes(16);
+    const nk = await pbkdf2Key(next, newSalt, vault.a || PBKDF2_ITERS);
+    vault.keys = await Promise.all(vault.keys.map(async x => x.who === currentUser ? { who: currentUser, s: b64(newSalt), ...(await aesEnc(nk, kraw)) } : x));
+    try { localStorage.setItem(VAULT_KEY, JSON.stringify(vault)); return true; } catch (e) { return false; }
+  } catch (e) { return false; }
+}
+
+/* ===== Замок: экраны входа и создания ===== */
+function showAuth(which) {
+  $('#lockScreen').hidden = which !== 'lock';
+  $('#setupScreen').hidden = which !== 'setup';
+}
+function unlockApp() {
+  authLocked = false;
+  document.body.classList.remove('auth');
+  $('#authPass').value = '';
+  $('#authErr').textContent = '';
   renderUserChip();
-  renderHome();
-  renderCalendar();
+  setTheme(getTheme());
+  renderSettings();
+  go('home');
+  lastActivity = Date.now();
+  startAutoLock();
 }
-function renderUserChip() {
-  const chip = $('#userChip');
-  if (chip) chip.textContent = getUser() === 'dasha' ? '👧 Даша ▾' : '👦 Гоша ▾';
+function lock() {
+  if (!masterKey) return; // уже закрыто
+  masterKey = null;
+  currentUser = null;
+  db = defaultDB();
+  countdownTarget = null;
+  authLocked = true;
+  document.body.classList.add('auth');
+  showAuth('lock');
+  renderAuthWho();
+  $('#authPass').value = '';
+  $('#authErr').textContent = '';
 }
+function isLocked() { return authLocked; }
+
+let pendingAuthWho = 'gosha';
+function renderAuthWho() {
+  $$('.auth-user').forEach(b => b.classList.toggle('auth-on', b.dataset.authWho === pendingAuthWho));
+  const lbl = $('#authWhoLabel');
+  if (lbl) lbl.textContent = pendingAuthWho === 'dasha' ? '👧 Даша' : '👦 Гоша';
+}
+async function tryUnlock() {
+  const err = $('#authErr');
+  const vault = loadVault();
+  const hasPass = !!(vault && (vault.keys || []).some(k => k.who === pendingAuthWho));
+  if (!hasPass) {
+    if (err) err.textContent = 'Пароль для этого человека ещё не создан. Добавь его в настройках — или войди другим.';
+    return;
+  }
+  const ok = await unlockWith(pendingAuthWho, $('#authPass').value);
+  if (!ok && err) err.textContent = 'Неверный пароль. Попробуй ещё раз 💜';
+}
+async function doSetup() {
+  const err = $('#setupErr');
+  const who = $('#setupWho').value;
+  const p1 = $('#setupPass').value;
+  const p2 = $('#setupPass2').value;
+  if (p1.length < 6) { if (err) err.textContent = 'Пароль должен быть не короче 6 символов.'; return; }
+  if (p1 !== p2) { if (err) err.textContent = 'Пароли не совпадают — проверь ещё раз.'; return; }
+  await createVault(who, p1);
+  unlockApp();
+}
+
+/* ===== Автозамок ===== */
+let autoLockTimer = null;
+function startAutoLock() {
+  if (autoLockTimer) return;
+  ['click', 'keydown', 'pointerdown', 'scroll', 'touchstart'].forEach(ev =>
+    document.addEventListener(ev, () => { lastActivity = Date.now(); }, { passive: true }));
+  autoLockTimer = setInterval(() => {
+    if (isHidden() || !masterKey) return;
+    if (Date.now() - lastActivity > AUTO_LOCK_MS) lock();
+  }, 60000);
+}
+
+/* ===== Кнопки экранов входа ===== */
+$('#authGo').addEventListener('click', tryUnlock);
+$('#authPass').addEventListener('keydown', e => { if (e.key === 'Enter') tryUnlock(); });
+$('#setupGo').addEventListener('click', doSetup);
+$('#setupPass2').addEventListener('keydown', e => { if (e.key === 'Enter') doSetup(); });
+document.addEventListener('click', e => {
+  const au = e.target.closest('[data-auth-who]');
+  if (au) {
+    pendingAuthWho = au.dataset.authWho;
+    renderAuthWho();
+    const p = $('#authPass');
+    if (p && p.focus) p.focus();
+    return;
+  }
+});
+renderAuthWho();
 
 /* ===== Тема ===== */
 const THEME_KEY = 'universe_theme';
-function getTheme() { return localStorage.getItem(THEME_KEY) || 'light'; }
+function getTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === 'light' || saved === 'dark') return saved;
+  // первый запуск — уважаем системную тему (переключается кнопкой в любой момент)
+  try {
+    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+  } catch (e) {}
+  return 'light';
+}
 function setTheme(t) {
   try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
   const root = document.documentElement;
   if (root) root.dataset.theme = t;
   const btn = $('#themeToggle');
-  if (btn) btn.textContent = t === 'dark' ? '☀️' : '🌙';
+  if (btn) { btn.textContent = t === 'dark' ? '☀️' : '🌙'; btn.setAttribute('aria-pressed', String(t === 'dark')); }
   const sbtn = $('#settingsThemeBtn');
   if (sbtn) sbtn.textContent = t === 'dark' ? '☀️ Включить светлую тему' : '🌙 Включить тёмную тему';
 }
@@ -110,7 +317,11 @@ function nextOcc(ev) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   let c = new Date(y, m - 1, d);
-  if (ev.repeat) while (c < today) c.setFullYear(c.getFullYear() + 1);
+  if (ev.repeat) {
+    while (c < today) c.setFullYear(c.getFullYear() + 1);
+    // 29 февраля в невисокосный год «переезжает» на 1 марта — возвращаем к 28 февраля
+    if (m === 2 && d === 29 && c.getMonth() === 2 && c.getDate() === 1) c.setDate(0);
+  }
   return c;
 }
 function renderHome() {
@@ -128,7 +339,7 @@ function renderHome() {
   } else {
     box.innerHTML = '<h3>💌 Скоро важное событие</h3>' + rem.map(r => {
       const label = r.days === 0 ? 'сегодня!' : r.days === 1 ? 'завтра!' : `через ${r.days} дн.`;
-      return `<div class="rem ${r.days === 0 ? 'rem-today' : ''}">${r.ev.emoji} <b>${esc(r.ev.title)}</b> <span>${label}</span></div>`;
+      return `<div class="rem ${r.days === 0 ? 'rem-today' : ''}">${esc(r.ev.emoji)} <b>${esc(r.ev.title)}</b> <span>${label}</span></div>`;
     }).join('');
   }
   renderDates();
@@ -197,7 +408,7 @@ function renderCountdown() {
   countdownTarget = n.t;
   box.hidden = false;
   box.innerHTML = `<div class="compliment-card">
-    <h4>${n.emoji} До «${esc(n.title)}» осталось</h4>
+    <h4>${esc(n.emoji)} До «${esc(n.title)}» осталось</h4>
     <div class="countdown-time" id="countdownTick">…</div>
   </div>`;
   tickCountdown();
@@ -205,14 +416,14 @@ function renderCountdown() {
 function tickCountdown() {
   const el = $('#countdownTick');
   if (!el || countdownTarget == null) return;
+  if (countdownTarget - Date.now() <= 0) { renderCountdown(); return; } // цель наступила — сразу берём следующую
   const left = countdownTarget - Date.now();
-  if (left <= 0) { el.textContent = '🎉 Уже наступило!'; return; }
   const s = Math.floor(left / 1000);
   const dd = Math.floor(s / 86400), hh = Math.floor(s % 86400 / 3600), mm = Math.floor(s % 3600 / 60), ss = s % 60;
   const p = n => String(n).padStart(2, '0');
   el.textContent = dd > 0 ? `${dd} дн. ${p(hh)}:${p(mm)}:${p(ss)}` : `${p(hh)}:${p(mm)}:${p(ss)}`;
 }
-setInterval(tickCountdown, 1000);
+setInterval(() => { if (!isHidden()) tickCountdown(); }, 1000);
 
 /* ===== Конфетти ===== */
 function celebrate() {
@@ -244,7 +455,7 @@ function maybeCelebrateAnniversary(rem) {
 function renderMobilePhotos() {
   const grid = $('#mobilePhotosGrid');
   if (!grid) return;
-  grid.innerHTML = db.photos.slice(0, 12).map(p =>
+  grid.innerHTML = [...db.photos].sort(photoSort).slice(0, 12).map(p =>
     `<img src="${p.data}" alt="${esc(p.title)}" data-photo="${p.data}" loading="lazy">`).join('');
 }
 
@@ -292,7 +503,7 @@ function renderDates() {
         ? '<span class="tag tag-today">сегодня</span>'
         : o.days === 1 ? '<span class="tag">завтра</span>' : '';
       return `<div class="date-card">
-        <div class="date-emoji">${d.emoji || '💘'}</div>
+        <div class="date-emoji">${esc(d.emoji || '💘')}</div>
         <div class="date-info">
           <b>${fmtDateLong(d.date)}${whenTag}</b>
           ${from ? `<span class="date-from">${from === 'both' ? '💜 вместе' : from === 'gosha' ? '💌 приглашение от Гоши' : '💌 приглашение от Даши'}</span>` : ''}
@@ -322,25 +533,26 @@ function openDateModal() {
   const t = new Date();
   $('#dtDate').value = iso(t.getFullYear(), t.getMonth(), t.getDate());
   $('#dtTime').value = '19:00';
-  $('#dtFrom').value = 'gosha';
   $('#dtPlace').value = '';
   $('#dtNote').value = '';
   $('#dtEmoji').value = '💘';
   $('#dateOverlay').hidden = false;
 }
 $('#addDateBtn').addEventListener('click', openDateModal);
-$('#dtSave').addEventListener('click', () => {
+// Свидание всегда от имени вошедшего — выбора «кто приглашает» нет.
+function saveDateFromModal() {
   const date = $('#dtDate').value;
   if (!date) { alert('Выбери дату свидания 💘'); return; }
   db.dates.push({
     id: uid(), date, time: $('#dtTime').value,
-    from: $('#dtFrom').value, responses: { gosha: null, dasha: null },
+    from: getUser(), responses: { gosha: null, dasha: null },
     place: $('#dtPlace').value.trim(), note: $('#dtNote').value.trim(),
     emoji: $('#dtEmoji').value.trim() || '💘', done: false
   });
   save(); $('#dateOverlay').hidden = true;
   renderHome(); renderCalendar();
-});
+}
+$('#dtSave').addEventListener('click', saveDateFromModal);
 
 /* ===== Парящие фото на главной ===== */
 // 5 «гнёзд» вокруг блока приветствия — несимметрично, в стороне от текста.
@@ -397,7 +609,7 @@ function pickFloating() {
 }
 
 /* ===== Календарь ===== */
-let calY, calM, selectedDate = null;
+let calY = new Date().getFullYear(), calM = new Date().getMonth(), selectedDate = null;
 let editingEventId = null;
 const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 
@@ -423,10 +635,10 @@ function renderCalendar() {
     const evs = eventsOn(ds, calM, d);
     const dts = datesOn(ds);
     const isToday = today.getFullYear() === calY && today.getMonth() === calM && today.getDate() === d;
-    cells += `<div class="cal-cell${isToday ? ' today' : ''}${selectedDate === ds ? ' selected' : ''}${dts.length ? ' has-date' : ''}" data-day="${ds}">` +
+    cells += `<div class="cal-cell${isToday ? ' today' : ''}${selectedDate === ds ? ' selected' : ''}${dts.length ? ' has-date' : ''}" data-day="${ds}" role="button" tabindex="0">` +
       `<span class="cal-num">${d}</span>` +
-      evs.map(e => `<span class="cal-dot" title="${esc(e.title)}">${e.emoji}</span>`).join('') +
-      (dts.length ? `<span class="cal-dot date-dot" title="Свидание">${dts[0].emoji || '💘'}</span>` : '') +
+      evs.map(e => `<span class="cal-dot" title="${esc(e.title)}">${esc(e.emoji)}</span>`).join('') +
+      (dts.length ? `<span class="cal-dot date-dot" title="Свидание">${esc(dts[0].emoji || '💘')}</span>` : '') +
       '</div>';
   }
   $('#calendar').innerHTML = html + `<div class="cal-row">${cells}</div>`;
@@ -445,11 +657,11 @@ function renderDayPanel() {
   panel.innerHTML =
     `<div class="day-head"><b>${fmtDate}</b></div>` +
     (evs.length
-      ? evs.map(e => `<div class="day-event">${e.emoji} <span>${esc(e.title)}</span> <button class="mini-x" data-edit-event="${e.id}" title="Изменить">✏️</button> <button class="mini-x" data-del-event="${e.id}" title="Удалить">✕</button></div>`).join('')
+      ? evs.map(e => `<div class="day-event">${esc(e.emoji)} <span>${esc(e.title)}</span> <button class="mini-x" data-edit-event="${e.id}" title="Изменить">✏️</button> <button class="mini-x" data-del-event="${e.id}" title="Удалить">✕</button></div>`).join('')
       : '<p class="cal-tip">В этот день событий пока нет.</p>') +
     (dts.length
       ? `<div class="day-sub">💘 Свидания</div>` + dts.map(dt =>
-          `<div class="day-event date-evt">${dt.emoji || '💘'} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}</span> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`).join('')
+          `<div class="day-event date-evt">${esc(dt.emoji || '💘')} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}</span> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`).join('')
       : '') +
     `<div class="day-add">
        <input type="text" id="dayTitle" placeholder="Название события">
@@ -467,8 +679,8 @@ function addDayEvent() {
   db.events.push({ id: uid(), title, date: selectedDate, emoji: $('#dayEmoji').value.trim() || '💜', repeat: true });
   save(); renderCalendar(); renderHome();
 }
-$('#calPrev').addEventListener('click', () => { calM--; if (calM < 0) { calM = 11; calY--; } renderCalendar(); });
-$('#calNext').addEventListener('click', () => { calM++; if (calM > 11) { calM = 0; calY++; } renderCalendar(); });
+$('#calPrev').addEventListener('click', () => { calM--; if (calM < 0) { calM = 11; calY--; } selectedDate = null; renderCalendar(); });
+$('#calNext').addEventListener('click', () => { calM++; if (calM > 11) { calM = 0; calY++; } selectedDate = null; renderCalendar(); });
 $('#addEventBtn').addEventListener('click', openEventModal);
 
 function openEventModal(id) {
@@ -584,7 +796,7 @@ function renderWishlist() {
   if (!grid) return;
   const byOwner = who => [...db.wishlist].filter(w => w.owner === who).sort((a, b) => (a.done - b.done) || (b.ts - a.ts));
   const sec = (who, label, emoji, empty) =>
-    `<div class="wish-section"><h4>${emoji} Хотелки ${label}</h4>
+    `<div class="wish-section"><h4>${esc(emoji)} Хотелки ${label}</h4>
       ${byOwner(who).length ? `<div class="wishlist-grid">${byOwner(who).map(wishCard).join('')}</div>` : `<p class="cal-tip">${empty}</p>`}
     </div>`;
   grid.innerHTML =
@@ -597,7 +809,6 @@ function openWishModal() {
   $('#wishLink').value = '';
   $('#wishPhotoName').textContent = '';
   $('#wishPhoto').value = '';
-  $('#wishOwner').value = getUser();
   $('#wishOverlay').hidden = false;
   $('#wishText').focus();
 }
@@ -608,16 +819,18 @@ $('#wishPhoto').addEventListener('change', async e => {
   try { wishPhotoData = await readFile(f); $('#wishPhotoName').textContent = '✅ фото готово'; }
   catch (err) { $('#wishPhotoName').textContent = 'не вышло :('; }
 });
-$('#wishSave').addEventListener('click', () => {
+// Хотелка всегда в список вошедшего — выбора «для кого» нет.
+function saveWishFromModal() {
   const text = $('#wishText').value.trim();
   if (!text) { alert('Напиши, что хочешь 💜'); return; }
   db.wishlist.unshift({
     id: uid(), text,
     link: $('#wishLink').value.trim() || '',
-    data: wishPhotoData, owner: $('#wishOwner').value, done: false, ts: Date.now()
+    data: wishPhotoData, owner: getUser(), done: false, ts: Date.now()
   });
   save(); $('#wishOverlay').hidden = true; renderWishlist();
-});
+}
+$('#wishSave').addEventListener('click', saveWishFromModal);
 
 /* ===== Глобальные клики ===== */
 function closeOverlay(id) {
@@ -626,7 +839,7 @@ function closeOverlay(id) {
 }
 document.addEventListener('click', e => {
   const userBtn = e.target.closest('[data-user]');
-  if (userBtn) { setUser(userBtn.dataset.user); $('#userOverlay').hidden = true; return; }
+  if (userBtn) { setUser(userBtn.dataset.user); return; }
 
   const day = e.target.closest('[data-day]');
   if (day) { selectedDate = day.dataset.day; renderCalendar(); return; }
@@ -705,6 +918,18 @@ document.addEventListener('click', e => {
   const closeBtn = e.target.closest('[data-close]');
   if (closeBtn) { closeOverlay(closeBtn.dataset.close); return; }
   if (e.target.classList && e.target.classList.contains('overlay')) e.target.hidden = true;
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const open = document.querySelector('.overlay:not([hidden])');
+    if (open) closeOverlay(open.id);
+    return;
+  }
+  // Календарь: Enter / пробел на дне — как клик по ячейке
+  if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.closest) {
+    const day = e.target.closest('[data-day]');
+    if (day) { e.preventDefault(); selectedDate = day.dataset.day; renderCalendar(); }
+  }
 });
 
 /* ===== Фото ===== */
@@ -851,6 +1076,9 @@ $('#photosGrid').addEventListener('drop', e => {
 $('#songAudio').addEventListener('error', () => {
   $('#songHint').textContent = 'Файл пока не найден. Положи mp3 в папку music/ с именем nasha-pesnya.mp3 — и нажми ▶';
 });
+$('#songAudio').addEventListener('canplay', () => {
+  $('#songHint').textContent = '▶ Нажми play — и заиграет наша песня! 💜';
+});
 
 /* ===== Настройки ===== */
 /* ===== Настройки: резервная копия и место в браузере ===== */
@@ -869,39 +1097,110 @@ function renderSettings() {
       ? `<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Последняя копия была ${days} дн. назад. Самое время обновить её.</span>`
       : `<span style="color:#059669;font-weight:700;font-size:14px">✅ Копия сделана ${days === 0 ? 'сегодня' : days + ' дн. назад'}. Всё под защитой.</span>`;
   }
+  // Личный кабинет: кто вошёл, чьи пароли есть
+  const lkUser = $('#lkUser');
+  if (lkUser) lkUser.textContent = getUser() === 'dasha' ? '👧 Даша' : '👦 Гоша';
+  const vault = loadVault();
+  const hasPass = who => !!(vault && (vault.keys || []).some(k => k.who === who));
+  const info = $('#lkPassInfo');
+  if (info) info.innerHTML =
+    `<span><b>Гоша:</b> ${hasPass('gosha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>` +
+    `<span><b>Даша:</b> ${hasPass('dasha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>`;
+  const addBtn = $('#addPassBtn');
+  if (addBtn) addBtn.style.display = (hasPass('gosha') && hasPass('dasha')) ? 'none' : '';
 }
-$('#exportBtn').addEventListener('click', () => {
-  db.backupDate = Date.now(); // отмечаем, что сделали свежую копию
-  save();
-  const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' });
+// Экспорт — зашифрованный сейф: без пароля файл не прочитать
+async function exportData() {
+  db.backupDate = Date.now();
+  await save();
+  const vault = loadVault();
+  const blob = new Blob([JSON.stringify(vault, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'nasha-vselennaya-backup.json';
+  a.download = 'nasha-vselennaya-backup-encrypted.json';
   a.click();
   URL.revokeObjectURL(a.href);
   renderSettings();
-});
+  return vault;
+}
+$('#exportBtn').addEventListener('click', () => { exportData(); });
+function importData(text) {
+  try {
+    const d = JSON.parse(text);
+    if (d && d.ver && d.db && Array.isArray(d.keys)) {
+      // это зашифрованный сейф — просто восстанавливаем, войти можно своим паролем
+      localStorage.setItem(VAULT_KEY, JSON.stringify(d));
+      return true;
+    }
+    // старый открытый бэкап — сразу шифруем текущим ключом
+    db = migrateDB({ ...defaultDB(), ...d });
+    save();
+    return true;
+  } catch (err) { return null; }
+}
 $('#importInput').addEventListener('change', e => {
   const f = e.target.files[0];
   if (!f) return;
   const fr = new FileReader();
   fr.onload = () => {
-    try {
-      const d = JSON.parse(fr.result);
-      db = { ...defaultDB(), ...d };
-      save(); alert('Данные загружены! 💜');
-      e.target.value = '';
-      location.reload();
-    } catch (err) { alert('Не получилось прочитать файл:('); }
+    if (!importData(fr.result)) { alert('Не получилось прочитать файл:('); return; }
+    e.target.value = '';
+    location.reload();
   };
   fr.readAsText(f);
 });
 $('#resetBtn').addEventListener('click', () => {
   if (confirm('Точно удалить ВСЕ данные? Это не отменить.')) {
+    localStorage.removeItem(VAULT_KEY);
     localStorage.removeItem(KEY);
     location.reload();
   }
 });
+
+/* ===== Личный кабинет: смена пароля и пароль для партнёра ===== */
+let passMode = 'set'; // 'set' — пароль для партнёра, 'change' — сменить свой
+function openPassModal(mode) {
+  passMode = mode;
+  const whoSel = $('#passWho');
+  if (whoSel) {
+    whoSel.innerHTML = ['gosha', 'dasha']
+      .filter(w => w !== getUser())
+      .map(w => `<option value="${w}">${w === 'dasha' ? '👧 Даша' : '👦 Гоша'}</option>`)
+      .join('');
+  }
+  $('#passWhoWrap').hidden = mode !== 'set';
+  $('#passCurWrap').hidden = mode !== 'change';
+  $('#passTitle').textContent = mode === 'change' ? '🔑 Сменить свой пароль' : '🔑 Пароль для партнёра';
+  $('#passCur').value = '';
+  $('#passNew').value = '';
+  $('#passNew2').value = '';
+  $('#passErr').textContent = '';
+  $('#passOverlay').hidden = false;
+  const first = mode === 'change' ? $('#passCur') : $('#passNew');
+  if (first && first.focus) first.focus();
+}
+async function savePass() {
+  const err = $('#passErr');
+  const p1 = $('#passNew').value;
+  const p2 = $('#passNew2').value;
+  if (p1.length < 6) { if (err) err.textContent = 'Пароль должен быть не короче 6 символов.'; return; }
+  if (p1 !== p2) { if (err) err.textContent = 'Пароли не совпадают — проверь ещё раз.'; return; }
+  let ok;
+  if (passMode === 'change') ok = await changePass($('#passCur').value, p1);
+  else ok = await savePassFor($('#passWho').value, p1);
+  if (!ok) { if (err) err.textContent = 'Не получилось. Проверь текущий пароль и попробуй ещё раз.'; return; }
+  $('#passOverlay').hidden = true;
+  renderSettings();
+  if (passMode === 'change') alert('Пароль обновлён 💜');
+  else {
+    const who = $('#passWho').value === 'dasha' ? 'Даша' : 'Гоша';
+    alert('Пароль сохранён — теперь «' + who + '» может войти 💜');
+  }
+}
+$('#passSave').addEventListener('click', savePass);
+$('#changePassBtn').addEventListener('click', () => openPassModal('change'));
+$('#addPassBtn').addEventListener('click', () => openPassModal('set'));
+$('#lockNowBtn').addEventListener('click', lock);
 
 /* ===== Летающие сердечки ===== */
 function spawnHeart() {
@@ -918,19 +1217,31 @@ function spawnHeart() {
 $('#themeToggle').addEventListener('click', toggleTheme);
 $('#settingsThemeBtn').addEventListener('click', toggleTheme);
 
-/* ===== Запуск ===== */
-renderUserChip();
-setTheme(getTheme());
-$('#userChip').addEventListener('click', () => { $('#userOverlay').hidden = false; });
-if (!getStoredUser()) $('#userOverlay').hidden = false;  // спросим, кто это
-go('home');
+/* ===== Запуск: приложение закрыто, пока не вошли ===== */
+function initAuth() {
+  renderUserChip();
+  setTheme(getTheme());
+  lastActivity = Date.now();
+  startAutoLock();
+  document.body.classList.add('auth');
+  showAuth(loadVault() ? 'lock' : 'setup'); // сейф есть → вход; нет → первое создание пароля
+  pendingAuthWho = 'gosha';
+  renderAuthWho();
+  // Если JS по какой-то причине не выполнится — контент так и останется скрытым
+  // (body.auth прячет шапку и main), никто ничего не увидит.
+}
+initAuth();
+// Клик по чипу «Гоша ▾ / Даша ▾» = заблокировать и дать войти другому
+$('#userChip').addEventListener('click', lock);
+
 setInterval(() => {
-  // сердечки летают не слишком часто и не во время открытых модалок
+  // сердечки летают не слишком часто, не под замком и не во время открытых модалок
+  if (isHidden() || authLocked) return;
   if (document.querySelector('.overlay:not([hidden])')) return;
   if (!$('#view-home') || !$('#view-home').classList.contains('active')) return;
   spawnHeart();
 }, 3800);
-setInterval(() => renderFloatingPhotos(), 7000);
+setInterval(() => { if (!isHidden()) renderFloatingPhotos(); }, 7000);
 spawnHeart();
 
 

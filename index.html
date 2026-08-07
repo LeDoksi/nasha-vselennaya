@@ -7,7 +7,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💜</text></svg>">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="auth"><!-- «auth» скрывает приложение до входа по паролю -->
 
   <header class="header">
     <div class="header-inner">
@@ -23,7 +23,7 @@
         <button class="nav-btn" data-view="settings">Настройки</button>
       </nav>
       <div style="display:flex;align-items:center;gap:8px;padding:8px 0">
-        <button class="btn theme-toggle" id="themeToggle" title="Сменить тему" style="padding:9px 14px">🌙</button>
+        <button class="btn theme-toggle" id="themeToggle" title="Сменить тему" aria-pressed="false" style="padding:9px 14px">🌙</button>
         <button class="user-chip" id="userChip" title="Кто сейчас с нами?">👦 Гоша ▾</button>
       </div>
     </div>
@@ -142,7 +142,7 @@
     <section class="view" id="view-settings">
       <div class="settings-card">
         <h3>💾 Данные</h3>
-        <p>Пока всё хранится в этом браузере на этом компьютере. Скачивай резервную копию — так ничего не потеряется.</p>
+        <p>Всё хранится в этом браузере на этом компьютере — в зашифрованном виде. Скачивай резервную копию: без пароля её не прочитать, зато ничего не потеряется.</p>
         <div id="backupHint" style="margin-bottom:14px"></div>
         <div style="margin-bottom:14px;font-size:13px;color:var(--muted)">Занято в браузере: <b id="storageInfo" style="color:var(--ink)">0 КБ</b></div>
         <div class="settings-btns">
@@ -150,6 +150,17 @@
           <label class="btn file-btn">⬆ Загрузить копию<input type="file" id="importInput" accept=".json" hidden></label>
           <button class="btn btn-danger" id="resetBtn">🗑 Сбросить всё</button>
         </div>
+      </div>
+      <div class="settings-card">
+        <h3>🔐 Личный кабинет</h3>
+        <p>Сейчас в системе: <b id="lkUser"></b>. Пароль открывает наши данные только тому, кто его знает.</p>
+        <div id="lkPassInfo" style="margin-bottom:14px;font-size:14px;display:flex;gap:18px;flex-wrap:wrap"></div>
+        <div class="settings-btns">
+          <button class="btn" id="changePassBtn">🔑 Сменить свой пароль</button>
+          <button class="btn" id="addPassBtn">🔑 Добавить пароль для партнёра</button>
+          <button class="btn" id="lockNowBtn">🔒 Заблокировать</button>
+        </div>
+        <p class="cal-tip" style="margin-top:12px">Забыл свой пароль? Второй человек может пересоздать его здесь — иначе восстановить пароль невозможно. Запишите их в надёжном месте.</p>
       </div>
       <div class="settings-card">
         <h3>🌙 Оформление</h3>
@@ -191,12 +202,7 @@
         <div><label>Дата</label><input type="date" id="dtDate"></div>
         <div><label>Во сколько</label><input type="time" id="dtTime"></div>
       </div>
-      <label>Кто приглашает?</label>
-      <select id="dtFrom">
-        <option value="gosha">👦 Гоша</option>
-        <option value="dasha">👧 Даша</option>
-        <option value="both">💜 Вместе</option>
-      </select>
+      <p class="cal-tip" id="dtWhoNote" style="margin:10px 0 0">💌 Свидание будет от твоего имени — того, кто сейчас вошёл.</p>
       <label>Место</label>
       <input type="text" id="dtPlace" placeholder="Например: кофейня на углу">
       <label>Идея / заметка</label>
@@ -238,24 +244,30 @@
       </div>
       <label>Ссылка (необязательно)</label>
       <input type="text" id="wishLink" placeholder="https://…">
-      <label>Для кого хотелка?</label>
-      <select id="wishOwner">
-        <option value="gosha">👦 Гоша</option>
-        <option value="dasha">👧 Даша</option>
-      </select>
+      <p class="cal-tip" id="wishWhoNote" style="margin:10px 0 0">🎁 Хотелка попадёт в твой список — список того, кто сейчас вошёл.</p>
       <button class="btn" id="wishSave">Сохранить 💜</button>
     </div>
   </div>
 
-  <!-- ===== Кто ты? ===== -->
-  <div class="overlay" id="userOverlay" hidden>
-    <div class="modal modal-center">
-      <h3>💜 Привет!</h3>
-      <p class="user-sub">Кто сейчас с нами?</p>
-      <div class="user-btns">
-        <button class="user-btn" data-user="gosha">👦<br>Гоша</button>
-        <button class="user-btn" data-user="dasha">👧<br>Даша</button>
+  <!-- ===== Личный кабинет: пароли ===== -->
+  <div class="overlay" id="passOverlay" hidden>
+    <div class="modal">
+      <button class="modal-x" data-close="passOverlay">✕</button>
+      <h3 id="passTitle">🔑 Пароль</h3>
+      <div id="passWhoWrap" hidden>
+        <label for="passWho">Для кого пароль?</label>
+        <select id="passWho"></select>
       </div>
+      <div id="passCurWrap" hidden>
+        <label for="passCur">Текущий пароль</label>
+        <input type="password" id="passCur" autocomplete="current-password">
+      </div>
+      <label for="passNew">Новый пароль (не короче 6 символов)</label>
+      <input type="password" id="passNew" autocomplete="new-password">
+      <label for="passNew2">Повтори пароль</label>
+      <input type="password" id="passNew2" autocomplete="new-password">
+      <p class="auth-err" id="passErr" role="alert"></p>
+      <button class="btn" id="passSave">Сохранить 💜</button>
     </div>
   </div>
 
@@ -264,6 +276,45 @@
     <button class="modal-x" data-close="lightbox">✕</button>
     <img id="lightboxImg" alt="Фото">
   </div>
+
+  <!-- ===== Замок: экран входа ===== -->
+  <section class="auth-screen" id="lockScreen" aria-label="Вход">
+    <div class="auth-card">
+      <div class="auth-logo">💜</div>
+      <h1>Наша вселенная</h1>
+      <p class="auth-sub">Всё хранится в зашифрованном виде.<br>Войди, чтобы открыть наши секреты.</p>
+      <div class="auth-who" role="group" aria-label="Кто входит?">
+        <button class="user-btn auth-user" data-auth-who="gosha">👦<br>Гоша</button>
+        <button class="user-btn auth-user" data-auth-who="dasha">👧<br>Даша</button>
+      </div>
+      <label for="authPass" class="auth-label">Пароль для <span id="authWhoLabel">Гоши</span></label>
+      <input type="password" id="authPass" autocomplete="current-password" placeholder="••••••">
+      <button class="btn" id="authGo" style="width:100%">Войти 💜</button>
+      <p class="auth-err" id="authErr" role="alert" aria-live="polite"></p>
+      <p class="auth-hint">Забыл пароль? Второй человек может пересоздать его в настройках — только он.</p>
+    </div>
+  </section>
+
+  <!-- ===== Первый запуск: создание пароля ===== -->
+  <section class="auth-screen" id="setupScreen" hidden aria-label="Создание пароля">
+    <div class="auth-card">
+      <div class="auth-logo">💜</div>
+      <h1>Добро пожаловать!</h1>
+      <p class="auth-sub">Наши заметки, списки и фото будут храниться только здесь — в зашифрованном виде.</p>
+      <label for="setupWho" class="auth-label">Кто создаёт пароль первым?</label>
+      <select id="setupWho">
+        <option value="gosha">👦 Гоша</option>
+        <option value="dasha">👧 Даша</option>
+      </select>
+      <label for="setupPass" class="auth-label">Придумай пароль (не короче 6 символов)</label>
+      <input type="password" id="setupPass" autocomplete="new-password" placeholder="••••••">
+      <label for="setupPass2" class="auth-label">Повтори пароль</label>
+      <input type="password" id="setupPass2" autocomplete="new-password" placeholder="••••••">
+      <button class="btn" id="setupGo" style="width:100%">Создать и войти 💜</button>
+      <p class="auth-err" id="setupErr" role="alert" aria-live="polite"></p>
+      <p class="auth-hint">⚠️ Пароль не хранится нигде. Если вы оба забудете пароли — данные не восстановить. Запишите их в надёжном месте.</p>
+    </div>
+  </section>
 
   <script src="app.js"></script>
 </body>
