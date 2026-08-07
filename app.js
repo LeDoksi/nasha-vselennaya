@@ -54,7 +54,8 @@ async function aesDec(key, blob) {
 }
 
 /* ===== Схема данных и миграции ===== */
-const DB_VERSION = 3;
+const DB_VERSION = 5;
+const EVENT_LABEL = '📅 События'; // общий лейбл всех фото, прикреплённых к событиям
 function defaultDB() {
   return {
     version: DB_VERSION,
@@ -77,8 +78,35 @@ function migrateDB(d) {
   const set = new Set(d.labels);
   for (const p of (d.photos || [])) for (const l of (p.labels || [])) set.add(l);
   d.labels = [...set];
+  // v4: фото событий — общий лейбл «📅 События» вместо отдельного лейбла-названия
+  relabelEventPhotos(d);
+  // v5: у заметок появляется порядок для drag&drop (старые — по закреплению и времени)
+  if (!Array.isArray(d.notes)) d.notes = [];
+  if (d.notes.some(n => n.order === undefined)) {
+    [...d.notes].sort((a, b) => (b.pinned - a.pinned) || (b.ts - a.ts)).forEach((n, i) => {
+      if (n.order === undefined) n.order = i;
+    });
+  }
   d.version = DB_VERSION;
   return d;
+}
+// Фото, прикреплённые к событиям (ev.photos), подписываем общим лейблом «📅 События».
+// Старые авто-лейблы с названием события убираем — за название отвечает title фото.
+function relabelEventPhotos(d) {
+  if (!Array.isArray(d.photos) || !Array.isArray(d.events)) return;
+  let found = false;
+  for (const ev of d.events) {
+    if (!Array.isArray(ev.photos)) continue;
+    for (const data of ev.photos) {
+      const p = d.photos.find(x => x.data === data);
+      if (!p) continue;
+      if (!Array.isArray(p.labels)) p.labels = [];
+      if (!p.labels.includes(EVENT_LABEL)) p.labels.push(EVENT_LABEL);
+      if (ev.title && p.labels.includes(ev.title)) p.labels = p.labels.filter(l => l !== ev.title);
+      found = true;
+    }
+  }
+  if (found && !d.labels.includes(EVENT_LABEL)) d.labels.push(EVENT_LABEL);
 }
 
 /* ===== Состояние сессии — только в памяти, в localStorage не пишется ===== */
@@ -294,7 +322,7 @@ function go(view) {
   $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   if (view === 'home') renderHome();
-  if (view === 'calendar') { calY = new Date().getFullYear(); calM = new Date().getMonth(); selectedDate = null; renderCalendar(); }
+  if (view === 'calendar') { calY = new Date().getFullYear(); calM = new Date().getMonth(); selectedDate = null; showNearestEvent(); }
   if (view === 'notes') renderNotes();
   if (view === 'lists') renderLists();
   if (view === 'wishlist') renderWishlist();
@@ -333,15 +361,7 @@ function renderHome() {
     .filter(o => o.days >= 0 && o.days <= 14)
     .sort((a, b) => a.days - b.days);
 
-  const box = $('#reminders');
-  if (!rem.length) {
-    box.innerHTML = '<div class="rem-empty">🌙 Пока нет ближайших событий.<br>Добавь памятную дату во вкладке «Календарь».</div>';
-  } else {
-    box.innerHTML = '<h3>💌 Скоро важное событие</h3>' + rem.map(r => {
-      const label = r.days === 0 ? 'сегодня!' : r.days === 1 ? 'завтра!' : `через ${r.days} дн.`;
-      return `<div class="rem ${r.days === 0 ? 'rem-today' : ''}">${esc(r.ev.emoji)} <b>${esc(r.ev.title)}</b> <span>${label}</span></div>`;
-    }).join('');
-  }
+  // Напоминания убраны: ближайшее событие и так видно на таймере (#countdown).
   renderDates();
   renderFloatingPhotos();
   renderCompliment();
@@ -473,7 +493,7 @@ function fmtResp(r) {
 function renderDates() {
   const box = $('#dates');
   if (!db.dates.length) {
-    box.innerHTML = '<div class="rem-empty">💘 Свиданий пока нет.<br>Нажми «Назначить свидание» — и пусть оно обязательно случится!</div>';
+    box.innerHTML = '<div class="dates-empty">💘 Свиданий пока нет.<br>Нажми «Назначить свидание» — и пусть оно обязательно случится!</div>';
     return;
   }
   const now0 = new Date();
@@ -612,16 +632,23 @@ function pickFloating() {
 let calY = new Date().getFullYear(), calM = new Date().getMonth(), selectedDate = null;
 let editingEventId = null;
 const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+const MONTHS_SHORT = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+function fmtShort(s) { if (!s) return ''; const [y, m, d] = s.split('-').map(Number); return `${d} ${MONTHS_SHORT[m - 1]}`; }
 
 function iso(y, m, d) { return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; }
 function eventsOn(dateStr, m, d) {
   return db.events.filter(ev => {
-    const [ey, em, ed] = ev.date.split('-').map(Number);
-    return ev.repeat ? (em - 1 === m && ed === d) : ev.date === dateStr;
+    if (ev.repeat) {
+      const [ey, em, ed] = ev.date.split('-').map(Number);
+      return (em - 1 === m && ed === d);
+    }
+    // длительное событие: endDate >= date — попадает на каждый день промежутка
+    if (ev.endDate && ev.endDate >= ev.date) return dateStr >= ev.date && dateStr <= ev.endDate;
+    return ev.date === dateStr;
   });
 }
 function renderCalendar() {
-  $('#calTitle').textContent = MONTHS[calM] + ' ' + calY;
+  fillCalJump();
   const firstDow = (new Date(calY, calM, 1).getDay() + 6) % 7; // понедельник = 0
   const dim = new Date(calY, calM + 1, 0).getDate();
   const today = new Date();
@@ -635,9 +662,11 @@ function renderCalendar() {
     const evs = eventsOn(ds, calM, d);
     const dts = datesOn(ds);
     const isToday = today.getFullYear() === calY && today.getMonth() === calM && today.getDate() === d;
-    cells += `<div class="cal-cell${isToday ? ' today' : ''}${selectedDate === ds ? ' selected' : ''}${dts.length ? ' has-date' : ''}" data-day="${ds}" role="button" tabindex="0">` +
+    const inSpan = db.events.some(ev => !ev.repeat && ev.endDate && ev.endDate >= ev.date && ds >= ev.date && ds <= ev.endDate);
+    cells += `<div class="cal-cell${isToday ? ' today' : ''}${selectedDate === ds ? ' selected' : ''}${inSpan ? ' in-span' : ''}${dts.length ? ' has-date' : ''}" data-day="${ds}" role="button" tabindex="0">` +
       `<span class="cal-num">${d}</span>` +
-      evs.map(e => `<span class="cal-dot" title="${esc(e.title)}">${esc(e.emoji)}</span>`).join('') +
+      evs.slice(0, 2).map(e => `<span class="cal-dot" title="${esc(e.title)}">${esc(e.emoji)} ${esc(e.title)}</span>`).join('') +
+      (evs.length > 2 ? `<span class="cal-dot cal-dot-more" title="Ещё ${evs.length - 2} события">+${evs.length - 2}</span>` : '') +
       (dts.length ? `<span class="cal-dot date-dot" title="Свидание">${esc(dts[0].emoji || '💘')}</span>` : '') +
       '</div>';
   }
@@ -657,7 +686,7 @@ function renderDayPanel() {
   panel.innerHTML =
     `<div class="day-head"><b>${fmtDate}</b></div>` +
     (evs.length
-      ? evs.map(e => `<div class="day-event">${esc(e.emoji)} <span>${esc(e.title)}</span> <button class="mini-x" data-edit-event="${e.id}" title="Изменить">✏️</button> <button class="mini-x" data-del-event="${e.id}" title="Удалить">✕</button></div>`).join('')
+      ? evs.map(e => `<div class="day-event">${esc(e.emoji)} <span>${esc(e.title)}${e.endDate && e.endDate >= e.date ? ` <small class="ev-range">до ${fmtShort(e.endDate)}</small>` : ''}</span>${evThumbs(e)} <button class="mini-x" data-photo-event="${e.id}" title="Добавить фото">📷</button> <button class="mini-x" data-edit-event="${e.id}" title="Изменить">✏️</button> <button class="mini-x" data-del-event="${e.id}" title="Удалить">✕</button></div>`).join('')
       : '<p class="cal-tip">В этот день событий пока нет.</p>') +
     (dts.length
       ? `<div class="day-sub">💘 Свидания</div>` + dts.map(dt =>
@@ -679,73 +708,448 @@ function addDayEvent() {
   db.events.push({ id: uid(), title, date: selectedDate, emoji: $('#dayEmoji').value.trim() || '💜', repeat: true });
   save(); renderCalendar(); renderHome();
 }
-$('#calPrev').addEventListener('click', () => { calM--; if (calM < 0) { calM = 11; calY--; } selectedDate = null; renderCalendar(); });
-$('#calNext').addEventListener('click', () => { calM++; if (calM > 11) { calM = 0; calY++; } selectedDate = null; renderCalendar(); });
-$('#addEventBtn').addEventListener('click', openEventModal);
+function hideJumpInfo() { const info = $('#jumpInfo'); if (info) info.hidden = true; }
+$('#calPrev').addEventListener('click', () => { calM--; if (calM < 0) { calM = 11; calY--; } selectedDate = null; hideJumpInfo(); renderCalendar(); });
+$('#calNext').addEventListener('click', () => { calM++; if (calM > 11) { calM = 0; calY++; } selectedDate = null; hideJumpInfo(); renderCalendar(); });
+$('#addEventBtn').addEventListener('click', () => openEventModal());
 
+// «⏭ К ближайшему событию»: ближайшая дата события/свидания с учётом
+// ежегодных повторов и идущих сейчас диапазонов (endDate).
+function nextUpcoming() {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayStr = iso(today.getFullYear(), today.getMonth(), today.getDate());
+  const cands = [];
+  for (const ev of db.events) {
+    const [y, m, d] = ev.date.split('-').map(Number);
+    let occ;
+    if (ev.repeat !== false) { // ежегодный повтор: следующий раз в этом/следующем году
+      occ = new Date(today.getFullYear(), m - 1, d);
+      if (occ < today) occ = new Date(today.getFullYear() + 1, m - 1, d);
+      if (m === 2 && d === 29 && occ.getMonth() === 2 && occ.getDate() === 1) occ.setDate(0); // 29 фев → 28
+    } else {
+      occ = new Date(y, m - 1, d);
+      if (ev.endDate && occ <= today) { // диапазон уже начался и ещё идёт — «сейчас»
+        const end = new Date(ev.endDate + 'T00:00:00');
+        if (end >= today) occ = today;
+      }
+      if (occ < today) continue; // разовое в прошлом
+    }
+    cands.push({ date: iso(occ.getFullYear(), occ.getMonth(), occ.getDate()), title: ev.title, emoji: ev.emoji || '💜' });
+  }
+  for (const dt of db.dates) {
+    if (dt.done) continue;
+    const [y, m, d] = dt.date.split('-').map(Number);
+    if (new Date(y, m - 1, d) < today) continue;
+    cands.push({ date: dt.date, title: dt.place || dt.note || 'Свидание', emoji: dt.emoji || '💘' });
+  }
+  cands.sort((a, b) => a.date.localeCompare(b.date));
+  return cands[0] || null;
+}
+// «⏭ К ближайшему событию»: плашка + прыжок, если событие не в текущем месяце.
+// Вызывается при открытии вкладки календаря и по кнопке «⏭» — плашка видна
+// всегда, даже когда ближайшее событие уже видно в текущем месяце.
+function showNearestEvent() {
+  const nx = nextUpcoming();
+  const info = $('#jumpInfo');
+  if (!nx) { hideJumpInfo(); return; }
+  const [y, m, d] = nx.date.split('-').map(Number);
+  if (y !== calY || m - 1 !== calM) { calY = y; calM = m - 1; }
+  selectedDate = nx.date;
+  renderCalendar();
+  if (info) {
+    info.textContent = `⏭ Ближайшее: ${nx.emoji} «${nx.title}» — ${d} ${MONTHS[m - 1].toLowerCase()} ${y} г.`;
+    info.hidden = false;
+  }
+}
+function jumpToNearestEvent() {
+  const nx = nextUpcoming();
+  const info = $('#jumpInfo');
+  if (!nx) {
+    if (info) { info.textContent = '💫 Ближайших событий пока нет — добавь первое!'; info.hidden = false; }
+    return;
+  }
+  showNearestEvent();
+}
+$('#jumpNextBtn').addEventListener('click', jumpToNearestEvent);
+
+// Быстрый выбор месяца/года (два селекта над календарём)
+function fillCalJump() {
+  const ms = $('#calMonthSelect'), ys = $('#calYearSelect');
+  if (!ms || !ys) return;
+  if (typeof ms.add === 'function' && ms.options.length === 0) {
+    MONTHS.forEach((name, i) => {
+      const o = document.createElement('option'); o.value = String(i); o.textContent = name; ms.add(o);
+    });
+    const now = new Date();
+    const y0 = Math.min(2026, now.getFullYear() - 5);
+    for (let y = y0; y <= now.getFullYear() + 5; y++) {
+      const o = document.createElement('option'); o.value = String(y); o.textContent = String(y); ys.add(o);
+    }
+  }
+  ms.value = String(calM);
+  ys.value = String(calY);
+}
+function jumpCalendar(m, y) { calM = +m; calY = +y; selectedDate = null; hideJumpInfo(); renderCalendar(); }
+$('#calMonthSelect').addEventListener('change', e => jumpCalendar(e.target.value, calY));
+$('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.value));
+
+// Миниатюры фото события в панели дня
+function evThumbs(e) {
+  if (!(e.photos && e.photos.length)) return '';
+  return `<span class="ev-thumbs">${e.photos.map(p => `<img class="ev-thumb" src="${p}" alt="${esc(e.title)}" data-photo="${p}" loading="lazy">`).join('')}</span>`;
+}
+
+// Фото события кладём в общую галерею под общим лейблом «📅 События»;
+// название события остаётся подписью фото (title) и показывается в витрине событий.
+// Отдельные лейблы-названия не создаём — иначе фильтр засоряется после 30+ событий.
+function addEventPhotosToGallery(photos, title) {
+  if (!photos.length) return;
+  if (!db.labels.includes(EVENT_LABEL)) db.labels.push(EVENT_LABEL);
+  for (const photoData of photos) {
+    const ph = db.photos.find(p => p.data === photoData);
+    if (ph) {
+      if (!Array.isArray(ph.labels)) ph.labels = [];
+      if (!ph.labels.includes(EVENT_LABEL)) ph.labels.push(EVENT_LABEL);
+    } else {
+      db.photos.unshift({ id: uid(), data: photoData, title, labels: [EVENT_LABEL], pinned: false, ts: Date.now(), order: 0 });
+    }
+  }
+}
+
+// Быстрое добавление фото к событию прямо из панели дня (кнопка 📷)
+function addEventPhotoQuick(evId) {
+  const ev = db.events.find(x => x.id === evId);
+  if (!ev) return;
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+  inp.style.display = 'none';
+  document.body.appendChild(inp);
+  inp.addEventListener('change', async () => {
+    const ok = [];
+    for (const f of [...inp.files].slice(0, 5)) {
+      try { ok.push(await readFile(f)); } catch (err) { console.warn('Не удалось прочитать фото события', err); }
+    }
+    inp.remove();
+    if (!ok.length) return;
+    ev.photos = Array.isArray(ev.photos) ? ev.photos.concat(ok) : ok;
+    addEventPhotosToGallery(ok, ev.title);
+    save(); renderCalendar(); renderHome();
+  }, { once: true });
+  inp.click();
+}
+
+/* ===== Кастомный date-picker в стиле сайта =====
+   Системный календарь у input[type=date] не стилизуется и «выбивается».
+   Вместо него — свой попап в стилистике большого календаря: стрелки ‹ ›,
+   селекты месяца/года, сетка дней, «Сегодня» / «Очистить».
+   Выбранная дата пишется в поле как ISO (YYYY-MM-DD) с событиями input/change —
+   весь остальной код работает без изменений. */
+let dpInput = null;                   // поле, для которого открыт попап
+let dpM = new Date().getMonth();      // показываемый месяц
+let dpY = new Date().getFullYear();   // показываемый год
+const dpPad = n => String(n).padStart(2, '0');
+function dpIso(y, m, d) { return y + '-' + dpPad(m + 1) + '-' + dpPad(d); }
+
+function renderDatePop() {
+  const pop = $('#datePop');
+  if (!pop) return;
+  const ms = $('#dpMonth'), ys = $('#dpYear');
+  if (ms) ms.innerHTML = MONTHS.map((n, i) => `<option value="${i}"${i === dpM ? ' selected' : ''}>${n}</option>`).join('');
+  if (ys) {
+    const now = new Date();
+    const y0 = Math.min(2026, now.getFullYear() - 5);
+    ys.innerHTML = '';
+    for (let y = y0; y <= now.getFullYear() + 5; y++) {
+      const o = document.createElement('option'); o.value = String(y); o.textContent = String(y); ys.appendChild(o);
+    }
+    ys.value = String(dpY);
+  }
+  const firstDow = (new Date(dpY, dpM, 1).getDay() + 6) % 7; // понедельник = 0
+  const dim = new Date(dpY, dpM + 1, 0).getDate();
+  const now = new Date();
+  let cells = '<div class="dp-dow">Пн</div><div class="dp-dow">Вт</div><div class="dp-dow">Ср</div>' +
+    '<div class="dp-dow">Чт</div><div class="dp-dow">Пт</div><div class="dp-dow">Сб</div><div class="dp-dow">Вс</div>';
+  for (let i = 0; i < firstDow; i++) cells += '<button type="button" class="dp-day empty" tabindex="-1"></button>';
+  for (let d = 1; d <= dim; d++) {
+    const iso = dpIso(dpY, dpM, d);
+    const isToday = now.getFullYear() === dpY && now.getMonth() === dpM && now.getDate() === d;
+    const picked = dpInput && dpInput.value === iso;
+    cells += `<button type="button" class="dp-day${isToday ? ' today' : ''}${picked ? ' picked' : ''}" data-dp-date="${iso}">${d}</button>`;
+  }
+  const grid = $('#dpDays');
+  if (grid) grid.innerHTML = cells;
+}
+function pickDpDate(iso) {
+  if (dpInput) {
+    dpInput.value = iso;
+    try {
+      dpInput.dispatchEvent(new Event('input', { bubbles: true }));
+      dpInput.dispatchEvent(new Event('change', { bubbles: true }));
+    } catch (err) { /* песочница тестов: Event не определён */ }
+  }
+  closeDatePop();
+}
+function closeDatePop() {
+  const pop = $('#datePop');
+  if (pop) pop.hidden = true;
+  dpInput = null;
+}
+function openDatePop(el) {
+  if (!el) return;
+  dpInput = el;
+  const d = el.value ? new Date(el.value + 'T00:00:00') : null;
+  const now = new Date();
+  dpY = (d && !isNaN(d)) ? d.getFullYear() : now.getFullYear();
+  dpM = (d && !isNaN(d)) ? d.getMonth() : now.getMonth();
+  renderDatePop();
+  const pop = $('#datePop');
+  if (!pop) return;
+  pop.hidden = false;
+  // ставим попап под полем, не вылезая за край экрана
+  const r = el.getBoundingClientRect && el.getBoundingClientRect();
+  const vw = (window.innerWidth || document.documentElement.clientWidth || 320);
+  const vh = (window.innerHeight || document.documentElement.clientHeight || 480);
+  if (r) {
+    const pw = 272, ph = 330;
+    let left = r.left;
+    if (left + pw > vw - 8) left = Math.max(8, vw - pw - 8);
+    pop.style.left = left + 'px';
+    let top = r.bottom + 6;
+    if (top + ph > vh - 8) top = Math.max(8, r.top - ph - 6);
+    pop.style.top = top + 'px';
+  }
+}
+// Клик по попапу: стрелки, «Сегодня», «Очистить», выбор дня
+$('#datePop').addEventListener('click', e => {
+  const nav = e.target.closest('[data-dp-nav]');
+  if (nav) {
+    dpM += +nav.dataset.dpNav;
+    if (dpM < 0) { dpM = 11; dpY--; }
+    if (dpM > 11) { dpM = 0; dpY++; }
+    renderDatePop(); return;
+  }
+  if (e.target.closest('[data-dp-today]')) {
+    const n = new Date();
+    pickDpDate(dpIso(n.getFullYear(), n.getMonth(), n.getDate())); return;
+  }
+  if (e.target.closest('[data-dp-clear]')) { pickDpDate(''); return; }
+  const day = e.target.closest('[data-dp-date]');
+  if (day) pickDpDate(day.dataset.dpDate);
+});
+$('#dpMonth').addEventListener('change', e => { dpM = +e.target.value; renderDatePop(); });
+$('#dpYear').addEventListener('change', e => { dpY = +e.target.value; renderDatePop(); });
+// Закрытие: клик мимо или Esc
+document.addEventListener('pointerdown', e => {
+  const pop = $('#datePop');
+  if (pop && !pop.hidden && !pop.contains(e.target)) closeDatePop();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDatePop(); });
+// Поля дат в модалках открывают свой календарь вместо системного
+['#evDate', '#evEnd', '#dtDate'].forEach(sel => {
+  const el = $(sel);
+  if (el) el.addEventListener('focus', () => openDatePop(el));
+});
+
+// Фото, прикреплённые к событию (живут, пока открыта модалка)
+let evPhotoData = [];
+function setEvPhotoCount() {
+  const c = $('#evPhotoCount');
+  if (c) c.textContent = evPhotoData.length ? `✅ фото: ${evPhotoData.length}` : '';
+}
 function openEventModal(id) {
   const t = new Date();
   $('#evDate').value = iso(t.getFullYear(), t.getMonth(), t.getDate());
+  $('#evEnd').value = '';
   $('#evTitle').value = '';
   $('#evEmoji').value = '💜';
   $('#evRepeat').checked = true;
-  editingEventId = id || null;
-  $('#evModalTitle').textContent = id ? '✏️ Изменить дату' : '💜 Памятная дата';
-  if (id) {
-    const ev = db.events.find(x => x.id === id);
+  evPhotoData = [];
+  setEvPhotoCount();
+  // id может прийти только из data-edit-event; клик по «＋ Добавить дату» не должен
+  // попадать сюда как объект события — принимаем только настоящую строку id.
+  editingEventId = typeof id === 'string' ? id : null;
+  $('#evModalTitle').textContent = editingEventId ? '✏️ Изменить дату' : '💜 Памятная дата';
+  const sub = $('#evHeadSub');
+  if (sub) sub.textContent = editingEventId ? 'Поправь детали — всё сохранится ✨' : 'Сохрани важный день для вас двоих 💞';
+  if (editingEventId) {
+    const ev = db.events.find(x => x.id === editingEventId);
     if (ev) {
       $('#evTitle').value = ev.title;
       $('#evDate').value = ev.date;
+      $('#evEnd').value = ev.endDate || '';
       $('#evEmoji').value = ev.emoji || '💜';
       $('#evRepeat').checked = ev.repeat !== false;
+      evPhotoData = Array.isArray(ev.photos) ? [...ev.photos] : [];
+      setEvPhotoCount();
     }
   }
   $('#eventOverlay').hidden = false;
   $('#evTitle').focus();
 }
-$('#evSave').addEventListener('click', () => {
+$('#evPhoto').addEventListener('change', async e => {
+  const files = [...e.target.files].slice(0, 5);
+  for (const f of files) {
+    try { evPhotoData.push(await readFile(f)); } catch (err) { console.warn('Не удалось прочитать фото события', err); }
+  }
+  e.target.value = '';
+  setEvPhotoCount();
+});
+// Долгое событие не повторяется каждый год — снимаем галочку автоматически
+$('#evEnd').addEventListener('input', () => { if ($('#evEnd').value) $('#evRepeat').checked = false; });
+function saveEventFromModal() {
   const title = $('#evTitle').value.trim();
   const date = $('#evDate').value;
   if (!title || !date) { alert('Напиши название и выбери дату 💜'); return; }
-  const data = { title, date, emoji: $('#evEmoji').value.trim() || '💜', repeat: $('#evRepeat').checked };
-  if (editingEventId) {
-    const ev = db.events.find(x => x.id === editingEventId);
-    if (ev) Object.assign(ev, data);
+  const endDate = $('#evEnd').value || null;
+  if (endDate && endDate < date) { alert('Конец события не может быть раньше начала 💜'); return; }
+  const data = { title, date, endDate, emoji: $('#evEmoji').value.trim() || '💜', repeat: $('#evRepeat').checked && !endDate };
+  // Фото события: кладём в общую галерею и вешаем лейбл = названию события
+  if (evPhotoData.length) {
+    data.photos = evPhotoData;
+    addEventPhotosToGallery(evPhotoData, title);
+  }
+  const ev = editingEventId ? db.events.find(x => x.id === editingEventId) : null;
+  if (ev) {
+    if (ev.photos && !evPhotoData.length) delete ev.photos;
+    Object.assign(ev, data);
   } else {
+    // Если редактируемое событие не найдено (например, удалено в другой вкладке) —
+    // создаём новое, чтобы пользовательские данные не терялись молча.
     db.events.push({ id: uid(), ...data });
   }
+  // Переходим на месяц события, чтобы оно сразу появилось в календаре
+  const [evY, evM] = date.split('-').map(Number);
+  calM = evM - 1; calY = evY; selectedDate = date;
   editingEventId = null;
   save(); $('#eventOverlay').hidden = true; renderCalendar(); renderHome();
-});
+}
+$('#evSave').addEventListener('click', saveEventFromModal);
 
 /* ===== Заметки ===== */
+let editingNoteId = null; // id заметки в режиме инлайн-правки (null — не редактируем)
+let dragNoteId = null;    // id заметки, которую сейчас перетаскиваем
+function noteAuthorName(n) {
+  return n.author === 'dasha' ? '👧 Даша' : n.author === 'gosha' ? '👦 Гоша' : '💜 Наши';
+}
 function renderNotes() {
-  const list = [...db.notes].sort((a, b) => (b.pinned - a.pinned) || (b.ts - a.ts));
+  const list = [...db.notes].sort((a, b) =>
+    (b.pinned - a.pinned) || ((a.order ?? 1e9) - (b.order ?? 1e9)) || (b.ts - a.ts));
   $('#notesGrid').innerHTML = list.length ? list.map(n => `
-    <div class="note${n.pinned ? ' pinned' : ''}" data-id="${n.id}">
+    <div class="note${n.pinned ? ' pinned' : ''}" data-id="${n.id}" draggable="true">
       <div class="note-top">
         <button class="mini-x" data-pin-note="${n.id}" title="${n.pinned ? 'Открепить' : 'Закрепить'}">${n.pinned ? '📌' : '📍'}</button>
+        <span class="note-author">${noteAuthorName(n)}</span>
         <span class="note-date">${new Date(n.ts).toLocaleDateString('ru-RU')}</span>
+        <button class="mini-x" data-edit-note="${n.id}" title="Редактировать">✏️</button>
         <button class="mini-x" data-del-note="${n.id}" title="Удалить">✕</button>
       </div>
-      <p>${esc(n.text)}</p>
+      ${editingNoteId === n.id
+        ? `<div class="note-edit">
+             <textarea id="noteEdit-${n.id}" class="note-editor">${esc(n.text)}</textarea>
+             <div class="note-edit-btns">
+               <button class="btn btn-sm" data-save-note="${n.id}">💜 Сохранить</button>
+               <button class="mini-x" data-cancel-note title="Отмена">✕</button>
+             </div>
+           </div>`
+        : `<p>${esc(n.text)}</p>`}
     </div>`).join('')
     : '<p class="cal-tip">Пока пусто. Напиши первую записку! 💌</p>';
 }
 function addNote() {
   const t = $('#noteText').value.trim();
   if (!t) return;
-  db.notes.unshift({ id: uid(), text: t, ts: Date.now(), pinned: false });
+  db.notes.unshift({ id: uid(), text: t, ts: Date.now(), pinned: false, author: getUser(), order: 0 });
   save(); $('#noteText').value = ''; renderNotes();
 }
 $('#noteAddBtn').addEventListener('click', addNote);
 $('#noteText').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addNote(); });
+
+// Закрепить/удалить может любой — отдельные функции, вызываются по клику ✕/📍
+function togglePinNote(id) {
+  const n = db.notes.find(x => x.id === id);
+  if (!n) return;
+  n.pinned = !n.pinned; save(); renderNotes();
+}
+function deleteNote(id) {
+  db.notes = db.notes.filter(x => x.id !== id);
+  if (editingNoteId === id) editingNoteId = null;
+  save(); renderNotes();
+}
+
+// Редактирование: ✏️, двойной клик по карточке, Ctrl+Enter в редакторе
+function startEditNote(id) { editingNoteId = id; renderNotes(); }
+function cancelNoteEdit() { editingNoteId = null; renderNotes(); }
+function saveNoteEdit(id, text) {
+  const n = db.notes.find(x => x.id === id);
+  if (!n) return;
+  const ta = $('#noteEdit-' + id);
+  const t = (text !== undefined ? text : (ta && ta.value) || '').trim();
+  if (t) { n.text = t; n.ts = Date.now(); }
+  editingNoteId = null; save(); renderNotes();
+}
 $('#notesGrid').addEventListener('dblclick', e => {
   const card = e.target.closest('.note');
   if (!card) return;
-  const n = db.notes.find(x => x.id === card.dataset.id);
-  const t = prompt('Редактировать заметку:', n.text);
-  if (t !== null && t.trim()) { n.text = t.trim(); save(); renderNotes(); }
+  startEditNote(card.dataset.id);
+});
+
+// drag&drop перестановка: переносим id, на drop пересчитываем order всем заметкам.
+// Чистая функция — её легко проверить тестами.
+function reorderNoteIds(ids, dragId, targetId, after) {
+  const from = ids.indexOf(dragId);
+  if (from < 0) return ids.slice();
+  const out = ids.slice();
+  out.splice(from, 1);
+  const to = out.indexOf(targetId);
+  if (to < 0) return out;
+  out.splice(after ? to + 1 : to, 0, dragId);
+  return out;
+}
+// Куда ляжет заметка: над/под карточкой, а если курсор на фоне списка —
+// по краю (выше первой / ниже последней).
+function noteDropPosition(e) {
+  const card = e.target.closest('.note');
+  if (card) {
+    const r = card.getBoundingClientRect();
+    return { id: card.dataset.id, after: e.clientY > r.top + r.height / 2 };
+  }
+  const cards = $$('.note');
+  if (!cards.length) return null;
+  const first = cards[0].getBoundingClientRect();
+  const last = cards[cards.length - 1].getBoundingClientRect();
+  if (e.clientY < first.top + first.height / 2) return { id: cards[0].dataset.id, after: false };
+  return { id: cards[cards.length - 1].dataset.id, after: true };
+}
+$('#notesGrid').addEventListener('dragstart', e => {
+  const card = e.target.closest('.note');
+  if (!card || e.target.closest('button, textarea, input, a')) { e.preventDefault(); return; }
+  dragNoteId = card.dataset.id;
+  card.classList.add('dragging');
+  if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragNoteId); }
+});
+$('#notesGrid').addEventListener('dragenter', e => e.preventDefault());
+$('#notesGrid').addEventListener('dragover', e => {
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; // без этого Chrome отменяет drop
+  const pos = noteDropPosition(e);
+  $$('.note').forEach(c => c.classList.remove('drop-before', 'drop-after'));
+  if (!pos || pos.id === dragNoteId) return;
+  const card = $$('.note').find(c => c.dataset.id === pos.id);
+  if (card) card.classList.add(pos.after ? 'drop-after' : 'drop-before');
+});
+$('#notesGrid').addEventListener('drop', e => {
+  e.preventDefault();
+  if (!dragNoteId) return;
+  const pos = noteDropPosition(e);
+  if (!pos || pos.id === dragNoteId) { renderNotes(); return; }
+  const ids = reorderNoteIds($$('.note').map(c => c.dataset.id), dragNoteId, pos.id, pos.after);
+  ids.forEach((id, i) => { const n = db.notes.find(x => x.id === id); if (n) n.order = i; });
+  save(); renderNotes();
+});
+$('#notesGrid').addEventListener('dragend', () => {
+  $$('.note').forEach(c => c.classList.remove('dragging', 'drop-before', 'drop-after'));
+  dragNoteId = null;
 });
 
 /* ===== Списки ===== */
@@ -776,16 +1180,34 @@ $('#todoInput').addEventListener('keydown', e => { if (e.key === 'Enter') addIte
 
 /* ===== Хотелки (общие, но разделены по людям: у каждого свой список) ===== */
 let wishPhotoData = null;
+function fmtWishDate(ts) {
+  try { return new Date(ts).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }); }
+  catch (e) { return ''; }
+}
+// «Исполнено другим»: свою хотелку исполнить нельзя — только партнёр.
+// Снять отметку может только тот, кто её поставил.
+function wishToggleHTML(w) {
+  const me = getUser();
+  if (w.done) {
+    return w.doneBy === me
+      ? `<button class="check" data-wish-done="${w.id}" title="Снять отметку">↩️</button>`
+      : '';
+  }
+  if (w.owner === me) return `<span class="wish-hint">Только ${me === 'gosha' ? 'Даша' : 'Гоша'} исполнит 💜</span>`;
+  return `<button class="check" data-wish-done="${w.id}" title="Исполнить!">○</button>`;
+}
 function wishCard(w) {
+  const doneBy = w.doneBy ? (w.doneBy === 'gosha' ? 'Гошей' : 'Дашей') : '';
   return `<div class="wish${w.done ? ' done' : ''}">
     ${w.data
       ? `<img class="wish-img" src="${w.data}" alt="${esc(w.text)}" data-photo="${w.data}" loading="lazy">`
       : `<div class="wish-img" style="display:grid;place-items:center;font-size:34px">💝</div>`}
     <div class="wish-body">
       <div class="wish-title">${esc(w.text)}</div>
+      ${w.done ? `<span class="wish-done-by">💜 Исполнено${doneBy ? ' ' + doneBy : ''}${w.doneAt ? ' · ' + fmtWishDate(w.doneAt) : ''}</span>` : ''}
       ${w.link ? `<a class="wish-link" href="${esc(w.link)}" target="_blank" rel="noopener">🔗 Открыть ссылку</a>` : ''}
       <div class="wish-btns">
-        <button class="check" data-wish-done="${w.id}" title="${w.done ? 'Снова в список' : 'Исполнено!'}">${w.done ? '✅' : '○'}</button>
+        ${wishToggleHTML(w)}
         <button class="mini-x" data-wish-del="${w.id}" title="Удалить">✕</button>
       </div>
     </div>
@@ -850,6 +1272,9 @@ document.addEventListener('click', e => {
   const editEv = e.target.closest('[data-edit-event]');
   if (editEv) { openEventModal(editEv.dataset.editEvent); return; }
 
+  const photoEv = e.target.closest('[data-photo-event]');
+  if (photoEv) { addEventPhotoQuick(photoEv.dataset.photoEvent); return; }
+
   const answerDate = e.target.closest('[data-answer-date]');
   if (answerDate) {
     const d = db.dates.find(x => x.id === answerDate.dataset.answerDate);
@@ -873,9 +1298,15 @@ document.addEventListener('click', e => {
   if (delDate) { db.dates = db.dates.filter(x => x.id !== delDate.dataset.delDate); save(); renderHome(); renderCalendar(); return; }
 
   const pinNote = e.target.closest('[data-pin-note]');
-  if (pinNote) { const n = db.notes.find(x => x.id === pinNote.dataset.pinNote); if (n) n.pinned = !n.pinned; save(); renderNotes(); return; }
+  if (pinNote) { togglePinNote(pinNote.dataset.pinNote); return; }
   const delNote = e.target.closest('[data-del-note]');
-  if (delNote) { db.notes = db.notes.filter(x => x.id !== delNote.dataset.delNote); save(); renderNotes(); return; }
+  if (delNote) { deleteNote(delNote.dataset.delNote); return; }
+  const editNote = e.target.closest('[data-edit-note]');
+  if (editNote) { startEditNote(editNote.dataset.editNote); return; }
+  const saveNoteBtn = e.target.closest('[data-save-note]');
+  if (saveNoteBtn) { saveNoteEdit(saveNoteBtn.dataset.saveNote); return; }
+  const cancelNoteBtn = e.target.closest('[data-cancel-note]');
+  if (cancelNoteBtn) { cancelNoteEdit(); return; }
 
   const tog = e.target.closest('[data-toggle]');
   if (tog) { const it = db[tog.dataset.list].find(x => x.id === tog.dataset.id); if (it) it.done = !it.done; save(); renderLists(); return; }
@@ -883,11 +1314,7 @@ document.addEventListener('click', e => {
   if (delIt) { db[delIt.dataset.list] = db[delIt.dataset.list].filter(x => x.id !== delIt.dataset.id); save(); renderLists(); return; }
 
   const delPhoto = e.target.closest('[data-del-photo]');
-  if (delPhoto) {
-    db.photos = db.photos.filter(x => x.id !== delPhoto.dataset.delPhoto);
-    selectedPhotos.delete(delPhoto.dataset.delPhoto);
-    save(); renderPhotos(); return;
-  }
+  if (delPhoto) { deletePhoto(delPhoto.dataset.delPhoto); return; }
   const pinPhoto = e.target.closest('[data-pin-photo]');
   if (pinPhoto) { const p = db.photos.find(x => x.id === pinPhoto.dataset.pinPhoto); if (p) p.pinned = !p.pinned; save(); renderPhotos(); return; }
   const selPhoto = e.target.closest('[data-sel-photo]');
@@ -900,9 +1327,25 @@ document.addEventListener('click', e => {
   if (photo) { $('#lightboxImg').src = photo.dataset.photo; $('#lightbox').hidden = false; return; }
 
   const wishDone = e.target.closest('[data-wish-done]');
-  if (wishDone) { const w = db.wishlist.find(x => x.id === wishDone.dataset.wishDone); if (w) w.done = !w.done; save(); renderWishlist(); return; }
+  if (wishDone) {
+    const w = db.wishlist.find(x => x.id === wishDone.dataset.wishDone);
+    if (w) {
+      const me = getUser();
+      // Исполнить может только партнёр; снять отметку — только исполнивший.
+      if (w.owner !== me && (!w.done || w.doneBy === me)) {
+        if (w.done) { w.done = false; w.doneBy = null; w.doneAt = null; }
+        else { w.done = true; w.doneBy = me; w.doneAt = Date.now(); }
+        save();
+      }
+      renderWishlist();
+    }
+    return;
+  }
   const wishDel = e.target.closest('[data-wish-del]');
   if (wishDel) { db.wishlist = db.wishlist.filter(x => x.id !== wishDel.dataset.wishDel); save(); renderWishlist(); return; }
+
+  const labelOff = e.target.closest('[data-label-off]');
+  if (labelOff) { removeLabelFromPhoto(labelOff.dataset.photoOff, labelOff.dataset.labelOff); return; }
 
   const labelNew = e.target.closest('[data-label-new]');
   if (labelNew) { openLabelOverlay(); return; }
@@ -913,11 +1356,11 @@ document.addEventListener('click', e => {
     return;
   }
   const labelChip = e.target.closest('[data-label]');
-  if (labelChip) { currentLabel = labelChip.dataset.label; renderPhotos(); return; }
+  if (labelChip) { currentLabel = labelChip.dataset.label; eventFilter = { year: '', month: '', title: '' }; renderPhotos(); return; }
 
   const closeBtn = e.target.closest('[data-close]');
   if (closeBtn) { closeOverlay(closeBtn.dataset.close); return; }
-  if (e.target.classList && e.target.classList.contains('overlay')) e.target.hidden = true;
+  if (e.target.classList && e.target.classList.contains('overlay')) closeOverlay(e.target.id);
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
@@ -956,6 +1399,7 @@ function readFile(file) {
 }
 /* ===== Фото: лейблы, выбор нескольких, перетаскивание ===== */
 let currentLabel = ''; // фильтр: '' = все фото
+let eventFilter = { year: '', month: '', title: '' }; // витрина «📅 События»: фильтр кнопками «год → месяц → событие»
 const selectedPhotos = new Set(); // id выбранных фото (для массовых операций)
 const photoSort = (a, b) => (b.pinned - a.pinned) || ((a.order || 0) - (b.order || 0));
 $('#photoInput').addEventListener('change', async e => {
@@ -972,16 +1416,61 @@ $('#photoInput').addEventListener('change', async e => {
 function renderLabels() {
   const bar = $('#labelBar');
   if (!bar) return;
+  const evCount = db.photos.filter(p => (p.labels || []).includes(EVENT_LABEL)).length;
   bar.innerHTML =
     `<button class="album-chip${currentLabel === '' ? ' active' : ''}" data-label="">🖼 Все фото (${db.photos.length})</button>` +
-    db.labels.map(l => `<button class="album-chip${currentLabel === l ? ' active' : ''}" data-label="${esc(l)}"># ${esc(l)}<span class="label-del" data-label-del="${esc(l)}" title="Удалить лейбл">✕</span></button>`).join('') +
+    (evCount ? `<button class="album-chip${currentLabel === EVENT_LABEL ? ' active' : ''}" data-label="${esc(EVENT_LABEL)}">📅 События (${evCount})</button>` : '') +
+    db.labels.filter(l => l !== EVENT_LABEL).map(l => `<button class="album-chip${currentLabel === l ? ' active' : ''}" data-label="${esc(l)}" draggable="true" title="Перетащи на фото, чтобы навесить лейбл"># ${esc(l)}<span class="label-del" data-label-del="${esc(l)}" title="Удалить лейбл">✕</span></button>`).join('') +
     `<button class="btn album-add-btn" data-label-new title="Создать лейбл">＋ Лейбл</button>`;
+}
+function deletePhoto(id) {
+  const ph = db.photos.find(x => x.id === id);
+  if (ph) {
+    // фото удаляется и из событий, чтобы в календаре не оставалось «мёртвых» миниатюр
+    db.events.forEach(ev => {
+      if (!Array.isArray(ev.photos)) return;
+      ev.photos = ev.photos.filter(d => d !== ph.data);
+      if (!ev.photos.length) delete ev.photos;
+    });
+  }
+  db.photos = db.photos.filter(x => x.id !== id);
+  selectedPhotos.delete(id);
+  save(); renderPhotos(); renderCalendar();
+}
+// К каким событиям привязано фото (data) — для фильтра «год → месяц → событие»
+function eventsForPhoto(data) {
+  const res = [];
+  for (const ev of db.events) {
+    if (!Array.isArray(ev.photos) || !ev.photos.includes(data)) continue;
+    const [y, m] = (ev.date || '').split('-');
+    if (!y || !m) continue;
+    res.push({ title: ev.title, year: y, month: m });
+  }
+  return res;
+}
+function filteredPhotos() {
+  let list = [...db.photos].sort(photoSort).filter(p => !currentLabel || (p.labels || []).includes(currentLabel));
+  if (currentLabel === EVENT_LABEL) {
+    const f = eventFilter;
+    if (f.year || f.month || f.title) {
+      list = list.filter(p => {
+        const evs = eventsForPhoto(p.data);
+        if (f.year && !evs.some(e => e.year === f.year)) return false;
+        if (f.month && !evs.some(e => e.month === f.month)) return false;
+        if (f.title && !evs.some(e => e.title === f.title)) return false;
+        return true;
+      });
+    }
+  }
+  return list;
 }
 function renderPhotos() {
   const grid = $('#photosGrid');
   if (!grid) return;
   renderLabels();
-  const list = [...db.photos].sort(photoSort).filter(p => !currentLabel || (p.labels || []).includes(currentLabel));
+  // витрина «📅 События»: фильтр кнопками «год → месяц → событие»
+  renderEventBar();
+  const list = filteredPhotos();
   const hint = $('#dragHint');
   if (hint) hint.style.display = list.length > 1 ? 'block' : 'none';
   const selBar = $('#photoSelBar');
@@ -995,33 +1484,100 @@ function renderPhotos() {
       <button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>
       <button class="pin-photo${p.pinned ? ' active' : ''}" data-pin-photo="${p.id}" title="${p.pinned ? 'Открепить' : 'Закрепить'}">${p.pinned ? '⭐' : '☆'}</button>
       <button class="del-photo" data-del-photo="${p.id}" title="Удалить">✕</button>
-      ${(p.labels || []).length ? `<div class="photo-labels">${p.labels.map(l => `<span class="photo-label">${esc(l)}</span>`).join('')}</div>` : ''}
+      ${(p.labels || []).length ? `<div class="photo-labels">${p.labels.map(l =>
+        `<span class="photo-label">${esc(l)}${l === EVENT_LABEL ? '' : `<span class="photo-label-del" data-label-off="${esc(l)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</span>`}</span>`
+      ).join('')}</div>` : ''}
+      ${currentLabel === EVENT_LABEL && p.title ? `<span class="photo-caption">${esc(eventFilter.title || p.title)}</span>` : ''}
     </div>`).join('')
     : '<p class="cal-tip">📷 Загрузите ваши фото — они будут храниться локально, прямо в браузере.</p>';
 }
+// Витрина «📅 События»: кнопки «год → месяц → событие» появляются по мере выбора
+function eventPhotosCount(year, month, title) {
+  let n = 0;
+  for (const p of db.photos) {
+    if (!(p.labels || []).includes(EVENT_LABEL)) continue;
+    if (eventsForPhoto(p.data).some(e =>
+      (!year || e.year === year) && (!month || e.month === month) && (!title || e.title === title))) n++;
+  }
+  return n;
+}
+function renderEventBar() {
+  const evBar = $('#eventBar');
+  if (!evBar) return;
+  const show = currentLabel === EVENT_LABEL;
+  evBar.style.display = show ? 'flex' : 'none';
+  if (!show) return;
+  const f = eventFilter;
+  // события, у которых есть фото в галерее
+  const evs = db.events.filter(ev => Array.isArray(ev.photos) && ev.photos.some(d => db.photos.some(p => p.data === d)));
+  const years = [...new Set(evs.map(e => (e.date || '').slice(0, 4)).filter(Boolean))].sort((a, b) => b - a);
+  const monthsOf = year => [...new Set(evs.filter(e => (e.date || '').slice(0, 4) === year).map(e => (e.date || '').slice(5, 7)).filter(Boolean))].sort();
+  const titlesOf = (year, month) => {
+    const set = new Set();
+    for (const e of evs) {
+      const [y, m] = (e.date || '').split('-');
+      if ((!year || y === year) && (!month || m === month)) set.add(e.title);
+    }
+    return [...set].sort();
+  };
+  const yearsEl = $('#eventYears');
+  if (yearsEl) {
+    yearsEl.style.display = years.length ? 'flex' : 'none';
+    yearsEl.innerHTML = years.map(y =>
+      `<button class="ev-btn${f.year === y ? ' active' : ''}" data-ev-year="${y}">${y} <span class="cnt">${eventPhotosCount(y, '', '')}</span></button>`).join('');
+  }
+  const monthsEl = $('#eventMonths');
+  if (monthsEl) {
+    const months = f.year ? monthsOf(f.year) : [];
+    monthsEl.style.display = months.length ? 'flex' : 'none';
+    monthsEl.innerHTML = months.map(m =>
+      `<button class="ev-btn${f.month === m ? ' active' : ''}" data-ev-month="${m}">${MONTHS[Number(m) - 1]} <span class="cnt">${eventPhotosCount(f.year, m, '')}</span></button>`).join('');
+  }
+  const titlesEl = $('#eventTitles');
+  if (titlesEl) {
+    const titles = f.month ? titlesOf(f.year, f.month) : [];
+    titlesEl.style.display = titles.length ? 'flex' : 'none';
+    titlesEl.innerHTML = titles.map(t =>
+      `<button class="ev-btn${f.title === t ? ' active' : ''}" data-ev-title="${esc(t)}">${esc(t)} <span class="cnt">${eventPhotosCount(f.year, f.month, t)}</span></button>`).join('');
+  }
+  const reset = $('#eventReset');
+  if (reset) reset.style.display = (f.year || f.month || f.title) ? 'inline-block' : 'none';
+}
 // Лейблы: удаление (фото не трогаем), добавление выбранным, создание
 function deleteLabel(name) {
+  if (name === EVENT_LABEL) return; // служебный лейбл витрины «📅 События» защищён от удаления
   db.labels = db.labels.filter(l => l !== name);
   db.photos.forEach(p => { if (p.labels) p.labels = p.labels.filter(l => l !== name); });
   if (currentLabel === name) currentLabel = '';
   selectedPhotos.clear();
   save(); renderPhotos();
 }
-function applyLabelToSelected(name) {
-  const ids = [...selectedPhotos];
-  if (!ids.length) return;
+function applyLabelToPhotos(name, ids) {
+  const set = new Set(ids);
   db.photos.forEach(p => {
-    if (ids.includes(p.id)) {
-      if (!Array.isArray(p.labels)) p.labels = [];
-      if (!p.labels.includes(name)) p.labels.push(name);
-    }
+    if (!set.has(p.id)) return;
+    if (!Array.isArray(p.labels)) p.labels = [];
+    if (!p.labels.includes(name)) p.labels.push(name);
   });
+}
+// Применение лейбла к выбранным фото; после действия выделение снимается.
+function applyLabelToSelected(name) {
+  applyLabelToPhotos(name, [...selectedPhotos]);
+  selectedPhotos.clear();
+}
+// Убрать лейбл с конкретного фото (крестик ✕ на бейдже фото).
+function removeLabelFromPhoto(photoId, name) {
+  const p = db.photos.find(x => x.id === photoId);
+  if (!p || !Array.isArray(p.labels) || !p.labels.includes(name)) return;
+  p.labels = p.labels.filter(l => l !== name);
+  save(); renderPhotos();
 }
 function openLabelOverlay() {
   $('#labelNewName').value = '';
   const pick = $('#labelPick');
-  pick.innerHTML = db.labels.length
-    ? '<option value="">— выбери лейбл —</option>' + db.labels.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('')
+  const manualLabels = db.labels.filter(l => l !== EVENT_LABEL);
+  pick.innerHTML = manualLabels.length
+    ? '<option value="">— выбери лейбл —</option>' + manualLabels.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('')
     : '<option value="">Сначала создай новый лейбл выше</option>';
   const hint = $('#labelModalHint');
   if (hint) hint.textContent = selectedPhotos.size ? `Фото выбрано: ${selectedPhotos.size}` : 'Можно просто создать лейбл — он появится в фильтре.';
@@ -1030,6 +1586,34 @@ function openLabelOverlay() {
 }
 $('#selAddLabelBtn').addEventListener('click', openLabelOverlay);
 $('#selClearBtn').addEventListener('click', () => { selectedPhotos.clear(); renderPhotos(); });
+// Фильтр витрины «📅 События»: клик по кнопкам «год → месяц → событие» (повторный клик сбрасывает уровень)
+document.addEventListener('click', e => {
+  const yearBtn = e.target.closest('[data-ev-year]');
+  if (yearBtn) {
+    const val = yearBtn.dataset.evYear;
+    eventFilter.year = eventFilter.year === val ? '' : val;
+    eventFilter.month = ''; eventFilter.title = '';
+    renderPhotos(); return;
+  }
+  const monthBtn = e.target.closest('[data-ev-month]');
+  if (monthBtn) {
+    const val = monthBtn.dataset.evMonth;
+    eventFilter.month = eventFilter.month === val ? '' : val;
+    eventFilter.title = '';
+    renderPhotos(); return;
+  }
+  const titleBtn = e.target.closest('[data-ev-title]');
+  if (titleBtn) {
+    const val = titleBtn.dataset.evTitle;
+    eventFilter.title = eventFilter.title === val ? '' : val;
+    renderPhotos(); return;
+  }
+  const resetBtn = e.target.closest('[data-ev-reset]');
+  if (resetBtn) {
+    eventFilter = { year: '', month: '', title: '' };
+    renderPhotos(); return;
+  }
+});
 $('#labelNewBtn').addEventListener('click', () => {
   const name = $('#labelNewName').value.trim();
   if (!name) return;
@@ -1044,20 +1628,32 @@ $('#labelApplyBtn').addEventListener('click', () => {
   save(); $('#labelOverlay').hidden = true; renderPhotos();
 });
 $('#labelNewName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#labelNewBtn').click(); });
-// Перетаскивание: меняем порядок внутри текущего фильтра
+// Перетаскивание: меняем порядок внутри текущего фильтра,
+// а чип лейбла, брошенный на фото, навешивает лейбл.
 let dragPhotoId = null;
+let dragLabel = null; // название лейбла, чип которого сейчас тащим
 $('#photosGrid').addEventListener('dragstart', e => {
   const el = e.target.closest('[data-drag-photo]');
   if (!el) return;
   dragPhotoId = el.dataset.id;
-  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.effectAllowed = 'copyMove'; // move — перестановка, copy — лейбл
+  e.dataTransfer.setData('text/plain', dragPhotoId);
 });
-$('#photosGrid').addEventListener('dragover', e => e.preventDefault());
+$('#photosGrid').addEventListener('dragover', e => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; });
 $('#photosGrid').addEventListener('drop', e => {
   e.preventDefault();
+  if (dragLabel) { // тащили чип лейбла: навешиваем на фото (и все отмеченные)
+    const target = e.target.closest('[data-drag-photo]');
+    const name = dragLabel;
+    dragLabel = null;
+    const ids = new Set(selectedPhotos);
+    if (target) ids.add(target.dataset.id);
+    if (ids.size) { applyLabelToPhotos(name, ids); selectedPhotos.clear(); save(); renderPhotos(); }
+    return;
+  }
   if (!dragPhotoId) return;
   const target = e.target.closest('[data-drag-photo]');
-  const list = [...db.photos].sort(photoSort).filter(p => !currentLabel || (p.labels || []).includes(currentLabel));
+  const list = filteredPhotos();
   const fromIdx = list.findIndex(p => p.id === dragPhotoId);
   const toIdx = target ? list.findIndex(p => p.id === target.dataset.id) : list.length - 1;
   dragPhotoId = null;
@@ -1069,6 +1665,49 @@ $('#photosGrid').addEventListener('drop', e => {
     const ph = db.photos.find(x => x.id === p.id);
     if (ph) ph.order = i;
   });
+  save(); renderPhotos();
+});
+$('#photosGrid').addEventListener('dragend', () => { dragPhotoId = null; });
+// Перетаскивание фото на кнопку лейбла: лейбл получает и перетаскиваемое фото, и все отмеченные (если есть)
+$('#labelBar').addEventListener('dragover', e => {
+  const chip = e.target.closest('.album-chip[data-label]');
+  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+});
+$('#labelBar').addEventListener('dragenter', e => {
+  e.preventDefault();
+  const chip = e.target.closest('.album-chip[data-label]');
+  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL) return;
+  chip.classList.add('drag-over');
+});
+// Обратное направление: чип лейбла можно перетащить прямо на фото
+$('#labelBar').addEventListener('dragstart', e => {
+  const chip = e.target.closest('.album-chip[data-label]');
+  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL) { e.preventDefault(); return; }
+  dragLabel = chip.dataset.label;
+  e.dataTransfer.effectAllowed = 'copyMove';
+  e.dataTransfer.setData('text/plain', dragLabel);
+});
+$('#labelBar').addEventListener('dragend', () => { dragLabel = null; });
+$('#labelBar').addEventListener('dragleave', e => {
+  const chip = e.target.closest('.album-chip[data-label]');
+  if (!chip) return;
+  if (e.relatedTarget && chip.contains(e.relatedTarget)) return; // ещё внутри чипа
+  chip.classList.remove('drag-over');
+});
+$('#labelBar').addEventListener('drop', e => {
+  e.preventDefault();
+  const chip = e.target.closest('.album-chip[data-label]');
+  if (chip) chip.classList.remove('drag-over');
+  if (!dragPhotoId) return;
+  const name = chip && chip.dataset.label;
+  if (!name || name === EVENT_LABEL || e.target.closest('[data-label-del]')) return;
+  const targets = new Set(selectedPhotos); // массовое назначение: всем отмеченным…
+  targets.add(dragPhotoId);                // …и перетаскиваемому фото
+  applyLabelToPhotos(name, targets);
+  dragPhotoId = null;
+  selectedPhotos.clear(); // действие выполнено — выделение снимаем
   save(); renderPhotos();
 });
 

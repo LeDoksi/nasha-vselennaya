@@ -4,8 +4,8 @@ let src = fs.readFileSync(file, 'utf8');
 const registry = {};
 function makeEl() {
   return { id: '', dataset: {}, children: [], hidden: false, innerHTML: '', textContent: '',
-    style: {}, value: '', options: [], classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
-    addEventListener() {}, querySelectorAll() { return []; },
+    style: {}, value: '', options: [], _handlers: {}, classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+    addEventListener(type, fn) { (this._handlers[type] = this._handlers[type] || []).push(fn); }, querySelectorAll() { return []; },
     appendChild() {}, remove() {}, focus() {}, click() {}, setAttribute() {}, removeAttribute() {} };
 }
 const sandbox = {
@@ -47,23 +47,38 @@ const suffix = `
 function __TEST__(s){
   Object.defineProperty(s, 'db', { get: () => db, set: v => { db = v; }, configurable: true });
   Object.defineProperty(s, 'selectedDate', { get: () => selectedDate, set: v => { selectedDate = v; }, configurable: true });
+  Object.defineProperty(s, 'editingEventId', { get: () => editingEventId, set: v => { editingEventId = v; }, configurable: true });
   Object.defineProperty(s, 'countdownTarget', { get: () => countdownTarget, set: v => { countdownTarget = v; }, configurable: true });
   Object.defineProperty(s, 'currentUser', { get: () => currentUser, set: v => { currentUser = v; }, configurable: true });
   Object.defineProperty(s, 'masterKey', { get: () => masterKey, configurable: true });
   s.renderHome = renderHome; s.renderDates = renderDates; s.renderFloatingPhotos = renderFloatingPhotos;
   s.renderCalendar = renderCalendar; s.renderDayPanel = renderDayPanel; s.renderNotes = renderNotes;
+  s.startEditNote = startEditNote; s.saveNoteEdit = saveNoteEdit; s.cancelNoteEdit = cancelNoteEdit;
+  s.togglePinNote = togglePinNote; s.deleteNote = deleteNote;
+  s.nextUpcoming = nextUpcoming; s.jumpToNearestEvent = jumpToNearestEvent; s.showNearestEvent = showNearestEvent;
+  s.reorderNoteIds = reorderNoteIds;
   s.renderLists = renderLists; s.renderPhotos = renderPhotos;
   s.renderWishlist = renderWishlist; s.renderCountdown = renderCountdown; s.tickCountdown = tickCountdown; s.renderSettings = renderSettings;
   s.renderCompliment = renderCompliment; s.renderMobilePhotos = renderMobilePhotos;
   s.go = go; s.daysTogether = daysTogether; s.iso = iso;
+  s.jumpCalendar = jumpCalendar; s.eventsOn = eventsOn; s.fmtShort = fmtShort; s.saveEventFromModal = saveEventFromModal;
   s.setUser = setUser; s.getUser = getUser;
   s.toggleTheme = toggleTheme; s.setTheme = setTheme; s.getTheme = getTheme; s.celebrate = celebrate; s.openEventModal = openEventModal;
   s.openDateModal = openDateModal; s.openWishModal = openWishModal;
   s.saveDateFromModal = saveDateFromModal; s.saveWishFromModal = saveWishFromModal;
   s.migrateDB = migrateDB;
   Object.defineProperty(s, 'currentLabel', { get: () => currentLabel, set: v => { currentLabel = v; }, configurable: true });
+  Object.defineProperty(s, 'eventFilter', { get: () => eventFilter, set: v => { eventFilter = v; }, configurable: true });
+  Object.defineProperty(s, 'evPhotoData', { get: () => evPhotoData, set: v => { evPhotoData = v; }, configurable: true });
+  Object.defineProperty(s, 'dpInput', { get: () => dpInput, set: v => { dpInput = v; }, configurable: true });
+  Object.defineProperty(s, 'dpM', { get: () => dpM, set: v => { dpM = v; }, configurable: true });
+  Object.defineProperty(s, 'dpY', { get: () => dpY, set: v => { dpY = v; }, configurable: true });
+  s.renderDatePop = renderDatePop; s.pickDpDate = pickDpDate; s.dpIso = dpIso;
   s.selectedPhotos = selectedPhotos; s.renderLabels = renderLabels;
-  s.deleteLabel = deleteLabel; s.applyLabelToSelected = applyLabelToSelected; s.openLabelOverlay = openLabelOverlay;
+  s.deleteLabel = deleteLabel; s.deletePhoto = deletePhoto; s.applyLabelToSelected = applyLabelToSelected; s.openLabelOverlay = openLabelOverlay;
+  s.applyLabelToPhotos = applyLabelToPhotos; s.removeLabelFromPhoto = removeLabelFromPhoto;
+  s.wishCard = wishCard; s.fmtWishDate = fmtWishDate;
+  s.relabelEventPhotos = relabelEventPhotos;
   s.createVault = createVault; s.unlockWith = unlockWith; s.savePassFor = savePassFor; s.changePass = changePass;
   s.lock = lock; s.isLocked = isLocked; s.loadVault = loadVault; s.legacyDB = legacyDB; s.save = save;
   s.exportData = exportData; s.importData = importData; s.showAuth = showAuth; s.unlockApp = unlockApp;
@@ -96,7 +111,7 @@ assert(!vaultRaw.includes('"123456"'), 'пароль не хранится в с
 assert(w('(s)=>s.localStorage.getItem("universe")') === null, 'старый открытый файл удалён после миграции');
 
 // --- Миграция: старые данные получили version и новые поля ---
-assert(w('(s)=>s.db.version') === 3, 'db.version = 3 после миграции');
+assert(w('(s)=>s.db.version') === 5, 'db.version = 5 после миграции');
 assert(Array.isArray(w('(s)=>s.db.wishlist')), 'wishlist добавлен миграцией');
 assert(w('(s)=>s.db.backupDate') === null, 'backupDate добавлен миграцией');
 assert(Array.isArray(w('(s)=>s.db.labels')), 'labels добавлен миграцией');
@@ -206,6 +221,158 @@ assert(registry['#evTitle'].value === 'Годовщина', 'поля модал
 w('(s)=>s.openEventModal()');
 assert(registry['#evModalTitle'].textContent === '💜 Памятная дата', 'новая дата — обычный заголовок');
 assert(registry['#evTitle'].value === '', 'новая дата — пустые поля');
+assert(registry['#evHeadSub'].textContent.includes('Сохрани важный день'), 'у модалки события есть подзаголовок (создание)');
+w('(s)=>s.openEventModal("e1")');
+assert(registry['#evHeadSub'].textContent.includes('Поправь детали'), 'подзаголовок меняется при редактировании');
+w('(s)=>s.openEventModal()');
+
+// --- Календарь: быстрый выбор месяца/года ---
+w('(s)=>s.jumpCalendar(7,2027)');
+assert(!registry['#calTitle'], 'месяц/год показывают только селекты (текст-заголовок удалён)');
+assert(registry['#calMonthSelect'].value === '7' && registry['#calYearSelect'].value === '2027', 'селекты синхронизированы с текущим месяцем/годом');
+
+// --- Кастомный date-picker (вместо системного календаря браузера) ---
+assert(Array.isArray(registry['#evDate']._handlers.focus) && registry['#evDate']._handlers.focus.length > 0, 'поля дат открывают свой календарь (focus)');
+assert(Array.isArray(registry['#evEnd']._handlers.focus) && registry['#evEnd']._handlers.focus.length > 0, 'у поля «До» тоже свой календарь');
+assert(w('(s)=>s.dpIso(2026,7,9)') === '2026-08-09', 'dpIso собирает ISO-дату');
+w('(s)=>{s.dpM=7;s.dpY=2026;s.renderDatePop();}');
+assert(registry['#dpDays'].innerHTML.includes('dp-day'), 'date-picker рисует сетку дней');
+assert(registry['#dpMonth'].innerHTML.includes('Август'), 'date-picker показывает селект месяца');
+const fakeDp = w('(s)=>{s.dpInput={value:"",dispatchEvent(){}};return s.dpInput;}');
+w('(s)=>s.pickDpDate("2026-08-09")');
+assert(fakeDp.value === '2026-08-09', 'выбор даты пишет ISO в поле');
+assert(registry['#datePop'].hidden === true, 'после выбора попап закрывается');
+w('(s)=>s.jumpCalendar(0,2026)');
+assert(registry['#calMonthSelect'].value === '0' && registry['#calYearSelect'].value === '2026', 'jumpCalendar умеет возвращаться (селекты)');
+
+// --- Длительные события: диапазон дней ---
+w('(s)=>{s.jumpCalendar(7,2026);s.db.events.push({id:"e9",title:"Путешествие",date:s.iso(2026,7,1),endDate:s.iso(2026,7,5),emoji:"✈️",repeat:false});s.renderCalendar();}');
+assert(w('(s)=>s.eventsOn(s.iso(2026,7,1),7,1).some(e=>e.id==="e9")'), 'длительное событие есть в первый день');
+assert(w('(s)=>s.eventsOn(s.iso(2026,7,3),7,3).some(e=>e.id==="e9")'), 'длительное событие есть в середине диапазона');
+assert(!w('(s)=>s.eventsOn(s.iso(2026,7,6),7,6).some(e=>e.id==="e9")'), 'длительное событие не выходит за диапазон');
+assert((registry['#calendar'].innerHTML.match(/✈️/g) || []).length === 5, 'календарь показывает событие на всех днях диапазона');
+w('(s)=>{s.selectedDate=s.iso(2026,7,3);s.renderDayPanel();}');
+assert(registry['#dayPanel'].innerHTML.includes('Путешествие'), 'длительное событие видно в панели дня');
+assert(registry['#dayPanel'].innerHTML.includes('до 5 авг'), 'в панели дня показан конец диапазона');
+w('(s)=>s.openEventModal("e9")');
+assert(registry['#evEnd'].value === '2026-08-05', 'модалка помнит конец диапазона');
+
+// --- Фото в событие через календарь ---
+w('(s)=>{s.openEventModal();}');
+registry['#evTitle'].value = 'Поездка в горы';
+registry['#evDate'].value = '2026-08-20';
+registry['#evEnd'].value = '2026-08-24';
+w('(s)=>{s.evPhotoData=["data:image/jpeg;base64,BB=="];}');
+w('(s)=>s.saveEventFromModal()');
+const lastEv = w('(s)=>s.db.events[s.db.events.length-1]');
+assert(lastEv.title === 'Поездка в горы' && JSON.stringify(lastEv.photos) === '["data:image/jpeg;base64,BB=="]', 'событие сохранило фото');
+assert(lastEv.endDate === '2026-08-24' && lastEv.repeat === false, 'долгое событие сохраняет диапазон и не повторяется');
+assert(w('(s)=>s.db.photos.some(p=>p.data==="data:image/jpeg;base64,BB==")'), 'фото события появилось в галерее');
+assert(w('(s)=>s.db.labels.includes("📅 События")'), 'фото события получает общий лейбл «📅 События»');
+assert(w('(s)=>s.db.labels.includes("Поездка в горы")') === false, 'лейбл-название события больше не создаётся');
+assert(w('(s)=>JSON.stringify(s.db.photos.find(p=>p.data==="data:image/jpeg;base64,BB==").labels)') === '["📅 События"]', 'фото события подписано общим лейблом');
+assert(w('(s)=>s.db.photos.find(p=>p.data==="data:image/jpeg;base64,BB==").title') === 'Поездка в горы', 'название события остаётся подписью фото');
+w('(s)=>{s.selectedDate="2026-08-20";s.renderDayPanel();}');
+assert(registry['#dayPanel'].innerHTML.includes('ev-thumb'), 'панель дня показывает миниатюру фото события');
+assert(registry['#dayPanel'].innerHTML.includes('data-photo-event'), 'в панели дня есть кнопка быстрого добавления фото');
+
+// --- Витрина «📅 События» в галерее: фильтр кнопками «год → месяц → событие» ---
+w('(s)=>{s.currentLabel="📅 События";s.renderPhotos();}');
+assert(registry['#labelBar'].innerHTML.includes('📅 События'), 'в фильтре появился чип «События»');
+assert(registry['#eventBar'].style.display === 'flex', 'витрина событий показана');
+assert(registry['#eventYears'].innerHTML.includes('data-ev-year="2026"'), 'витрина показывает кнопки годов');
+assert(registry['#eventMonths'].style.display === 'none', 'месяцы появляются только после выбора года');
+assert(registry['#eventTitles'].style.display === 'none', 'события появляются только после выбора месяца');
+assert(registry['#photosGrid'].innerHTML.includes('photo-caption'), 'в витрине фото подписаны названием события');
+w('(s)=>{s.eventFilter.year="2026";s.renderPhotos();}');
+assert(registry['#eventMonths'].style.display === 'flex' && registry['#eventMonths'].innerHTML.includes('Август'), 'после выбора года появляются кнопки месяцев');
+assert(registry['#eventYears'].innerHTML.includes('ev-btn active'), 'выбранный год подсвечен');
+w('(s)=>{s.eventFilter.month="08";s.renderPhotos();}');
+assert(registry['#eventTitles'].style.display === 'flex' && registry['#eventTitles'].innerHTML.includes('Поездка в горы'), 'после выбора месяца появляются кнопки событий');
+w('(s)=>{s.eventFilter.title="Поездка в горы";s.renderPhotos();}');
+assert(registry['#photosGrid'].innerHTML.includes('Поездка в горы'), 'фильтр по событию внутри витрины работает');
+assert(registry['#eventReset'].style.display === 'inline-block', 'при активном фильтре видна кнопка сброса');
+w('(s)=>s.deleteLabel("📅 События")');
+assert(w('(s)=>s.db.photos.find(p=>p.data==="data:image/jpeg;base64,BB==").labels.includes("📅 События")'), 'служебный лейбл «События» нельзя удалить');
+w('(s)=>{s.eventFilter={year:"",month:"",title:""};s.currentLabel="";s.renderPhotos();}');
+
+// --- Удаление фото убирает его и из события (в календаре не остаётся «мёртвых» миниатюр) ---
+w('(s)=>{const ph=s.db.photos.find(p=>p.data==="data:image/jpeg;base64,BB==");s.deletePhoto(ph.id);}');
+assert(w('(s)=>!s.db.photos.some(p=>p.data==="data:image/jpeg;base64,BB==")'), 'удаление убирает фото из галереи');
+assert(w('(s)=>{const ev=s.db.events.find(x=>x.title==="Поездка в горы");return !ev.photos || ev.photos.length===0;}'), 'удалённое фото убирается из события');
+
+// --- v4-миграция: старые фото событий переходят на общий лейбл ---
+w('(s)=>{s.db.events.push({id:"legacy",title:"Старое",date:s.iso(2026,6,1),photos:["data:legacy"]});s.db.photos.push({id:"oldph",data:"data:legacy",title:"Старое",labels:["Старое"],pinned:false,ts:1,order:0});s.relabelEventPhotos(s.db);}');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="oldph").labels.includes("📅 События")'), 'v4: старое фото события получает общий лейбл');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="oldph").labels.includes("Старое")') === false, 'v4: старый лейбл-название убран');
+
+// --- После сохранения календарь перепрыгивает на месяц события ---
+w('(s)=>{s.jumpCalendar(0,2026);s.openEventModal();}');
+registry['#evTitle'].value = 'Отпуск на море';
+registry['#evDate'].value = '2026-08-20';
+registry['#evEnd'].value = '2026-08-24';
+w('(s)=>s.saveEventFromModal()');
+assert(registry['#calMonthSelect'].value === '7' && registry['#calYearSelect'].value === '2026', 'календарь перескочил на месяц сохранённого события (селекты)');
+assert(registry['#calendar'].innerHTML.includes('Отпуск на море'), 'событие сразу видно в календаре после сохранения');
+assert(/💜 Отпуск на море/.test(registry['#calendar'].innerHTML), 'в ячейке календаря видно название события рядом с эмодзи');
+assert(w('(s)=>s.selectedDate') === '2026-08-20', 'после сохранения выделен день начала события');
+
+// --- Конец раньше начала — событие не сохраняется ---
+w('(s)=>{s.openEventModal();}');
+registry['#evTitle'].value = 'Перепутанные даты';
+registry['#evDate'].value = '2026-08-20';
+registry['#evEnd'].value = '2026-08-19';
+const evCountBefore = w('(s)=>s.db.events.length');
+w('(s)=>s.saveEventFromModal()');
+assert(w('(s)=>s.db.events.length') === evCountBefore, 'конец раньше начала не сохраняет событие');
+
+// --- Календарь: «⏭ К ближайшему событию» ---
+w('(s)=>{const d=new Date();s.db.events.push({id:"nx1",title:"Ближайшее событие",date:s.iso(d.getFullYear(),d.getMonth(),d.getDate()),emoji:"🎈",repeat:false});}');
+const nx = w('(s)=>{const r=s.nextUpcoming();if(!r)return null;const [yy,mm]=r.date.split("-").map(Number);s.jumpToNearestEvent();return {date:r.date,title:r.title,m:mm-1,y:yy};}');
+assert(nx && nx.date !== undefined, 'nextUpcoming: есть ближайшее событие/свидание');
+assert(registry['#calMonthSelect'].value === String(nx.m) && registry['#calYearSelect'].value === String(nx.y), 'кнопка переключила календарь на месяц ближайшего события');
+assert(w('(s)=>s.selectedDate') === nx.date, 'после прыжка выделен день ближайшего события');
+assert(registry['#jumpInfo'].hidden === false && registry['#jumpInfo'].textContent.includes(nx.title), 'подпись показывает, что за событие');
+w('(s)=>s.jumpCalendar(0,2026)');
+assert(registry['#jumpInfo'].hidden === true, 'ручная навигация прячет подпись');
+
+// --- Календарь: плашка видна, даже когда событие в текущем месяце (без прыжка) ---
+w('(s)=>{s.jumpCalendar(new Date().getMonth(), new Date().getFullYear());s.selectedDate=null;s.showNearestEvent();}');
+assert(registry['#jumpInfo'].hidden === false && registry['#jumpInfo'].textContent.includes('Ближайшее'),
+  'плашка показывается и для события в текущем месяце');
+// --- Календарь: открытие вкладки само показывает и прыгает к ближайшему событию ---
+w('(s)=>{s.jumpCalendar(0,2020);s.go("calendar");}');
+assert(registry['#jumpInfo'].hidden === false, 'открытие календаря само показывает плашку (без кнопки)');
+assert(w('(s)=>{const [yy,mm]=s.selectedDate.split("-").map(Number);return mm-1;}') === +registry['#calMonthSelect'].value,
+  'открытие календаря само прыгает на месяц ближайшего события');
+
+// --- drag&drop заметок: чистая логика перестановки (порядок ids) ---
+assert(JSON.stringify(w('(s)=>s.reorderNoteIds(["a","b","c"],"a","c",true)')) === '["b","c","a"]', 'reorderNoteIds: перенос в конец');
+assert(JSON.stringify(w('(s)=>s.reorderNoteIds(["a","b","c"],"c","a",false)')) === '["c","a","b"]', 'reorderNoteIds: перенос в начало');
+assert(JSON.stringify(w('(s)=>s.reorderNoteIds(["a","b","c"],"b","c",true)')) === '["a","c","b"]', 'reorderNoteIds: перенос в середину');
+
+// --- Заметки: автор, редактирование, drag&drop ---
+w('(s)=>{s.db.notes.length=0;s.db.notes.push({id:"n1",text:"Заметка Гоши",ts:1,pinned:false,author:"gosha",order:1});s.db.notes.push({id:"n2",text:"Заметка Даши",ts:2,pinned:true,author:"dasha",order:0});s.go("notes");}');
+const notesHtml = registry['#notesGrid'].innerHTML;
+assert(notesHtml.includes('👦 Гоша') && notesHtml.includes('👧 Даша'), 'в заметке виден автор');
+assert(notesHtml.includes('data-edit-note'), 'у заметки есть кнопка ✏️ редактирования');
+assert(notesHtml.includes('draggable="true"'), 'заметки перетаскиваемые (drag&drop)');
+assert(notesHtml.indexOf('Заметка Даши') < notesHtml.indexOf('Заметка Гоши'), 'закреплённая заметка выше');
+w('(s)=>{const a=s.db.notes.find(x=>x.id==="n1");const b=s.db.notes.find(x=>x.id==="n2");a.pinned=false;b.pinned=false;a.order=0;b.order=1;s.renderNotes();}');
+assert(registry['#notesGrid'].innerHTML.indexOf('Заметка Гоши') < registry['#notesGrid'].innerHTML.indexOf('Заметка Даши'), 'drag&drop-порядок (order) применяется');
+w('(s)=>s.startEditNote("n1")');
+assert(registry['#notesGrid'].innerHTML.includes('note-editor'), 'редактирование: появилось поле ввода');
+w('(s)=>s.saveNoteEdit("n1","Обновлённый текст")');
+assert(w('(s)=>s.db.notes.find(x=>x.id==="n1").text') === 'Обновлённый текст', 'правка сохраняет текст заметки');
+assert(w('(s)=>s.db.notes.find(x=>x.id==="n1").author') === 'gosha', 'автор сохраняется при правке');
+assert(registry['#notesGrid'].innerHTML.includes('note-editor') === false, 'после сохранения поле ввода закрывается');
+// Удалять и закреплять может любой
+w('(s)=>s.togglePinNote("n1")');
+assert(w('(s)=>s.db.notes.find(x=>x.id==="n1").pinned') === true, 'закрепить заметку может любой');
+w('(s)=>s.deleteNote("n2")');
+assert(!w('(s)=>s.db.notes.some(x=>x.id==="n2")'), 'удалить заметку может любой');
+
+
 
 // --- Таймер до события ---
 w('(s)=>{const d=new Date();d.setDate(d.getDate()+2);s.renderCountdown();}');
@@ -221,6 +388,22 @@ assert(wishHtml.includes('Хотелки Гоши') && wishHtml.includes('Хот
 assert(wishHtml.includes('wish-link'), 'ссылка в хотелке есть');
 w('(s)=>{const x=s.db.wishlist.find(v=>v.id==="w1");x.done=true;s.renderWishlist();}');
 assert(registry['#wishlistGrid'].innerHTML.includes('wish done'), 'выполненная хотелка помечена');
+
+// --- Вишлист: «исполнено другим» + исполненные вниз списка ---
+w('(s)=>{s.setUser("gosha");}');
+w('(s)=>{s.db.wishlist.length=0;s.db.wishlist.push({id:"g1",text:"Мечта Гоши",owner:"gosha",done:false,ts:1});s.db.wishlist.push({id:"g2",text:"Ещё мечта",owner:"gosha",done:true,doneBy:"dasha",doneAt:1750000000000,ts:2});s.db.wishlist.push({id:"d1",text:"Мечта Даши",owner:"dasha",done:false,ts:3});s.renderWishlist();}');
+const wgHtml = registry['#wishlistGrid'].innerHTML;
+assert(wgHtml.includes('Исполнено Дашей'), 'видно, кто исполнил хотелку');
+assert(wgHtml.indexOf('Ещё мечта') > wgHtml.indexOf('Мечта Гоши'), 'исполненная хотелка уходит вниз списка');
+assert(wgHtml.includes('wish-hint'), 'свою хотелку нельзя исполнить самому — подсказка');
+const wdCan = w('(s)=>s.wishCard({id:"d9",text:"x",owner:"dasha",done:false,ts:9})');
+assert(wdCan.includes('data-wish-done'), 'чужую хотелку можно исполнить — кнопка есть');
+const wdOwn = w('(s)=>s.wishCard({id:"g9",text:"x",owner:"gosha",done:false,ts:9})');
+assert(!wdOwn.includes('data-wish-done'), 'своей хотелки кнопки «исполнить» нет');
+const wdUndo = w('(s)=>s.wishCard({id:"x",text:"x",owner:"dasha",done:true,doneBy:"gosha",doneAt:1,ts:1})');
+assert(wdUndo.includes('data-wish-done') && wdUndo.includes('Снять отметку'), 'исполнивший может снять отметку');
+const wdLocked = w('(s)=>s.wishCard({id:"x",text:"x",owner:"dasha",done:true,doneBy:"dasha",doneAt:1,ts:1})');
+assert(!wdLocked.includes('data-wish-done'), 'чужую отметку нельзя снять');
 
 // --- Фото: лейблы вместо альбомов, выбор нескольких ---
 w('(s)=>{s.db.photos.push({id:"p2",data:"data:image/jpeg;base64,AA==",title:"море",labels:["Поездка","Семья"],pinned:false,ts:2,order:1});s.db.photos.push({id:"p3",data:"data:image/jpeg;base64,AA==",title:"кафе",labels:["Свидание"],pinned:false,ts:3,order:2});s.db.labels=["Поездка","Семья","Свидание"];s.renderPhotos();}');
@@ -246,6 +429,22 @@ w('(s)=>{s.deleteLabel("Семья");}');
 assert(!registry['#labelBar'].innerHTML.includes('Семья'), 'лейбл удалён из фильтра');
 assert(!registry['#photosGrid'].innerHTML.includes('Семья'), 'лейбл снят с фото, фото на месте');
 w('(s)=>{s.selectedPhotos.clear();s.renderPhotos();}');
+
+// --- Фото: drag&drop лейблов (логика) + крестик ✕ на бейдже фото ---
+w('(s)=>{s.db.photos.push({id:"p4",data:"data:image/jpeg;base64,AA==",title:"п4",labels:[],pinned:false,ts:4,order:4});}');
+w('(s)=>{s.applyLabelToPhotos("Драго",["p4","p2"]);}');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="p4").labels.includes("Драго")'), 'drag&drop: лейбл получило перетаскиваемое фото');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("Драго")'), 'drag&drop: лейбл получили и отмеченные фото');
+w('(s)=>{s.selectedPhotos.add("p2");s.applyLabelToSelected("Новое");}');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("Новое")'), 'применение лейбла к выбранным работает');
+assert(w('(s)=>s.selectedPhotos.size') === 0, 'после применения лейбла выделение снимается');
+w('(s)=>s.removeLabelFromPhoto("p2","Новое")');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("Новое")') === false, 'крестик ✕ убирает лейбл с конкретного фото');
+assert(w('(s)=>s.db.photos.some(p=>p.id==="p2")'), 'фото при этом остаётся на месте');
+w('(s)=>{s.db.photos.push({id:"pev",data:"data:image/jpeg;base64,AA==",title:"событие",labels:["📅 События"],pinned:false,ts:5,order:5});s.renderPhotos();}');
+const pOffHtml = registry['#photosGrid'].innerHTML;
+assert(pOffHtml.includes('data-label-off="Драго"'), 'у обычного лейбла на фото есть крестик ✕');
+assert(!pOffHtml.includes('data-label-off="📅 События"'), 'у служебного лейбла «События» крестика нет');
 
 // --- Настройки: резервная копия, место и личный кабинет ---
 w('(s)=>s.go("settings")');
@@ -302,10 +501,30 @@ for (const v of ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'so
 assert(true, 'all views rendered without errors');
 
 // --- Регрессии после аудита ---
-assert(/\S+ \d{4}/.test(registry['#calTitle'].textContent || ''), 'заголовок календаря без «undefined undefined»');
+assert(registry['#calMonthSelect'] && !isNaN(+registry['#calMonthSelect'].value) && !isNaN(+registry['#calYearSelect'].value), 'селекты месяца/года без «undefined»');
 assert(registry['#calendar'].innerHTML.includes('tabindex="0"'), 'ячейки календаря доступны с клавиатуры');
 w('(s)=>{s.countdownTarget = Date.now() - 1000; s.tickCountdown(); return 1;}');
 assert(/\d+\s*дн\./.test(registry['#countdownTick'].textContent || ''), 'таймер сам пересчитывает цель после наступления');
+
+// --- Регрессия: создание события кликом по кнопке «＋ Добавить дату» ---
+// Раньше addEventListener('click', openEventModal) передавал MouseEvent как id:
+// модалка открывалась в режиме «Изменить дату» и событие молча терялось.
+const addEvBtn = registry['#addEventBtn'];
+const addEvClicks = (addEvBtn._handlers || {}).click || [];
+assert(addEvClicks.length >= 1, 'на кнопке «＋ Добавить дату» есть обработчик клика');
+addEvClicks[0]({ type: 'click', target: addEvBtn }); // браузер передаёт MouseEvent
+assert(registry['#evModalTitle'].textContent === '💜 Памятная дата',
+  'модалка нового события — «Памятная дата», а не «Изменить дату»');
+assert(w('(s)=>s.editingEventId') === null, 'создание через кнопку не ставит editingEventId');
+registry['#evTitle'].value = 'Клик-событие';
+registry['#evDate'].value = '2026-08-10';
+registry['#evEnd'].value = '2026-08-18';
+registry['#evRepeat'].checked = false;
+(registry['#evSave']._handlers.click || []).forEach(fn => fn());
+assert(w('(s)=>s.db.events.some(e=>e.title==="Клик-событие" && e.date==="2026-08-10")'),
+  'событие, созданное кликом по кнопке, сохранено в db.events');
+assert(registry['#calendar'].innerHTML.includes('Клик-событие'),
+  'созданное кликом событие видно в календаре');
 
 // --- Сброс очищает сейф ---
 w('(s)=>{s.localStorage.removeItem("universe_vault"); s.localStorage.removeItem("universe");}');

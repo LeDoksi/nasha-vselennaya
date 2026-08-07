@@ -113,19 +113,6 @@ h3{font-weight:800}
 .counter span{color:var(--muted);font-weight:700;margin-top:8px}
 .counter small{color:var(--muted);margin-top:2px}
 
-/* ===== Напоминания ===== */
-.reminders{margin-top:28px}
-.reminders h3{font-size:20px;margin-bottom:12px}
-.rem{
-  display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--border);
-  border-radius:16px;padding:14px 18px;margin-bottom:10px;
-  box-shadow:0 6px 18px rgba(139,92,246,.08);font-size:15px;
-}
-.rem b{flex:1}
-.rem span{margin-left:auto;background:var(--grad);color:#fff;font-size:12px;font-weight:800;padding:5px 12px;border-radius:999px;white-space:nowrap}
-.rem-today{background:linear-gradient(90deg,#fff0f7,#f3e8ff);border-color:var(--pink2)}
-.rem-empty{background:#fff;border:1px dashed var(--violet2);border-radius:16px;padding:26px;text-align:center;color:var(--muted)}
-
 /* ===== Парящие фото на главной ===== */
 .hero-zone{position:relative;margin-bottom:6px}
 .float-photos{position:absolute;inset:0;pointer-events:none;z-index:2}
@@ -147,6 +134,7 @@ h3{font-weight:800}
 .btn-date:hover{transform:translateY(-2px) scale(1.02)}
 .dates{margin-top:28px}
 .dates h3{font-size:20px;margin-bottom:12px}
+.dates-empty{background:#fff;border:1px dashed var(--violet2);border-radius:16px;padding:26px;text-align:center;color:var(--muted)}
 .date-card{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--border);border-radius:16px;padding:14px 18px;margin-bottom:10px;box-shadow:0 6px 18px rgba(139,92,246,.08)}
 .date-card.done{opacity:.6}
 .date-card.done .date-info b{text-decoration:line-through;color:var(--muted)}
@@ -168,18 +156,32 @@ h3{font-weight:800}
 .tag-today{background:linear-gradient(135deg,#be185d,#d6336c)}
 
 /* ===== Модалка «свидание» ===== */
-.two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+.two-col .field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.two-col .field input{width:100%}
 .modal textarea{resize:vertical;min-height:64px;font-family:inherit}
 
 
 /* ===== Календарь ===== */
 .cal-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
-.cal-head h3{font-size:22px;font-weight:800;flex:1;text-align:center}
 .cal-nav{
   width:40px;height:40px;border-radius:12px;border:1px solid var(--border);
   background:#fff;font-size:20px;cursor:pointer;color:var(--violet-ink);transition:.2s;
 }
 .cal-nav:hover{background:#fbf5ff;transform:translateY(-2px)}
+.cal-jump-row{display:flex;gap:8px;justify-content:center;flex:1;min-width:0}
+.cal-jump{
+  padding:8px 12px;border-radius:12px;border:1px solid var(--border);background:#fff;
+  font-size:14px;font-weight:700;color:var(--violet-ink);cursor:pointer;transition:.2s;font-family:inherit;
+}
+.cal-jump:hover{border-color:var(--pink2);background:#fbf5ff}
+/* Подпись после «⏭ К ближайшему событию» — что это за событие */
+.cal-jump-info{
+  background:linear-gradient(135deg,#fff5fb,#fbf5ff);border:1px dashed var(--pink2);
+  border-radius:14px;padding:10px 14px;font-weight:700;font-size:14px;color:var(--pink-ink);
+  margin:-8px 0 14px;
+}
+.cal-jump-info[hidden]{display:none}
 .calendar{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)}
 .cal-row{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
 .cal-head-row{margin-bottom:6px}
@@ -187,22 +189,31 @@ h3{font-weight:800}
   aspect-ratio:1;border-radius:14px;display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:1px;cursor:pointer;transition:background .2s;border:1px solid transparent;
 }
-.cal-cell:hover{background:#f7f0ff}
+.cal-cell:not(.selected):hover{background:#f7f0ff}
 .cal-cell.cal-empty{pointer-events:none}
+.cal-cell.in-span{background:linear-gradient(180deg,#f3e8ff,#fdf4ff)}
+.cal-cell.in-span .cal-num{color:#7c3aed}
 .cal-cell.today{border-color:var(--pink2);background:#fff5fb}
 .cal-cell.selected{background:var(--grad)}
 .cal-cell.selected .cal-num{color:#fff}
 .cal-dow{aspect-ratio:auto;font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;cursor:default;padding:4px 0}
 .cal-num{font-weight:800;font-size:14px}
-.cal-dot{font-size:11px;line-height:1.1}
+.cal-dot{
+  font-size:10px;line-height:1.15;max-width:100%;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;padding:0 4px;border-radius:6px;background:#fbf5ff;color:var(--violet-ink);
+}
 .cal-cell.has-date{border-color:var(--pink2)}
+.cal-dot-more{background:var(--pink2);color:#fff}
 .date-dot{background:#fff0f7;border-radius:99px;padding:1px 4px;line-height:1.4}
 .day-sub{font-size:12px;font-weight:800;color:var(--pink-ink);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px}
 .date-evt{background:#fff0f7;border:1px dashed var(--pink2)}
 .day-panel{margin-top:16px;background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:0 8px 24px rgba(139,92,246,.08)}
 .day-head{font-size:17px;margin-bottom:12px}
-.day-event{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fbf5ff;border-radius:12px;margin-bottom:8px;font-size:15px}
-.day-event span{flex:1}
+.day-event{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fbf5ff;border-radius:12px;margin-bottom:8px;font-size:15px;flex-wrap:wrap}
+.day-event > span{flex:1;min-width:120px}
+.ev-range{color:var(--muted);font-size:12px;font-weight:600;margin-left:6px}
+.day-event .ev-thumbs{flex:1 0 100%;display:flex;gap:4px;align-items:center}
+.ev-thumb{width:56px;height:56px;object-fit:cover;border-radius:10px;cursor:zoom-in;border:1px solid var(--border)}
 .day-add{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
 .day-add input{flex:1;min-width:140px}
 .cal-tip{color:var(--muted);font-size:14px}
@@ -219,12 +230,22 @@ h3{font-weight:800}
 .note{
   background:#fff;border:1px solid var(--border);border-radius:18px;padding:14px;
   box-shadow:0 8px 20px rgba(139,92,246,.07);transition:transform .25s,box-shadow .25s;
+  cursor:grab;
 }
+.note:active{cursor:grabbing}
 .note:hover{transform:translateY(-4px) rotate(-.5deg);box-shadow:0 14px 30px rgba(139,92,246,.14)}
 .note.pinned{border-color:var(--pink2);background:linear-gradient(160deg,#fff5fb,#fbf5ff)}
 .note-top{display:flex;align-items:center;gap:6px;margin-bottom:8px}
-.note-date{font-size:12px;color:var(--muted);flex:1}
+.note-author{font-size:12px;font-weight:800;color:var(--violet-ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.note-date{font-size:12px;color:var(--muted);white-space:nowrap}
 .note p{white-space:pre-wrap;font-size:15px;word-break:break-word}
+/* drag&drop перестановка заметок */
+.note.dragging{opacity:.45;border-style:dashed;transform:none;box-shadow:none}
+.note.drop-before{box-shadow:0 -4px 0 0 var(--pink2),0 0 0 2px rgba(244,114,182,.18)}
+.note.drop-after{box-shadow:0 4px 0 0 var(--pink2),0 0 0 2px rgba(244,114,182,.18)}
+.note-editor{width:100%;min-height:80px;padding:10px;border-radius:12px;border:1px solid var(--border);font-family:inherit;font-size:15px;resize:vertical}
+.note-edit-btns{display:flex;align-items:center;gap:8px;margin-top:8px}
+.btn-sm{padding:6px 12px;font-size:13px;border-radius:10px}
 
 /* ===== Списки ===== */
 .lists-wrap{display:grid;grid-template-columns:1fr 1fr;gap:20px}
@@ -306,6 +327,60 @@ h3{font-weight:800}
 .modal-x:hover{background:#ffe4e6;color:#e11d48}
 .modal label{font-weight:800;font-size:13px;color:var(--muted)}
 .modal .check{display:flex;align-items:center;gap:8px;height:auto;width:auto;background:none;border:none;color:var(--ink);font-size:14px;cursor:pointer}
+.modal input[type=checkbox]{accent-color:#ec4899;width:17px;height:17px;cursor:pointer}
+/* Модалка «добавить дату» — в стиле сайта: градиентная шапка + аккуратные поля */
+.event-modal{overflow:hidden;padding:0;width:min(460px,100%);border:1px solid var(--border)}
+.ev-head{flex:none;background:var(--grad);color:#fff;padding:22px 26px 18px;border-bottom:1px solid rgba(255,255,255,.25)}
+.ev-head h3{color:#fff;font-size:20px}
+.ev-head-sub{color:rgba(255,255,255,.88);font-size:13px;font-weight:600;margin-top:2px}
+.event-modal .modal-x{top:16px;right:16px;background:rgba(255,255,255,.92);border-color:transparent}
+.event-modal .modal-x:hover{background:#fff;color:#e11d48}
+.ev-body{flex:1;min-height:0;overflow-y:auto;padding:22px 26px 26px;display:flex;flex-direction:column;gap:12px}
+.ev-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ev-col{display:flex;flex-direction:column;gap:6px}
+.ev-col label{font-size:12px}
+.ev-note{background:#fbf5ff;border:1px dashed var(--violet2);border-radius:12px;padding:10px 12px;font-size:13px;color:var(--muted);margin-top:-2px}
+.ev-photo-count{align-self:center;color:var(--muted);font-size:13px}
+.ev-save{width:100%;justify-content:center;padding:13px;font-size:15px;margin-top:2px}
+.event-modal .list-add{margin-bottom:0}
+.event-modal .file-btn{flex:none}
+.event-modal input[type=date]{color-scheme:light}
+[data-theme="dark"] .event-modal input[type=date]{color-scheme:dark}
+[data-theme="dark"] .ev-head{background:linear-gradient(135deg,#5b21b6,#9d174d)}
+[data-theme="dark"] .ev-note{background:#3d2a50;border-color:#4c3d6a}
+@media (max-width:420px){.ev-grid{grid-template-columns:1fr}}
+/* Кастомный date-picker (вместо системного календаря браузера) */
+input[type=date]::-webkit-calendar-picker-indicator{display:none;-webkit-appearance:none}
+input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-button{display:none;-webkit-appearance:none}
+.date-pop{
+  position:fixed;z-index:200;background:#fff;border:1px solid var(--border);border-radius:18px;
+  box-shadow:0 20px 50px rgba(139,92,246,.28);padding:14px;width:272px;animation:pop .18s ease;
+}
+.date-pop[hidden]{display:none}
+.dp-head{display:flex;align-items:center;gap:6px;margin-bottom:10px}
+.dp-nav{width:30px;height:30px;border-radius:10px;border:1px solid var(--border);background:#fff;font-size:16px;cursor:pointer;color:var(--violet-ink);transition:.2s;font-family:inherit}
+.dp-nav:hover{background:#fbf5ff;border-color:var(--violet2);transform:translateY(-1px)}
+.dp-jump{display:flex;gap:4px;flex:1;justify-content:center;min-width:0}
+.dp-select{padding:5px 8px;border-radius:10px;border:1px solid var(--border);background:#fff;font-size:12px;font-weight:800;color:var(--violet-ink);cursor:pointer;font-family:inherit;outline:none;transition:.2s;max-width:100%}
+.dp-select:hover{border-color:var(--pink2);background:#fbf5ff}
+.dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:10px}
+.dp-dow{font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;text-align:center;padding:4px 0}
+.dp-day{height:30px;border-radius:10px;border:none;background:none;font-size:13px;font-weight:700;color:var(--ink);cursor:pointer;transition:background .15s}
+.dp-day:hover{background:#f7f0ff}
+.dp-day.empty{pointer-events:none;visibility:hidden}
+.dp-day.today{border:1px solid var(--pink2)}
+.dp-day.picked{background:var(--grad);color:#fff;box-shadow:0 4px 12px rgba(236,72,153,.35)}
+.dp-foot{display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--border);padding-top:10px}
+.dp-mini{padding:6px 14px;border-radius:999px;border:1px solid var(--border);background:#fff;font-size:12px;font-weight:800;color:var(--violet-ink);cursor:pointer;transition:.2s;font-family:inherit}
+.dp-mini:hover{background:#fbf5ff;border-color:var(--pink2)}
+.dp-mini.clear{color:#e11d48}
+[data-theme="dark"] .date-pop{background:var(--card);border-color:#4c3d6a}
+[data-theme="dark"] .dp-nav,[data-theme="dark"] .dp-select,[data-theme="dark"] .dp-mini{background:#3d2a50;border-color:#4c3d6a;color:#e9dcff}
+[data-theme="dark"] .dp-nav:hover,[data-theme="dark"] .dp-select:hover,[data-theme="dark"] .dp-mini:hover{background:#4c3d6a;border-color:#ec4899}
+[data-theme="dark"] .dp-day{color:#f3e8ff}
+[data-theme="dark"] .dp-day:hover{background:#4c3d6a}
+[data-theme="dark"] .dp-day.today{border-color:#ec4899}
+[data-theme="dark"] .dp-foot{border-color:#4c3d6a}
 .modal-center{text-align:center;align-items:center}
 .user-sub{color:var(--muted);font-size:15px}
 .user-btns{display:flex;gap:14px;margin-top:6px;justify-content:center}
@@ -343,6 +418,9 @@ h3{font-weight:800}
 .wish-link{display:inline-flex;align-items:center;gap:4px;color:var(--violet-ink);font-size:13px;font-weight:700;text-decoration:none;margin-top:8px}
 .wish-link:hover{text-decoration:underline}
 .wish-btns{display:flex;gap:8px;margin-top:10px}
+.wish-done-by{display:block;margin-top:8px;font-size:12px;font-weight:800;color:var(--violet-ink)}
+.wish.done .wish-done-by{color:var(--pink-ink)}
+.wish-hint{display:block;margin-top:10px;font-size:12px;font-weight:700;color:var(--muted)}
 
 /* ===== Мобильные парящие фото ===== */
 .mobile-photos{display:none;margin-top:16px}
@@ -359,6 +437,26 @@ h3{font-weight:800}
 .album-chip:hover{border-color:var(--violet2)}
 .album-chip.active{background:var(--grad);color:#fff;border-color:transparent}
 .album-add-btn{font-size:13px;padding:6px 12px}
+/* Подсветка кнопки лейбла, когда тащишь на неё фото */
+.album-chip.drag-over{border-color:transparent;background:var(--grad);color:#fff;transform:scale(1.06);box-shadow:0 0 0 3px var(--pink2)}
+/* Чип лейбла можно перетащить прямо на фото */
+.album-chip[draggable="true"]{cursor:grab}
+.album-chip[draggable="true"]:active{cursor:grabbing}
+
+/* Витрина «📅 События»: селект конкретного события + подпись на фото */
+.ev-album-bar{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+.ev-filter-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.ev-filter-level{display:none;flex-wrap:wrap;gap:8px;align-items:center}
+.ev-filter-level:empty{display:none}
+.ev-btn{padding:8px 16px;border-radius:999px;border:1px solid var(--border);background:#fff;font-weight:700;font-size:13px;color:var(--ink);cursor:pointer;transition:.2s;line-height:1.25}
+.ev-btn:hover{border-color:var(--violet2);transform:translateY(-1px)}
+.ev-btn.active{background:var(--grad);color:#fff;border-color:transparent}
+.ev-btn .cnt{opacity:.65;font-weight:600;margin-left:3px;font-size:11px}
+.ev-btn.active .cnt{opacity:.85}
+.ev-reset-btn{padding:6px 14px;border-radius:999px;border:1px dashed var(--border);background:transparent;font-weight:700;font-size:12px;color:var(--muted);cursor:pointer;transition:.2s}
+.ev-reset-btn:hover{border-color:var(--pink2);color:var(--pink)}
+.ev-album-hint{color:var(--muted);font-size:13px;font-weight:600}
+.photo-caption{position:absolute;left:0;right:0;bottom:0;padding:18px 8px 6px;font-size:11px;font-weight:800;color:#fff;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(180deg,rgba(76,29,149,0),rgba(76,29,149,.62));pointer-events:none}
 
 /* ===== Дополнительно: таймер, бейджи, хотелки, фото ===== */
 .countdown-time{font-size:26px;font-weight:900;color:var(--ink);margin-top:6px;letter-spacing:.5px}
@@ -379,6 +477,8 @@ h3{font-weight:800}
   background:rgba(76,29,149,.78);color:#fff;font-size:10px;padding:2px 8px;border-radius:99px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
 }
+.photo-label-del{margin-left:4px;color:rgba(255,255,255,.9);font-weight:900;cursor:pointer;pointer-events:auto}
+.photo-label-del:hover{color:#fff}
 .sel-bar{
   display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;
   background:var(--grad);color:#fff;padding:10px 14px;border-radius:14px;
@@ -402,7 +502,6 @@ h3{font-weight:800}
   .lists-wrap{grid-template-columns:1fr}
   .header-inner{justify-content:center}
   .nav{justify-content:center}
-  .cal-head h3{order:0}
   .float-photo{display:none} /* на узких экранах вокруг блока нет места без наложений */
 }
 @media(max-width:480px){
@@ -427,19 +526,30 @@ h3{font-weight:800}
 [data-theme="dark"] .nav-btn.active{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 6px 18px rgba(236,72,153,.45);transform:scale(1.06);font-weight:900}
 [data-theme="dark"] .modal{background:var(--card)}
 [data-theme="dark"] input,[data-theme="dark"] textarea,[data-theme="dark"] select{background:var(--card);color:var(--ink)}
-[data-theme="dark"] .rem,[data-theme="dark"] .date-card,[data-theme="dark"] .note,[data-theme="dark"] .list-card,[data-theme="dark"] .calendar,[data-theme="dark"] .day-panel,[data-theme="dark"] .settings-card,[data-theme="dark"] .song-card,[data-theme="dark"] .photo,[data-theme="dark"] .wish{background:var(--card)}
-[data-theme="dark"] .cal-cell:hover{background:#3d2a50}
+[data-theme="dark"] .date-card,[data-theme="dark"] .note,[data-theme="dark"] .list-card,[data-theme="dark"] .calendar,[data-theme="dark"] .day-panel,[data-theme="dark"] .settings-card,[data-theme="dark"] .song-card,[data-theme="dark"] .photo,[data-theme="dark"] .wish{background:var(--card)}
+[data-theme="dark"] .cal-cell:not(.selected):hover{background:#3d2a50}
+[data-theme="dark"] .cal-cell.in-span{background:linear-gradient(180deg,#2e1b42,#3d2a50)}
+[data-theme="dark"] .cal-cell.in-span .cal-num{color:#c4b5fd}
 [data-theme="dark"] .cal-cell.today{background:#3d2a50}
-[data-theme="dark"] .cal-nav:hover,[data-theme="dark"] .day-event,[data-theme="dark"] .date-evt,[data-theme="dark"] .date-dot{background:#3d2a50}
+[data-theme="dark"] .cal-nav:hover,[data-theme="dark"] .day-event,[data-theme="dark"] .date-evt,[data-theme="dark"] .date-dot,[data-theme="dark"] .cal-dot{background:#3d2a50}
+[data-theme="dark"] .cal-dot-more{background:var(--pink2);color:#fff}
+[data-theme="dark"] .cal-jump{background:#241a31;border-color:#3d2a50;color:#e9d5ff}
+[data-theme="dark"] .cal-jump-info{background:linear-gradient(135deg,#3d2a50,#2a1f3a);color:#f9a8d4}
+[data-theme="dark"] .note-editor{background:var(--card);color:var(--ink)}
+[data-theme="dark"] .btn-sm{background:var(--grad);color:#fff}
+[data-theme="dark"] .ev-thumb{border-color:#3d2a50}
 [data-theme="dark"] .note.pinned,[data-theme="dark"] .user-btn{background:linear-gradient(160deg,#3d2a50,#2a1f3a);color:var(--ink)}
 [data-theme="dark"] .user-btn:hover{border-color:var(--pink2)}
 [data-theme="dark"] .resp-btn{background:var(--card);color:var(--ink)}
-[data-theme="dark"] .rem-today{background:linear-gradient(90deg,#3d2540,#2a2347)}
-[data-theme="dark"] .rem-empty{background:var(--card)}
+[data-theme="dark"] .dates-empty{background:var(--card)}
 [data-theme="dark"] .compliment-card{background:linear-gradient(160deg,#3d2a50,#2a1f3a)}
 [data-theme="dark"] .items li:hover{background:#3d2a50}
 [data-theme="dark"] .album-chip{background:var(--card);color:var(--ink)}
 [data-theme="dark"] .album-chip.active{background:var(--grad);color:#fff}
+[data-theme="dark"] .ev-btn{background:var(--card);color:var(--ink)}
+[data-theme="dark"] .ev-btn.active{background:var(--grad);color:#fff}
+[data-theme="dark"] .ev-reset-btn{color:var(--muted);border-color:#4c3d6a}
+[data-theme="dark"] .ev-reset-btn:hover{color:var(--pink);border-color:var(--pink2)}
 [data-theme="dark"] .sel-photo{background:#2a1f3a;color:#e9dcff;border:1px solid #4c3d6a}
 [data-theme="dark"] .mini-x,[data-theme="dark"] .cal-nav,[data-theme="dark"] .modal-x{background:#3d2a50;border-color:#4c3d6a;color:#e9dcff}
 [data-theme="dark"] .check{background:var(--card);border-color:#4c3d6a;color:var(--ink)}
