@@ -88,14 +88,14 @@ async function aesDec(key, blob) {
 }
 
 /* ===== Схема данных и миграции ===== */
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const EVENT_LABEL = '📅 События'; // общий лейбл всех фото, прикреплённых к событиям
 function defaultDB() {
   return {
     version: DB_VERSION,
     events: [{ id: uid(), title: 'Мы начали встречаться', date: START_DATE, emoji: '💜', repeat: true }],
     notes: [], shopping: [], todos: [], photos: [], dates: [],
-    wishlist: [], labels: [], backupDate: null
+    wishlist: [], labels: [], backupDate: null, moods: []
   };
 }
 // Миграции: аккуратно добавляем поля, которых ещё не было в старых версиях
@@ -126,13 +126,15 @@ function migrateDB(d) {
 }
 // Фото, прикреплённые к событиям (ev.photos), подписываем общим лейблом «📅 События».
 // Старые авто-лейблы с названием события убираем — за название отвечает title фото.
+// Поддерживает ev.photos как data-URL (старые версии) так и id фото (v6+).
 function relabelEventPhotos(d) {
   if (!Array.isArray(d.photos) || !Array.isArray(d.events)) return;
   let found = false;
   for (const ev of d.events) {
     if (!Array.isArray(ev.photos)) continue;
     for (const data of ev.photos) {
-      const p = d.photos.find(x => x.data === data);
+      const isUrl = typeof data === 'string' && data.startsWith('data:');
+      const p = d.photos.find(x => isUrl ? x.data === data : x.id === data);
       if (!p) continue;
       if (!Array.isArray(p.labels)) p.labels = [];
       if (!p.labels.includes(EVENT_LABEL)) p.labels.push(EVENT_LABEL);
