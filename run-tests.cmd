@@ -7,6 +7,13 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+echo Сборка app.js из src\...
+node build.js
+if errorlevel 1 (
+  echo Сборка не удалась — тесты не запускаю.
+  pause
+  exit /b 1
+)
 echo Запуск проверки «Нашей вселенной»...
 node tests\uni-smoke.js app.js
 pause

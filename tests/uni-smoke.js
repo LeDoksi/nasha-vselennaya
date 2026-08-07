@@ -77,6 +77,7 @@ function __TEST__(s){
   s.selectedPhotos = selectedPhotos; s.renderLabels = renderLabels;
   s.deleteLabel = deleteLabel; s.deletePhoto = deletePhoto; s.applyLabelToSelected = applyLabelToSelected; s.openLabelOverlay = openLabelOverlay;
   s.applyLabelToPhotos = applyLabelToPhotos; s.removeLabelFromPhoto = removeLabelFromPhoto;
+  s.filteredPhotos = filteredPhotos; s.renderEventBar = renderEventBar; s.eventsForPhoto = eventsForPhoto;
   s.wishCard = wishCard; s.fmtWishDate = fmtWishDate;
   s.relabelEventPhotos = relabelEventPhotos;
   s.createVault = createVault; s.unlockWith = unlockWith; s.savePassFor = savePassFor; s.changePass = changePass;
@@ -460,6 +461,7 @@ assert(await w('(s)=>s.savePassFor("dasha","654321")') === true, 'пароль �
 assert(w('(s)=>s.loadVault().keys.length') === 2, 'в сейфе теперь два ключа');
 
 // --- Смена пароля Гоши ---
+assert(await w('(s)=>s.changePass("wrong","x")') === false, 'смена с неверным текущим паролем отклонена');
 assert(await w('(s)=>s.changePass("123456","gosha-new")') === true, 'свой пароль сменён');
 assert(await w('(s)=>s.unlockWith("gosha","123456")') === false, 'старый пароль больше не работает');
 assert(await w('(s)=>s.unlockWith("gosha","gosha-new")') === true, 'новый пароль работает');
@@ -525,6 +527,29 @@ assert(w('(s)=>s.db.events.some(e=>e.title==="Клик-событие" && e.date
   'событие, созданное кликом по кнопке, сохранено в db.events');
 assert(registry['#calendar'].innerHTML.includes('Клик-событие'),
   'созданное кликом событие видно в календаре');
+
+// --- deletePhoto чистит и галерею, и события ---
+w('(s)=>{s.db.photos.push({id:"phDel",data:"data:image/jpeg;base64,AAA=",title:"Фото для удаления",labels:["📅 События"],pinned:false,ts:1,order:0});s.db.events[0].photos=["data:image/jpeg;base64,AAA="];return 1;}');
+w('(s)=>s.deletePhoto("phDel")');
+assert(w('(s)=>s.db.photos.some(p=>p.id==="phDel")') === false, 'deletePhoto удаляет фото из галереи');
+assert(w('(s)=>s.db.events.every(e=>!(e.photos||[]).includes("data:image/jpeg;base64,AAA="))') === true,
+  'deletePhoto убирает фото из событий');
+
+// --- Витрина «📅 События»: фильтр «год → месяц → событие» ---
+w('(s)=>{s.db.photos.push({id:"phEv",data:"data:image/jpeg;base64,BBB=",title:"Фото события",labels:["📅 События"],pinned:false,ts:2,order:0});s.db.events.push({id:"evF",title:"Поездка в горы",date:"2026-07-14",repeat:false,photos:["data:image/jpeg;base64,BBB="]});s.currentLabel="📅 События";s.eventFilter={year:"2026",month:"07",title:"Поездка в горы"};return 1;}');
+w('(s)=>s.renderPhotos()');
+assert(w('(s)=>s.filteredPhotos().some(p=>p.id==="phEv")') === true, 'фильтр «События» показывает фото с лейблом события');
+assert(w('(s)=>s.filteredPhotos().length') === 1, 'фильтр год→месяц→событие сужает список до одного фото');
+assert(registry['#eventYears'].innerHTML.includes('data-ev-year="2026"'), 'витрина показывает год');
+assert(registry['#eventMonths'].innerHTML.includes('data-ev-month="07"'), 'витрина показывает месяц');
+assert(registry['#eventTitles'].innerHTML.includes('data-ev-title="Поездка в горы"'), 'витрина показывает название события');
+w('(s)=>{s.currentLabel="";s.eventFilter={year:"",month:"",title:""};return 1;}');
+
+// --- safeUrl: «javascript:»-ссылка не попадает в href хотелки ---
+w('(s)=>{s.db.wishlist.push({id:"wX",text:"Опасная",link:"javascript:alert(1)",owner:"gosha",done:false,ts:1});s.renderWishlist();return 1;}');
+assert(!registry['#wishlistGrid'].innerHTML.includes('href="javascript:'), 'javascript:-ссылка заменена заглушкой');
+w('(s)=>{s.db.wishlist.push({id:"wOK",text:"Безопасная",link:"https://example.com",owner:"gosha",done:false,ts:2});s.renderWishlist();return 1;}');
+assert(registry['#wishlistGrid'].innerHTML.includes('href="https://example.com"'), 'обычная ссылка остаётся в href');
 
 // --- Сброс очищает сейф ---
 w('(s)=>{s.localStorage.removeItem("universe_vault"); s.localStorage.removeItem("universe");}');

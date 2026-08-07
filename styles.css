@@ -582,4 +582,29 @@ body:not(.auth) .auth-screen{display:none}
 [data-theme="dark"] .auth-user{background:linear-gradient(160deg,#3d2a50,#2a1f3a);color:var(--ink)}
 [data-theme="dark"] .auth-card{background:var(--card)}
 
+/* ===== Доступность: видимый фокус для клавиатуры =====
+   outline:none выше убирает фокус-кольцо по умолчанию; возвращаем его только
+   для клавиатурной навигации (:focus-visible), мышь кольцо не получает. */
+:focus-visible{outline:2px solid var(--violet2);outline-offset:2px}
+input[type=text]:focus-visible,input[type=date]:focus-visible,input[type=time]:focus-visible,
+input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
+  outline:2px solid var(--violet2);outline-offset:2px;border-color:var(--violet2)
+}
+.dp-select:focus-visible,.dp-nav:focus-visible{outline:2px solid var(--violet2);outline-offset:1px}
+.song-card audio:focus-visible{outline:2px solid var(--violet2);outline-offset:2px}
+[data-theme="dark"] :focus-visible{outline-color:#c4b5fd}
+
+/* ===== Тост: ненавязчивые уведомления (ошибки хранилища и т.п.) ===== */
+.app-toast{
+  position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
+  z-index:300;max-width:min(92vw,420px);
+  background:var(--card);color:var(--ink);border:1px solid var(--border);
+  border-radius:14px;padding:12px 18px;box-shadow:0 12px 34px rgba(0,0,0,.18);
+  font-size:14px;font-weight:700;text-align:center;animation:pop .2s ease;
+}
+.app-toast[hidden]{display:none}
+.app-toast.toast-error{background:#fef2f2;border-color:#fecaca;color:#b91c1c}
+[data-theme="dark"] .app-toast.toast-error{background:#3f1d1d;border-color:#7f1d1d;color:#fecaca}
+
+
 

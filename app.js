@@ -1,4 +1,6 @@
-/* ===== Наша вселенная — app.js ===== */
+/* ===== Наша вселенная — приложение =====
+   app.js собирается из src/*.js: node build.js
+   Порядок модулей: 00-core → 10-vault → … → 90-effects-init. */
 'use strict';
 
 const START_DATE = '2026-03-30';
@@ -10,8 +12,40 @@ const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s).replace(/[&<>"']/g, c => (
   {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
 ));
+// Только настоящие http/https-ссылки; javascript:, data:html и прочее — в заглушку.
+const safeUrl = u => (/^https?:\/\//i.test(String(u || '')) ? String(u) : '#');
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const isHidden = () => !!(document.hidden || document.visibilityState === 'hidden');
+
+/* ===== Защита хранилища и глобальные ошибки =====
+   localStorage умеет бросать исключения (переполнение ~5МБ, приватный режим) —
+   все обращения идут через store, а сбои показываются ненавязчивым тостом. */
+const store = {
+  get(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+  },
+  set(key, val) {
+    try { localStorage.setItem(key, val); return true; }
+    catch (e) { notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true); return false; }
+  },
+  remove(key) {
+    try { localStorage.removeItem(key); } catch (e) { /* не критично */ }
+  }
+};
+let toastTimer = null;
+function notify(msg, isError) {
+  const t = $('#appToast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.toggle('toast-error', !!isError);
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('error', e => notify('Что-то пошло не так — данные не потеряны, перезагрузи страницу 💜', true));
+  window.addEventListener('unhandledrejection', () => notify('Не удалось сохранить — попробуй ещё раз 💜', true));
+}
 
 /* ===== Крипто-ядро (WebCrypto) =====
    Все данные зашифрованы мастер-ключом K (AES-GCM-256).
@@ -160,8 +194,8 @@ async function createVault(who, pass, legacyDb) {
   const salt = randBytes(16);
   const pwdKey = await pbkdf2Key(pass, salt, PBKDF2_ITERS);
   const wrap = { who, s: b64(salt), ...(await aesEnc(pwdKey, kraw)) };
-  localStorage.setItem(VAULT_KEY, JSON.stringify({ ver: 1, a: PBKDF2_ITERS, db: dbBlob, keys: [wrap] }));
-  localStorage.removeItem(KEY); // старый открытый файл больше не нужен — всё уже зашифровано
+  if (!store.set(VAULT_KEY, JSON.stringify({ ver: 1, a: PBKDF2_ITERS, db: dbBlob, keys: [wrap] }))) return false;
+  store.remove(KEY); // старый открытый файл больше не нужен — всё уже зашифровано
   currentUser = who;
   return true;
 }
@@ -298,7 +332,7 @@ renderAuthWho();
 /* ===== Тема ===== */
 const THEME_KEY = 'universe_theme';
 function getTheme() {
-  const saved = localStorage.getItem(THEME_KEY);
+  const saved = store.get(THEME_KEY);
   if (saved === 'light' || saved === 'dark') return saved;
   // первый запуск — уважаем системную тему (переключается кнопкой в любой момент)
   try {
@@ -476,7 +510,7 @@ function renderMobilePhotos() {
   const grid = $('#mobilePhotosGrid');
   if (!grid) return;
   grid.innerHTML = [...db.photos].sort(photoSort).slice(0, 12).map(p =>
-    `<img src="${p.data}" alt="${esc(p.title)}" data-photo="${p.data}" loading="lazy">`).join('');
+    `<img src="${esc(p.data)}" alt="${esc(p.title)}" data-photo="${esc(p.data)}" loading="lazy">`).join('');
 }
 
 /* ===== Свидания ===== */
@@ -636,6 +670,14 @@ const MONTHS_SHORT = ['янв','фев','мар','апр','май','июн','и�
 function fmtShort(s) { if (!s) return ''; const [y, m, d] = s.split('-').map(Number); return `${d} ${MONTHS_SHORT[m - 1]}`; }
 
 function iso(y, m, d) { return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; }
+// Парсим 'YYYY-MM-DD' как локальную дату: без 'T00:00:00' браузер трактует строку
+// как UTC-полночь, и в часовых поясах западнее UTC дата «съезжает» на день назад.
+function parseLocalIso(s) {
+  const [y, m, d] = String(s || '').split('-').map(Number);
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d);
+  return isNaN(dt) ? null : dt;
+}
 function eventsOn(dateStr, m, d) {
   return db.events.filter(ev => {
     if (ev.repeat) {
@@ -730,8 +772,8 @@ function nextUpcoming() {
     } else {
       occ = new Date(y, m - 1, d);
       if (ev.endDate && occ <= today) { // диапазон уже начался и ещё идёт — «сейчас»
-        const end = new Date(ev.endDate + 'T00:00:00');
-        if (end >= today) occ = today;
+        const end = parseLocalIso(ev.endDate);
+        if (end && end >= today) occ = today;
       }
       if (occ < today) continue; // разовое в прошлом
     }
@@ -797,7 +839,7 @@ $('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.
 // Миниатюры фото события в панели дня
 function evThumbs(e) {
   if (!(e.photos && e.photos.length)) return '';
-  return `<span class="ev-thumbs">${e.photos.map(p => `<img class="ev-thumb" src="${p}" alt="${esc(e.title)}" data-photo="${p}" loading="lazy">`).join('')}</span>`;
+  return `<span class="ev-thumbs">${e.photos.map(p => `<img class="ev-thumb" src="${esc(p)}" alt="${esc(e.title)}" data-photo="${esc(p)}" loading="lazy">`).join('')}</span>`;
 }
 
 // Фото события кладём в общую галерею под общим лейблом «📅 События»;
@@ -898,7 +940,7 @@ function closeDatePop() {
 function openDatePop(el) {
   if (!el) return;
   dpInput = el;
-  const d = el.value ? new Date(el.value + 'T00:00:00') : null;
+  const d = el.value ? parseLocalIso(el.value) : null;
   const now = new Date();
   dpY = (d && !isNaN(d)) ? d.getFullYear() : now.getFullYear();
   dpM = (d && !isNaN(d)) ? d.getMonth() : now.getMonth();
@@ -1200,12 +1242,12 @@ function wishCard(w) {
   const doneBy = w.doneBy ? (w.doneBy === 'gosha' ? 'Гошей' : 'Дашей') : '';
   return `<div class="wish${w.done ? ' done' : ''}">
     ${w.data
-      ? `<img class="wish-img" src="${w.data}" alt="${esc(w.text)}" data-photo="${w.data}" loading="lazy">`
+      ? `<img class="wish-img" src="${esc(w.data)}" alt="${esc(w.text)}" data-photo="${esc(w.data)}" loading="lazy">`
       : `<div class="wish-img" style="display:grid;place-items:center;font-size:34px">💝</div>`}
     <div class="wish-body">
       <div class="wish-title">${esc(w.text)}</div>
       ${w.done ? `<span class="wish-done-by">💜 Исполнено${doneBy ? ' ' + doneBy : ''}${w.doneAt ? ' · ' + fmtWishDate(w.doneAt) : ''}</span>` : ''}
-      ${w.link ? `<a class="wish-link" href="${esc(w.link)}" target="_blank" rel="noopener">🔗 Открыть ссылку</a>` : ''}
+      ${w.link ? `<a class="wish-link" href="${safeUrl(w.link)}" target="_blank" rel="noopener">🔗 Открыть ссылку</a>` : ''}
       <div class="wish-btns">
         ${wishToggleHTML(w)}
         <button class="mini-x" data-wish-del="${w.id}" title="Удалить">✕</button>
@@ -1480,7 +1522,7 @@ function renderPhotos() {
   }
   grid.innerHTML = list.length ? list.map(p => `
     <div class="photo${p.pinned ? ' pinned' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}" data-drag-photo draggable="true">
-      <img src="${p.data}" alt="${esc(p.title)}" data-photo="${p.data}" loading="lazy">
+      <img src="${esc(p.data)}" alt="${esc(p.title)}" data-photo="${esc(p.data)}" loading="lazy">
       <button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>
       <button class="pin-photo${p.pinned ? ' active' : ''}" data-pin-photo="${p.id}" title="${p.pinned ? 'Открепить' : 'Закрепить'}">${p.pinned ? '⭐' : '☆'}</button>
       <button class="del-photo" data-del-photo="${p.id}" title="Удалить">✕</button>
@@ -1768,7 +1810,7 @@ function importData(text) {
     const d = JSON.parse(text);
     if (d && d.ver && d.db && Array.isArray(d.keys)) {
       // это зашифрованный сейф — просто восстанавливаем, войти можно своим паролем
-      localStorage.setItem(VAULT_KEY, JSON.stringify(d));
+      store.set(VAULT_KEY, JSON.stringify(d));
       return true;
     }
     // старый открытый бэкап — сразу шифруем текущим ключом
@@ -1790,8 +1832,8 @@ $('#importInput').addEventListener('change', e => {
 });
 $('#resetBtn').addEventListener('click', () => {
   if (confirm('Точно удалить ВСЕ данные? Это не отменить.')) {
-    localStorage.removeItem(VAULT_KEY);
-    localStorage.removeItem(KEY);
+    store.remove(VAULT_KEY);
+    store.remove(KEY);
     location.reload();
   }
 });
@@ -1882,6 +1924,7 @@ setInterval(() => {
 }, 3800);
 setInterval(() => { if (!isHidden()) renderFloatingPhotos(); }, 7000);
 spawnHeart();
+
 
 
 
