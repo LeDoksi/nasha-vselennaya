@@ -13,14 +13,35 @@
 
 **Проект:** личный сайт «Наша вселенная» (Гоша 💜 Даша). Статичный `index.html` +
 `styles.css` + `app.js`. `app.js` **собирается** из `src/*.js` (`node build.js`,
-10 модулей по зонам ответственности; собранный файл лежит в репозитории, так что
-двойной клик по `index.html` работает без сборки). Данные — localStorage.
-Открыть: двойной клик по `index.html`. Тест: сначала `node build.js`, затем
-`node tests\uni-smoke.js app.js` (234 проверки, сейчас зелёные) +
+11 модулей по зонам ответственности; собранный файл лежит в репозитории, так что
+двойной клик по `index.html` работает без сборки). Данные — localStorage + фото
+в IndexedDB (схема v6). Открыть: двойной клик по `index.html`. Тест: сначала
+`node build.js`, затем `node tests\uni-smoke.js app.js` (247 проверок, зелёные) +
 `node tests\uni-dnd.js app.js` (18 — drag&drop через события, мини-DOM) +
 `node tests\repro-event-btn.js app.js` (15). Либо `npm test` или двойной клик
 по `run-tests.cmd` (он сам пересобирает app.js).
 Путь: `C:\Users\Georgy\OneDrive\Рабочий стол\нейронка\наша-вселенная\`
+
+**Фаза A (в работе): фото переезжают из localStorage в IndexedDB.**
+- Новый модуль `src/05-photostore.js`: два бэкенда — `IDBPhotoStore` (браузер,
+  зашифрованные AES-GCM блобы) и `MemoryPhotoStore` (тесты/фолбэк). API:
+  `put/getFull/getThumb/getMeta/delete/all/exportBlobs/importBlobs/clear/migratePhotos/refreshSizes`.
+- В `src/00-core.js` `DB_VERSION = 6`, `defaultDB()` добавляет `moods: []`.
+- `10-vault.js`: `createVault`/`unlockWith` вызывают `photoStore.migratePhotos(db)`
+  + `refreshSizes()` + `warmThumbCache()`; `lock()` очищает store (`clearPhotoStore`)
+  и кэш миниатюр (`clearThumbCache`). `initPhotoStore()` гарантирует бэкенд.
+- Миграция консервативная: переносит `data`-URL в store и даёт фото `id`, но
+  `p.data` в памяти не трогает (рендеры и тесты читают его синхронно). Полный
+  отказ от `p.data` — отдельным шагом после перевода всех рендеров на `photoUrl()`.
+- Рендеры переведены на `photoSrc(p)` (синхронный превью из кэша или старый
+  `p.data`) и `photoUrl(p)` (async: кэш → store → data). `warmThumbCache()`
+  прогревает кэш после разблокировки.
+- События: `ev.photos` хранит **id фото** (v6+), поддерживаются и старые
+  data-URL. `addEventPhotosToGallery` теперь синхронная, пишет копию в store в фоне.
+- Бэкап: `exportData` добавляет секцию `photos` (зашифрованные блобы),
+  `importData` восстанавливает их в store.
+- В настройках — строка «Фото-хранилище» (`#photoStorageInfo`) с количеством
+  фото и объёмом.
 
 **Что уже сделано и работает:**
 - **Главная:** счётчик «дней вместе», комплимент дня 💌, таймер до ближайшего
@@ -125,8 +146,12 @@
   событий (пустые `photos:[]` удаляются), затем `renderCalendar()`.
 
 **Планы / что дальше — дорожная карта «Наша вселенная 2.0» (утв. 07.08.2026):**
-- **Фаза A — Данные (СДЕЛАНО):** фото в IndexedDB + WebP + миниатюры + EXIF,
+- **Фаза A — Данные (В РАБОТЕ):** фото в IndexedDB + WebP + миниатюры + EXIF,
   бэкап v2 (фото в файле), схема v6 (`moods`), модуль `05-photostore.js`.
+  Сделано: модуль, миграция при unlock, `photoSrc`/`photoUrl` в рендерах,
+  `ev.photos` → id, бэкап с секцией `photos`, тесты photoStore (247 ✓).
+  Осталось: полный отказ от `p.data` (удаление из памяти при миграции),
+  WebP/миниатюры при загрузке (сейчас хранится исходник).
 - **Фаза B — Душевные фичи:** лента памяти (вкладка «Память»), «В этот день»,
   прогресс отношений (кольцо), трекер настроения (хитмап).
 - **Фаза C — Апп-оболочка:** hash-роутинг (#/view), нижняя навигация на мобильных

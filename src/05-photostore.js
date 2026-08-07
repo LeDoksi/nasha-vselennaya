@@ -96,6 +96,46 @@ function u8ToBlob(u8, type) {
   return new Blob([u8], { type });
 }
 
+// Конвертация data-URL → Blob
+function dataUrlToBlob(dataUrl) {
+  const idx = dataUrl.indexOf(',');
+  if (idx === -1) return null;
+  const metaPart = dataUrl.slice(0, idx);
+  const b64part = dataUrl.slice(idx + 1);
+  const mime = /^data:([^;]+)/.exec(metaPart);
+  const isBase64 = /;base64/i.test(metaPart);
+  let bytes;
+  if (isBase64) {
+    bytes = unb64(b64part);
+  } else {
+    bytes = new Uint8Array([...b64part].map(ch => ch.charCodeAt(0)));
+  }
+  return new Blob([bytes], { type: (mime && mime[1]) || 'image/webp' });
+}
+
+// Перенос фото из db.photos[].data (data-URL) в хранилище блобов.
+// Идемпотентно: фото с id, уже лежащие в сторе, не трогаем; для старых
+// фото без id генерируем id. p.data НЕ удаляется — рендеры пока читают
+// его синхронно; store хранит зашифрованную копию (для IDB и бэкапа v2).
+// После перевода всех рендеров на photoUrl() удаление включим отдельно.
+async function migratePhotosToStore(store, db) {
+  if (!db || !Array.isArray(db.photos)) return 0;
+  let moved = 0;
+  for (const p of db.photos) {
+    if (p.data) {
+      const blob = dataUrlToBlob(p.data);
+      if (!blob) continue;
+      if (!p.id) p.id = uid();
+      const existing = await store.getMeta(p.id);
+      if (existing) continue;
+      const meta = { type: blob.type || 'image/webp', width: p.width, height: p.height, takenAt: p.takenAt || null, title: p.title || '', size: blob.size };
+      await store.put(p.id, blob, null, meta);
+      moved++;
+    }
+  }
+  return moved;
+}
+
 // ===== IDBPhotoStore =====
 const IDBPhotoStore = {
   db: null,
@@ -135,7 +175,7 @@ const IDBPhotoStore = {
       let full = null, thumb = null;
       try { full = await decryptBlob(r.full); } catch (e) {}
       try { if (r.thumb) thumb = await decryptBlob(r.thumb); } catch (e) {}
-      result.push({ id, full, thumb, meta: r.meta || {} });
+      result.push({ id: r.id, full, thumb, meta: r.meta || {} });
     }
     return result;
   },
@@ -162,6 +202,15 @@ const IDBPhotoStore = {
   },
   async clear() {
     await idbClear(this);
+  },
+  async migratePhotos(db) { return migratePhotosToStore(this, db); },
+  async refreshSizes() {
+    const rows = await idbGetAll(this);
+    let total = 0;
+    for (const r of rows) {
+      try { total += (await decryptBlob(r.full)).byteLength; } catch (e) {}
+    }
+    return { count: rows.length, bytes: total };
   }
 };
 
@@ -227,6 +276,14 @@ const MemoryPhotoStore = {
   },
   async clear() {
     this._map.clear();
+  },
+  async migratePhotos(db) { return migratePhotosToStore(this, db); },
+  async refreshSizes() {
+    let total = 0;
+    for (const r of this._map.values()) {
+      try { total += (await decryptBlob(r.full)).byteLength; } catch (e) {}
+    }
+    return { count: this._map.size, bytes: total };
   }
 };
 
@@ -243,7 +300,6 @@ async function initPhotoStore() {
   photoStore = MemoryPhotoStore;
 }
 
-// Очистка при блокировке
 // Очистка при блокировке
 function clearPhotoStore() {
   if (photoStore && photoStore._map) photoStore._map.clear();
@@ -359,3 +415,62 @@ const thumbCache = new Map();
 function getThumbUrl(id) { return thumbCache.get(id) || null; }
 function setThumbUrl(id, url) { thumbCache.set(id, url); }
 function clearThumbCache() { thumbCache.clear(); }
+
+// ===== Единый источник URL фото для рендеров =====
+// Порядок: кэш миниатюры → блоб в photoStore → старый p.data (если ещё не мигрирован).
+// Возвращает data-URL для <img>. Вызовы с одним id кэшируются в thumbCache.
+async function photoUrl(p, useThumb = true) {
+  if (!p) return '';
+  const cached = getThumbUrl(p.id);
+  if (cached) return cached;
+  if (p.data && !p.id) return p.data; // легаси-фото без id
+  if (photoStore && p.id) {
+    try {
+      let blob = null;
+      if (useThumb) blob = await photoStore.getThumb(p.id);
+      if (!blob) blob = await photoStore.getFull(p.id);
+      if (blob) {
+        const url = await blobToDataUrl(blob);
+        setThumbUrl(p.id, url);
+        return url;
+      }
+    } catch (e) {}
+  }
+  return p.data || '';
+}
+
+// Синхронный превью-URL (для мгновенного каркаса): кэш или старый data.
+function photoSrc(p) {
+  if (!p) return '';
+  return getThumbUrl(p.id) || p.data || '';
+}
+
+// Прогрев кэша миниатюр после разблокировки — галерея рендерится мгновенно.
+// Если миниатюры нет (старое фото при миграции), берём полный блоб.
+async function warmThumbCache() {
+  if (!photoStore || !db || !Array.isArray(db.photos)) return;
+  for (const p of db.photos) {
+    if (!p.id || getThumbUrl(p.id)) continue;
+    try {
+      let blob = await photoStore.getThumb(p.id);
+      if (!blob) blob = await photoStore.getFull(p.id);
+      if (blob) {
+        const url = await blobToDataUrl(blob);
+        setThumbUrl(p.id, url);
+      }
+    } catch (e) {}
+  }
+}
+
+// Заполняет src у <img data-photo-src="id"> после рендера каркаса.
+async function hydratePhotoImgs(scope) {
+  if (!scope || !scope.querySelectorAll) return;
+  const imgs = [...scope.querySelectorAll('img[data-photo-src]')];
+  for (const im of imgs) {
+    const id = im.dataset.photoSrc;
+    const p = db.photos.find(x => x.id === id);
+    const url = p ? await photoUrl(p, false) : '';
+    if (url) im.src = url;
+    im.removeAttribute('data-photo-src');
+  }
+}

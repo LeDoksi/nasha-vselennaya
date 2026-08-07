@@ -13,6 +13,14 @@ function renderSettings() {
   const kb = Math.max(1, Math.round(bytes / 1024));
   const si = $('#storageInfo');
   if (si) si.textContent = kb >= 1024 ? (kb / 1024).toFixed(1) + ' МБ' : kb + ' КБ';
+  // Фото-хранилище (IndexedDB) считаем асинхронно и показываем отдельной строкой
+  if (photoStore) {
+    photoStore.refreshSizes().then(sz => {
+      const fk = Math.max(1, Math.round((sz.bytes || 0) / 1024));
+      const fs = $('#photoStorageInfo');
+      if (fs) fs.textContent = `${sz.count} фото · ${fk >= 1024 ? (fk / 1024).toFixed(1) + ' МБ' : fk + ' КБ'}`;
+    }).catch(() => {});
+  }
   const hint = $('#backupHint');
   if (!hint) return;
   if (!db.backupDate) {
@@ -35,27 +43,41 @@ function renderSettings() {
   const addBtn = $('#addPassBtn');
   if (addBtn) addBtn.style.display = (hasPass('gosha') && hasPass('dasha')) ? 'none' : '';
 }
-// Экспорт — зашифрованный сейф: без пароля файл не прочитать
+// Экспорт — зашифрованный сейф: без пароля файл не прочитать.
+// Фото-блобы лежат в IndexedDB (не в localStorage), поэтому их зашифрованные
+// копии добавляем в архив отдельной секцией photos.
 async function exportData() {
   db.backupDate = Date.now();
   await save();
   const vault = loadVault();
-  const blob = new Blob([JSON.stringify(vault, null, 2)], { type: 'application/json' });
+  let photoSection = null;
+  if (photoStore) {
+    try {
+      const blobs = await photoStore.exportBlobs();
+      if (blobs.length) photoSection = { ver: 1, blobs };
+    } catch (e) { console.warn('Не удалось собрать фото для бэкапа', e); }
+  }
+  const out = photoSection ? { ...vault, photos: photoSection } : vault;
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'nasha-vselennaya-backup-encrypted.json';
   a.click();
   URL.revokeObjectURL(a.href);
   renderSettings();
-  return vault;
+  return out;
 }
 $('#exportBtn').addEventListener('click', () => { exportData(); });
-function importData(text) {
+async function importData(text) {
   try {
     const d = JSON.parse(text);
     if (d && d.ver && d.db && Array.isArray(d.keys)) {
       // это зашифрованный сейф — просто восстанавливаем, войти можно своим паролем
       store.set(VAULT_KEY, JSON.stringify(d));
+      // Фото-секция v6: зашифрованные блобы возвращаем в хранилище
+      if (d.photos && d.photos.ver === 1 && Array.isArray(d.photos.blobs) && photoStore) {
+        try { await photoStore.importBlobs(d.photos.blobs); } catch (e) { console.warn('Не удалось восстановить фото', e); }
+      }
       return true;
     }
     // старый открытый бэкап — сразу шифруем текущим ключом
@@ -68,8 +90,9 @@ $('#importInput').addEventListener('change', e => {
   const f = e.target.files[0];
   if (!f) return;
   const fr = new FileReader();
-  fr.onload = () => {
-    if (!importData(fr.result)) { alert('Не получилось прочитать файл:('); return; }
+  fr.onload = async () => {
+    const ok = await importData(fr.result); // ждём и сейф, и фото-блобы
+    if (!ok) { alert('Не получилось прочитать файл:('); return; }
     e.target.value = '';
     location.reload();
   };

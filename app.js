@@ -257,6 +257,46 @@ function u8ToBlob(u8, type) {
   return new Blob([u8], { type });
 }
 
+// Конвертация data-URL → Blob
+function dataUrlToBlob(dataUrl) {
+  const idx = dataUrl.indexOf(',');
+  if (idx === -1) return null;
+  const metaPart = dataUrl.slice(0, idx);
+  const b64part = dataUrl.slice(idx + 1);
+  const mime = /^data:([^;]+)/.exec(metaPart);
+  const isBase64 = /;base64/i.test(metaPart);
+  let bytes;
+  if (isBase64) {
+    bytes = unb64(b64part);
+  } else {
+    bytes = new Uint8Array([...b64part].map(ch => ch.charCodeAt(0)));
+  }
+  return new Blob([bytes], { type: (mime && mime[1]) || 'image/webp' });
+}
+
+// Перенос фото из db.photos[].data (data-URL) в хранилище блобов.
+// Идемпотентно: фото с id, уже лежащие в сторе, не трогаем; для старых
+// фото без id генерируем id. p.data НЕ удаляется — рендеры пока читают
+// его синхронно; store хранит зашифрованную копию (для IDB и бэкапа v2).
+// После перевода всех рендеров на photoUrl() удаление включим отдельно.
+async function migratePhotosToStore(store, db) {
+  if (!db || !Array.isArray(db.photos)) return 0;
+  let moved = 0;
+  for (const p of db.photos) {
+    if (p.data) {
+      const blob = dataUrlToBlob(p.data);
+      if (!blob) continue;
+      if (!p.id) p.id = uid();
+      const existing = await store.getMeta(p.id);
+      if (existing) continue;
+      const meta = { type: blob.type || 'image/webp', width: p.width, height: p.height, takenAt: p.takenAt || null, title: p.title || '', size: blob.size };
+      await store.put(p.id, blob, null, meta);
+      moved++;
+    }
+  }
+  return moved;
+}
+
 // ===== IDBPhotoStore =====
 const IDBPhotoStore = {
   db: null,
@@ -296,7 +336,7 @@ const IDBPhotoStore = {
       let full = null, thumb = null;
       try { full = await decryptBlob(r.full); } catch (e) {}
       try { if (r.thumb) thumb = await decryptBlob(r.thumb); } catch (e) {}
-      result.push({ id, full, thumb, meta: r.meta || {} });
+      result.push({ id: r.id, full, thumb, meta: r.meta || {} });
     }
     return result;
   },
@@ -323,6 +363,15 @@ const IDBPhotoStore = {
   },
   async clear() {
     await idbClear(this);
+  },
+  async migratePhotos(db) { return migratePhotosToStore(this, db); },
+  async refreshSizes() {
+    const rows = await idbGetAll(this);
+    let total = 0;
+    for (const r of rows) {
+      try { total += (await decryptBlob(r.full)).byteLength; } catch (e) {}
+    }
+    return { count: rows.length, bytes: total };
   }
 };
 
@@ -388,6 +437,14 @@ const MemoryPhotoStore = {
   },
   async clear() {
     this._map.clear();
+  },
+  async migratePhotos(db) { return migratePhotosToStore(this, db); },
+  async refreshSizes() {
+    let total = 0;
+    for (const r of this._map.values()) {
+      try { total += (await decryptBlob(r.full)).byteLength; } catch (e) {}
+    }
+    return { count: this._map.size, bytes: total };
   }
 };
 
@@ -404,7 +461,6 @@ async function initPhotoStore() {
   photoStore = MemoryPhotoStore;
 }
 
-// Очистка при блокировке
 // Очистка при блокировке
 function clearPhotoStore() {
   if (photoStore && photoStore._map) photoStore._map.clear();
@@ -520,6 +576,65 @@ const thumbCache = new Map();
 function getThumbUrl(id) { return thumbCache.get(id) || null; }
 function setThumbUrl(id, url) { thumbCache.set(id, url); }
 function clearThumbCache() { thumbCache.clear(); }
+
+// ===== Единый источник URL фото для рендеров =====
+// Порядок: кэш миниатюры → блоб в photoStore → старый p.data (если ещё не мигрирован).
+// Возвращает data-URL для <img>. Вызовы с одним id кэшируются в thumbCache.
+async function photoUrl(p, useThumb = true) {
+  if (!p) return '';
+  const cached = getThumbUrl(p.id);
+  if (cached) return cached;
+  if (p.data && !p.id) return p.data; // легаси-фото без id
+  if (photoStore && p.id) {
+    try {
+      let blob = null;
+      if (useThumb) blob = await photoStore.getThumb(p.id);
+      if (!blob) blob = await photoStore.getFull(p.id);
+      if (blob) {
+        const url = await blobToDataUrl(blob);
+        setThumbUrl(p.id, url);
+        return url;
+      }
+    } catch (e) {}
+  }
+  return p.data || '';
+}
+
+// Синхронный превью-URL (для мгновенного каркаса): кэш или старый data.
+function photoSrc(p) {
+  if (!p) return '';
+  return getThumbUrl(p.id) || p.data || '';
+}
+
+// Прогрев кэша миниатюр после разблокировки — галерея рендерится мгновенно.
+// Если миниатюры нет (старое фото при миграции), берём полный блоб.
+async function warmThumbCache() {
+  if (!photoStore || !db || !Array.isArray(db.photos)) return;
+  for (const p of db.photos) {
+    if (!p.id || getThumbUrl(p.id)) continue;
+    try {
+      let blob = await photoStore.getThumb(p.id);
+      if (!blob) blob = await photoStore.getFull(p.id);
+      if (blob) {
+        const url = await blobToDataUrl(blob);
+        setThumbUrl(p.id, url);
+      }
+    } catch (e) {}
+  }
+}
+
+// Заполняет src у <img data-photo-src="id"> после рендера каркаса.
+async function hydratePhotoImgs(scope) {
+  if (!scope || !scope.querySelectorAll) return;
+  const imgs = [...scope.querySelectorAll('img[data-photo-src]')];
+  for (const im of imgs) {
+    const id = im.dataset.photoSrc;
+    const p = db.photos.find(x => x.id === id);
+    const url = p ? await photoUrl(p, false) : '';
+    if (url) im.src = url;
+    im.removeAttribute('data-photo-src');
+  }
+}
 /* ===== Хранилище ===== */
 function legacyDB() {
   try {
@@ -553,6 +668,10 @@ async function createVault(who, pass, legacyDb) {
   masterKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
   const kraw = new Uint8Array(await crypto.subtle.exportKey('raw', masterKey));
   db = migrateDB({ ...defaultDB(), ...(legacyDb || legacyDB()) });
+  await initPhotoStore(); // гарантируем бэкенд (в тестах — память)
+  await photoStore.migratePhotos(db);
+  await photoStore.refreshSizes();
+  warmThumbCache(); // миниатюры в кэш — галерея рендерится без ожидания
   const dbBlob = await aesEnc(masterKey, enc.encode(JSON.stringify(db)));
   const salt = randBytes(16);
   const pwdKey = await pbkdf2Key(pass, salt, PBKDF2_ITERS);
@@ -574,6 +693,10 @@ async function unlockWith(who, pass) {
     currentUser = who;
     const raw = await aesDec(masterKey, vault.db);
     db = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(raw)) });
+    await initPhotoStore(); // гарантируем бэкенд (в тестах — память)
+    await photoStore.migratePhotos(db);
+    await photoStore.refreshSizes();
+    warmThumbCache(); // миниатюры в кэш — галерея рендерится без ожидания
     unlockApp();
     return true;
   } catch (e) { return false; }
@@ -625,6 +748,8 @@ function lock() {
   masterKey = null;
   currentUser = null;
   db = defaultDB();
+  clearPhotoStore();
+  clearThumbCache();
   countdownTarget = null;
   authLocked = true;
   document.body.classList.add('auth');
@@ -874,7 +999,7 @@ function renderMobilePhotos() {
   const grid = $('#mobilePhotosGrid');
   if (!grid) return;
   grid.innerHTML = [...db.photos].sort(photoSort).slice(0, 12).map(p =>
-    `<img src="${esc(p.data)}" alt="${esc(p.title)}" data-photo="${esc(p.data)}" loading="lazy">`).join('');
+    `<img src="${esc(photoSrc(p))}" alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">`).join('');
 }
 
 /* ===== Свидания ===== */
@@ -994,8 +1119,8 @@ function renderFloatingPhotos() {
     [...box.querySelectorAll('.float-photo')].forEach((im, i) => {
       const p = first[i];
       if (!p) { im.style.display = 'none'; return; }
-      im.src = p.data;
-      im.dataset.src = p.data;
+      im.src = photoSrc(p);
+      im.dataset.src = photoSrc(p);
     });
     return;
   }
@@ -1004,11 +1129,11 @@ function renderFloatingPhotos() {
     const p = picks[i];
     if (!p) { im.style.display = 'none'; return; }
     im.style.display = '';
-    if (im.dataset.src !== p.data) {
+    if (im.dataset.src !== photoSrc(p)) {
       im.style.opacity = '0';                    // плавно гасим…
       setTimeout(() => {
-        im.src = p.data;                          // …меняем фото…
-        im.dataset.src = p.data;
+        im.src = photoSrc(p);                     // …меняем фото…
+        im.dataset.src = photoSrc(p);
         im.style.opacity = '1';                   // …и плавно проявляем
       }, 650);
     }
@@ -1203,26 +1328,49 @@ $('#calMonthSelect').addEventListener('change', e => jumpCalendar(e.target.value
 $('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.value));
 
 // Миниатюры фото события в панели дня
+// ev.photos может хранить data-URL (старые версии) или id фото (v6+).
+function photoByRef(ref) {
+  return db.photos.find(p => p.id === ref) || db.photos.find(p => p.data === ref) || null;
+}
 function evThumbs(e) {
   if (!(e.photos && e.photos.length)) return '';
-  return `<span class="ev-thumbs">${e.photos.map(p => `<img class="ev-thumb" src="${esc(p)}" alt="${esc(e.title)}" data-photo="${esc(p)}" loading="lazy">`).join('')}</span>`;
+  return `<span class="ev-thumbs">${e.photos.map(ref => {
+    const p = photoByRef(ref);
+    const src = p ? photoSrc(p) : ref;
+    const attr = p ? p.id : ref;
+    return `<img class="ev-thumb" src="${esc(src)}" alt="${esc(e.title)}" data-photo="${esc(attr)}" loading="lazy">`;
+  }).join('')}</span>`;
 }
 
 // Фото события кладём в общую галерею под общим лейблом «📅 События»;
 // название события остаётся подписью фото (title) и показывается в витрине событий.
 // Отдельные лейблы-названия не создаём — иначе фильтр засоряется после 30+ событий.
+// ev.photos хранит id фото (v6+); data-URL из старых версий подхватываем по совпадению.
 function addEventPhotosToGallery(photos, title) {
-  if (!photos.length) return;
+  if (!photos.length) return [];
   if (!db.labels.includes(EVENT_LABEL)) db.labels.push(EVENT_LABEL);
-  for (const photoData of photos) {
-    const ph = db.photos.find(p => p.data === photoData);
-    if (ph) {
-      if (!Array.isArray(ph.labels)) ph.labels = [];
-      if (!ph.labels.includes(EVENT_LABEL)) ph.labels.push(EVENT_LABEL);
+  const ids = [];
+  for (const photoRef of photos) {
+    const existing = db.photos.find(p => p.id === photoRef || p.data === photoRef);
+    if (existing) {
+      if (!Array.isArray(existing.labels)) existing.labels = [];
+      if (!existing.labels.includes(EVENT_LABEL)) existing.labels.push(EVENT_LABEL);
+      ids.push(existing.id);
     } else {
-      db.photos.unshift({ id: uid(), data: photoData, title, labels: [EVENT_LABEL], pinned: false, ts: Date.now(), order: 0 });
+      const ph = { id: uid(), data: photoRef, title, labels: [EVENT_LABEL], pinned: false, ts: Date.now(), order: 0 };
+      db.photos.unshift(ph);
+      ids.push(ph.id);
+      // Кладём копию в photoStore (в фоне), чтобы фото пережило перенос в IndexedDB
+      try {
+        const blob = dataUrlToBlob(photoRef);
+        if (blob && photoStore) {
+          const meta = { type: blob.type || 'image/webp', title, size: blob.size };
+          photoStore.put(ph.id, blob, null, meta).catch(e => console.warn('Не удалось сохранить фото события в хранилище', e));
+        }
+      } catch (e) { console.warn('Не удалось сохранить фото события в хранилище', e); }
     }
   }
+  return ids;
 }
 
 // Быстрое добавление фото к событию прямо из панели дня (кнопка 📷)
@@ -1240,8 +1388,8 @@ function addEventPhotoQuick(evId) {
     }
     inp.remove();
     if (!ok.length) return;
-    ev.photos = Array.isArray(ev.photos) ? ev.photos.concat(ok) : ok;
-    addEventPhotosToGallery(ok, ev.title);
+    const ids = addEventPhotosToGallery(ok, ev.title);
+    ev.photos = Array.isArray(ev.photos) ? ev.photos.concat(ids.length ? ids : ok) : (ids.length ? ids : ok);
     save(); renderCalendar(); renderHome();
   }, { once: true });
   inp.click();
@@ -1498,8 +1646,8 @@ function saveEventFromModal() {
   const data = { title, date, endDate, emoji: $('#evEmoji').value.trim() || '💜', repeat: $('#evRepeat').checked && !endDate };
   // Фото события: кладём в общую галерею и вешаем лейбл = названию события
   if (evPhotoData.length) {
-    data.photos = evPhotoData;
-    addEventPhotosToGallery(evPhotoData, title);
+    const ids = addEventPhotosToGallery(evPhotoData, title);
+    data.photos = ids.length ? ids : evPhotoData;
   }
   const ev = editingEventId ? db.events.find(x => x.id === editingEventId) : null;
   if (ev) {
@@ -1816,7 +1964,15 @@ document.addEventListener('click', e => {
     renderPhotos(); return;
   }
   const photo = e.target.closest('[data-photo]');
-  if (photo) { $('#lightboxImg').src = photo.dataset.photo; $('#lightbox').hidden = false; return; }
+  if (photo) {
+    const id = photo.dataset.photo;
+    const p = db.photos.find(x => x.id === id);
+    if (p) {
+      $('#lightbox').hidden = false;
+      photoUrl(p, false).then(url => { if (url) $('#lightboxImg').src = url; });
+    }
+    return;
+  }
 
   const wishDone = e.target.closest('[data-wish-done]');
   if (wishDone) {
@@ -1899,7 +2055,16 @@ $('#photoInput').addEventListener('change', async e => {
   for (const f of files) {
     try {
       const data = await readFile(f);
-      db.photos.unshift({ id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0 });
+      const ph = { id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0 };
+      db.photos.unshift(ph);
+      // Сразу кладём в photoStore — дальше фото живёт в IndexedDB (зашифровано)
+      try {
+        const blob = dataUrlToBlob(data);
+        if (blob && photoStore) {
+          const meta = { type: blob.type || 'image/jpeg', title: f.name, size: blob.size };
+          await photoStore.put(ph.id, blob, null, meta);
+        }
+      } catch (err) { console.warn('Не удалось сохранить фото в хранилище', err); }
     } catch (err) { console.warn('Не удалось загрузить фото', err); }
   }
   e.target.value = '';
@@ -1921,19 +2086,24 @@ function deletePhoto(id) {
     // фото удаляется и из событий, чтобы в календаре не оставалось «мёртвых» миниатюр
     db.events.forEach(ev => {
       if (!Array.isArray(ev.photos)) return;
-      ev.photos = ev.photos.filter(d => d !== ph.data);
+      ev.photos = ev.photos.filter(d => d !== ph.data && d !== ph.id);
       if (!ev.photos.length) delete ev.photos;
     });
+    if (photoStore && ph.id) photoStore.delete(ph.id); // убираем блоб из IndexedDB
   }
   db.photos = db.photos.filter(x => x.id !== id);
   selectedPhotos.delete(id);
+  clearThumbCache();
   save(); renderPhotos(); renderCalendar();
 }
-// К каким событиям привязано фото (data) — для фильтра «год → месяц → событие»
-function eventsForPhoto(data) {
+// К каким событиям привязано фото — для фильтра «год → месяц → событие».
+// События могут хранить id фото (v6+) или старый data-URL.
+function eventsForPhoto(p) {
   const res = [];
   for (const ev of db.events) {
-    if (!Array.isArray(ev.photos) || !ev.photos.includes(data)) continue;
+    if (!Array.isArray(ev.photos)) continue;
+    const hit = ev.photos.some(d => d === p.id || (p.data && d === p.data));
+    if (!hit) continue;
     const [y, m] = (ev.date || '').split('-');
     if (!y || !m) continue;
     res.push({ title: ev.title, year: y, month: m });
@@ -1946,7 +2116,7 @@ function filteredPhotos() {
     const f = eventFilter;
     if (f.year || f.month || f.title) {
       list = list.filter(p => {
-        const evs = eventsForPhoto(p.data);
+        const evs = eventsForPhoto(p);
         if (f.year && !evs.some(e => e.year === f.year)) return false;
         if (f.month && !evs.some(e => e.month === f.month)) return false;
         if (f.title && !evs.some(e => e.title === f.title)) return false;
@@ -1993,7 +2163,7 @@ function renderPhotosNow() {
   }
   grid.innerHTML = list.length ? list.map(p => `
     <div class="photo${p.pinned ? ' pinned' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}" data-drag-photo draggable="true">
-      <img src="${esc(p.data)}" alt="${esc(p.title)}" data-photo="${esc(p.data)}" loading="lazy">
+      <img src="${esc(photoSrc(p))}" alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">
       <button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>
       <button class="pin-photo${p.pinned ? ' active' : ''}" data-pin-photo="${p.id}" title="${p.pinned ? 'Открепить' : 'Закрепить'}">${p.pinned ? '⭐' : '☆'}</button>
       <button class="del-photo" data-del-photo="${p.id}" title="Удалить">✕</button>
@@ -2009,7 +2179,7 @@ function eventPhotosCount(year, month, title) {
   let n = 0;
   for (const p of db.photos) {
     if (!(p.labels || []).includes(EVENT_LABEL)) continue;
-    if (eventsForPhoto(p.data).some(e =>
+    if (eventsForPhoto(p).some(e =>
       (!year || e.year === year) && (!month || e.month === month) && (!title || e.title === title))) n++;
   }
   return n;
@@ -2022,7 +2192,7 @@ function renderEventBar() {
   if (!show) return;
   const f = eventFilter;
   // события, у которых есть фото в галерее
-  const evs = db.events.filter(ev => Array.isArray(ev.photos) && ev.photos.some(d => db.photos.some(p => p.data === d)));
+  const evs = db.events.filter(ev => Array.isArray(ev.photos) && ev.photos.some(d => db.photos.some(p => p.id === d || p.data === d)));
   const years = [...new Set(evs.map(e => (e.date || '').slice(0, 4)).filter(Boolean))].sort((a, b) => b - a);
   const monthsOf = year => [...new Set(evs.filter(e => (e.date || '').slice(0, 4) === year).map(e => (e.date || '').slice(5, 7)).filter(Boolean))].sort();
   const titlesOf = (year, month) => {
@@ -2239,6 +2409,14 @@ function renderSettings() {
   const kb = Math.max(1, Math.round(bytes / 1024));
   const si = $('#storageInfo');
   if (si) si.textContent = kb >= 1024 ? (kb / 1024).toFixed(1) + ' МБ' : kb + ' КБ';
+  // Фото-хранилище (IndexedDB) считаем асинхронно и показываем отдельной строкой
+  if (photoStore) {
+    photoStore.refreshSizes().then(sz => {
+      const fk = Math.max(1, Math.round((sz.bytes || 0) / 1024));
+      const fs = $('#photoStorageInfo');
+      if (fs) fs.textContent = `${sz.count} фото · ${fk >= 1024 ? (fk / 1024).toFixed(1) + ' МБ' : fk + ' КБ'}`;
+    }).catch(() => {});
+  }
   const hint = $('#backupHint');
   if (!hint) return;
   if (!db.backupDate) {
@@ -2261,27 +2439,41 @@ function renderSettings() {
   const addBtn = $('#addPassBtn');
   if (addBtn) addBtn.style.display = (hasPass('gosha') && hasPass('dasha')) ? 'none' : '';
 }
-// Экспорт — зашифрованный сейф: без пароля файл не прочитать
+// Экспорт — зашифрованный сейф: без пароля файл не прочитать.
+// Фото-блобы лежат в IndexedDB (не в localStorage), поэтому их зашифрованные
+// копии добавляем в архив отдельной секцией photos.
 async function exportData() {
   db.backupDate = Date.now();
   await save();
   const vault = loadVault();
-  const blob = new Blob([JSON.stringify(vault, null, 2)], { type: 'application/json' });
+  let photoSection = null;
+  if (photoStore) {
+    try {
+      const blobs = await photoStore.exportBlobs();
+      if (blobs.length) photoSection = { ver: 1, blobs };
+    } catch (e) { console.warn('Не удалось собрать фото для бэкапа', e); }
+  }
+  const out = photoSection ? { ...vault, photos: photoSection } : vault;
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'nasha-vselennaya-backup-encrypted.json';
   a.click();
   URL.revokeObjectURL(a.href);
   renderSettings();
-  return vault;
+  return out;
 }
 $('#exportBtn').addEventListener('click', () => { exportData(); });
-function importData(text) {
+async function importData(text) {
   try {
     const d = JSON.parse(text);
     if (d && d.ver && d.db && Array.isArray(d.keys)) {
       // это зашифрованный сейф — просто восстанавливаем, войти можно своим паролем
       store.set(VAULT_KEY, JSON.stringify(d));
+      // Фото-секция v6: зашифрованные блобы возвращаем в хранилище
+      if (d.photos && d.photos.ver === 1 && Array.isArray(d.photos.blobs) && photoStore) {
+        try { await photoStore.importBlobs(d.photos.blobs); } catch (e) { console.warn('Не удалось восстановить фото', e); }
+      }
       return true;
     }
     // старый открытый бэкап — сразу шифруем текущим ключом
@@ -2294,8 +2486,9 @@ $('#importInput').addEventListener('change', e => {
   const f = e.target.files[0];
   if (!f) return;
   const fr = new FileReader();
-  fr.onload = () => {
-    if (!importData(fr.result)) { alert('Не получилось прочитать файл:('); return; }
+  fr.onload = async () => {
+    const ok = await importData(fr.result); // ждём и сейф, и фото-блобы
+    if (!ok) { alert('Не получилось прочитать файл:('); return; }
     e.target.value = '';
     location.reload();
   };
@@ -2410,6 +2603,7 @@ $('#settingsThemeBtn').addEventListener('click', toggleTheme);
 
 /* ===== Запуск: приложение закрыто, пока не вошли ===== */
 function initAuth() {
+  initPhotoStore(); // открываем IndexedDB (или fallback) до первого входа
   renderUserChip();
   setTheme(getTheme());
   applyMotion(getMotion());

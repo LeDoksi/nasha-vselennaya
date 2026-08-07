@@ -31,6 +31,10 @@ async function createVault(who, pass, legacyDb) {
   masterKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
   const kraw = new Uint8Array(await crypto.subtle.exportKey('raw', masterKey));
   db = migrateDB({ ...defaultDB(), ...(legacyDb || legacyDB()) });
+  await initPhotoStore(); // гарантируем бэкенд (в тестах — память)
+  await photoStore.migratePhotos(db);
+  await photoStore.refreshSizes();
+  warmThumbCache(); // миниатюры в кэш — галерея рендерится без ожидания
   const dbBlob = await aesEnc(masterKey, enc.encode(JSON.stringify(db)));
   const salt = randBytes(16);
   const pwdKey = await pbkdf2Key(pass, salt, PBKDF2_ITERS);
@@ -52,6 +56,10 @@ async function unlockWith(who, pass) {
     currentUser = who;
     const raw = await aesDec(masterKey, vault.db);
     db = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(raw)) });
+    await initPhotoStore(); // гарантируем бэкенд (в тестах — память)
+    await photoStore.migratePhotos(db);
+    await photoStore.refreshSizes();
+    warmThumbCache(); // миниатюры в кэш — галерея рендерится без ожидания
     unlockApp();
     return true;
   } catch (e) { return false; }
@@ -103,6 +111,8 @@ function lock() {
   masterKey = null;
   currentUser = null;
   db = defaultDB();
+  clearPhotoStore();
+  clearThumbCache();
   countdownTarget = null;
   authLocked = true;
   document.body.classList.add('auth');

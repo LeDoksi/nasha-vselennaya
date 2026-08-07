@@ -144,7 +144,7 @@ function renderMobilePhotos() {
   const grid = $('#mobilePhotosGrid');
   if (!grid) return;
   grid.innerHTML = [...db.photos].sort(photoSort).slice(0, 12).map(p =>
-    `<img src="${esc(p.data)}" alt="${esc(p.title)}" data-photo="${esc(p.data)}" loading="lazy">`).join('');
+    `<img src="${esc(photoSrc(p))}" alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">`).join('');
 }
 
 /* ===== Свидания ===== */
@@ -264,8 +264,8 @@ function renderFloatingPhotos() {
     [...box.querySelectorAll('.float-photo')].forEach((im, i) => {
       const p = first[i];
       if (!p) { im.style.display = 'none'; return; }
-      im.src = p.data;
-      im.dataset.src = p.data;
+      im.src = photoSrc(p);
+      im.dataset.src = photoSrc(p);
     });
     return;
   }
@@ -274,11 +274,11 @@ function renderFloatingPhotos() {
     const p = picks[i];
     if (!p) { im.style.display = 'none'; return; }
     im.style.display = '';
-    if (im.dataset.src !== p.data) {
+    if (im.dataset.src !== photoSrc(p)) {
       im.style.opacity = '0';                    // плавно гасим…
       setTimeout(() => {
-        im.src = p.data;                          // …меняем фото…
-        im.dataset.src = p.data;
+        im.src = photoSrc(p);                     // …меняем фото…
+        im.dataset.src = photoSrc(p);
         im.style.opacity = '1';                   // …и плавно проявляем
       }, 650);
     }

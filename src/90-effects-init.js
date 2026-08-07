@@ -16,6 +16,7 @@ $('#settingsThemeBtn').addEventListener('click', toggleTheme);
 
 /* ===== Запуск: приложение закрыто, пока не вошли ===== */
 function initAuth() {
+  initPhotoStore(); // открываем IndexedDB (или fallback) до первого входа
   renderUserChip();
   setTheme(getTheme());
   applyMotion(getMotion());

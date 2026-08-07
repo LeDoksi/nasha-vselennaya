@@ -25,8 +25,19 @@ const sandbox = {
   },
   alert() {}, confirm() { return true; },
   URL: { createObjectURL() { return 'blob:x'; }, revokeObjectURL() {} },
-  FileReader: function () { this.readAsDataURL = (f) => { this.onload({ target: { result: 'data:image/jpeg;base64,AA==' } }); }; },
-  Blob: function () {}, HTMLAudioElement: function () {}, Image: function () {},
+  FileReader: function () { this.result = null; this.readAsDataURL = (f) => { this.result = 'data:image/jpeg;base64,AA=='; if (this.onload) this.onload(); }; },
+  Blob: function (parts, opts) {
+    // минимальный Blob для photoStore: хранит байты и умеет отдавать arrayBuffer
+    this._bytes = [];
+    (parts || []).forEach(p => {
+      if (p instanceof Uint8Array) this._bytes.push(...p);
+      else if (p instanceof ArrayBuffer) this._bytes.push(...new Uint8Array(p));
+      else if (typeof p === 'string') this._bytes.push(...[...p].map(ch => ch.charCodeAt(0)));
+    });
+    this.size = this._bytes.length;
+    this.type = (opts && opts.type) || '';
+    this.arrayBuffer = () => Promise.resolve(Uint8Array.from(this._bytes).buffer);
+  }, HTMLAudioElement: function () {}, Image: function () {},
   setTimeout(f) { sandbox._timers.push(f); return 0; }, setInterval() { return 1; },
   addEventListener() {}, isNaN, console, Date, Math, JSON, Object, Array, Number, String, RegExp,
   // старые данные без version/wishlist/backupDate/labels — проверяем миграцию
@@ -88,6 +99,10 @@ function __TEST__(s){
   s.createVault = createVault; s.unlockWith = unlockWith; s.savePassFor = savePassFor; s.changePass = changePass;
   s.lock = lock; s.isLocked = isLocked; s.loadVault = loadVault; s.legacyDB = legacyDB; s.save = save;
   s.exportData = exportData; s.importData = importData; s.showAuth = showAuth; s.unlockApp = unlockApp;
+  Object.defineProperty(s, 'photoStore', { get: () => photoStore, configurable: true });
+  s.migratePhotosToStore = migratePhotosToStore; s.dataUrlToBlob = dataUrlToBlob;
+  s.photoUrl = photoUrl; s.photoSrc = photoSrc; s.warmThumbCache = warmThumbCache; s.clearPhotoStore = clearPhotoStore;
+  s.initPhotoStore = initPhotoStore; s.getThumbUrl = getThumbUrl; s.setThumbUrl = setThumbUrl;
 }`;
 const wrapped = new Function('sandbox', 'document', 'localStorage', 'sessionStorage', 'alert', 'confirm', 'URL',
   'FileReader', 'Blob', 'HTMLAudioElement', 'Image', 'setTimeout', 'setInterval', 'addEventListener',
@@ -117,7 +132,7 @@ assert(!vaultRaw.includes('"123456"'), 'пароль не хранится в с
 assert(w('(s)=>s.localStorage.getItem("universe")') === null, 'старый открытый файл удалён после миграции');
 
 // --- Миграция: старые данные получили version и новые поля ---
-assert(w('(s)=>s.db.version') === 5, 'db.version = 5 после миграции');
+assert(w('(s)=>s.db.version') === 6, 'db.version = 6 после миграции');
 assert(Array.isArray(w('(s)=>s.db.wishlist')), 'wishlist добавлен миграцией');
 assert(w('(s)=>s.db.backupDate') === null, 'backupDate добавлен миграцией');
 assert(Array.isArray(w('(s)=>s.db.labels')), 'labels добавлен миграцией');
@@ -311,7 +326,9 @@ registry['#evEnd'].value = '2026-08-24';
 w('(s)=>{s.evPhotoData=["data:image/jpeg;base64,BB=="];}');
 w('(s)=>s.saveEventFromModal()');
 const lastEv = w('(s)=>s.db.events[s.db.events.length-1]');
-assert(lastEv.title === 'Поездка в горы' && JSON.stringify(lastEv.photos) === '["data:image/jpeg;base64,BB=="]', 'событие сохранило фото');
+assert(lastEv.title === 'Поездка в горы' && Array.isArray(lastEv.photos) && lastEv.photos.length === 1 &&
+  (() => { const ph = w('(s)=>s.db.photos.find(p=>p.data==="data:image/jpeg;base64,BB==")'); return ph && ph.id === lastEv.photos[0]; })(),
+  'событие сохранило фото');
 assert(lastEv.endDate === '2026-08-24' && lastEv.repeat === false, 'долгое событие сохраняет диапазон и не повторяется');
 assert(w('(s)=>s.db.photos.some(p=>p.data==="data:image/jpeg;base64,BB==")'), 'фото события появилось в галерее');
 assert(w('(s)=>s.db.labels.includes("📅 События")'), 'фото события получает общий лейбл «📅 События»');
@@ -549,7 +566,7 @@ const exp = await w('(s)=>s.exportData()');
 const expJson = JSON.stringify(exp);
 assert(expJson.includes('"keys"') && expJson.includes('"ver"'), 'экспорт — это сейф');
 assert(!expJson.includes('Поездка') && !expJson.includes('кафе'), 'в экспорте нет открытого текста');
-assert(w('(s)=>s.importData(' + JSON.stringify(expJson) + ')') === true, 'импорт распознаёт сейф');
+assert(await w('(s)=>s.importData(' + JSON.stringify(expJson) + ')') === true, 'импорт распознаёт сейф');
 
 // --- Импорт старого открытого бэкапа — сразу шифруется ---
 const legacyBackup = JSON.stringify({ events: [{ id: 'x1', title: 'Тайное', date: '2026-05-01', emoji: '💜', repeat: true }], notes: [], shopping: [], todos: [], photos: [], dates: [], wishlist: [] });
@@ -616,6 +633,35 @@ w('(s)=>{s.db.wishlist.push({id:"wX",text:"Опасная",link:"javascript:aler
 assert(!registry['#wishlistGrid'].innerHTML.includes('href="javascript:'), 'javascript:-ссылка заменена заглушкой');
 w('(s)=>{s.db.wishlist.push({id:"wOK",text:"Безопасная",link:"https://example.com",owner:"gosha",done:false,ts:2});s.renderWishlist();return 1;}');
 assert(registry['#wishlistGrid'].innerHTML.includes('href="https://example.com"'), 'обычная ссылка остаётся в href');
+
+// --- photoStore: миграция, кэш миниатюр, экспорт/импорт блобов ---
+await w('(s)=>{s.db.photos.push({id:"psOld",data:"data:image/webp;base64,"+btoa("photo1"),title:"Старое",labels:[],pinned:false,ts:1,order:0});return 1;}');
+const movedCount = await w('(s)=>s.photoStore.migratePhotos(s.db)');
+assert(movedCount >= 1, 'migratePhotos переносит data-URL в хранилище');
+assert(await w('(s)=>s.photoStore.getMeta("psOld")') !== null, 'фото лежит в хранилище с метаданными');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="psOld").data') !== undefined, 'p.data сохранён в памяти для совместимости');
+// кэш миниатюр: warmThumbCache прогревает, photoSrc отдаёт URL
+await w('(s)=>s.warmThumbCache()');
+assert(w('(s)=>s.getThumbUrl("psOld")') !== null, 'warmThumbCache заполняет кэш миниатюр');
+assert(await w('(s)=>s.photoUrl(s.db.photos.find(p=>p.id==="psOld"), true)') !== '', 'photoUrl возвращает data-URL');
+// photoSrc синхронно отдаёт из кэша
+assert(w('(s)=>s.photoSrc(s.db.photos.find(p=>p.id==="psOld"))') !== '', 'photoSrc отдаёт src из кэша');
+// экспорт блобов и импорт
+const blobs = await w('(s)=>s.photoStore.exportBlobs()');
+assert(blobs.some(b => b.id === 'psOld' && b.full), 'exportBlobs отдаёт зашифрованные блобы');
+await w('(s)=>{s.photoStore.clear(); return 1;}');
+assert(await w('(s)=>s.photoStore.getMeta("psOld")') === null, 'после clear фото в хранилище нет');
+await w('(s)=>s.photoStore.importBlobs(' + JSON.stringify(blobs) + ')');
+assert(await w('(s)=>s.photoStore.getMeta("psOld")') !== null, 'importBlobs восстанавливает фото');
+// refreshSizes считает байты
+const sizes = await w('(s)=>s.photoStore.refreshSizes()');
+assert(sizes.count >= 1 && sizes.bytes >= 0, 'refreshSizes возвращает количество и объём');
+// блокировка очищает хранилище и кэш
+await w('(s)=>s.save()'); // фиксируем фото в сейфе
+w('(s)=>s.lock()');
+assert(w('(s)=>s.getThumbUrl("psOld")') === null, 'lock очищает кэш миниатюр');
+assert(await w('(s)=>s.unlockWith("dasha","654321")') === true, 'повторный вход Даши работает');
+assert(w('(s)=>s.db.photos.some(p=>p.id==="psOld")'), 'после входа фото на месте');
 
 // --- Сброс очищает сейф ---
 w('(s)=>{s.localStorage.removeItem("universe_vault"); s.localStorage.removeItem("universe");}');

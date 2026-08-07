@@ -170,7 +170,15 @@ document.addEventListener('click', e => {
     renderPhotos(); return;
   }
   const photo = e.target.closest('[data-photo]');
-  if (photo) { $('#lightboxImg').src = photo.dataset.photo; $('#lightbox').hidden = false; return; }
+  if (photo) {
+    const id = photo.dataset.photo;
+    const p = db.photos.find(x => x.id === id);
+    if (p) {
+      $('#lightbox').hidden = false;
+      photoUrl(p, false).then(url => { if (url) $('#lightboxImg').src = url; });
+    }
+    return;
+  }
 
   const wishDone = e.target.closest('[data-wish-done]');
   if (wishDone) {

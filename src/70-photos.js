@@ -30,7 +30,16 @@ $('#photoInput').addEventListener('change', async e => {
   for (const f of files) {
     try {
       const data = await readFile(f);
-      db.photos.unshift({ id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0 });
+      const ph = { id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0 };
+      db.photos.unshift(ph);
+      // Сразу кладём в photoStore — дальше фото живёт в IndexedDB (зашифровано)
+      try {
+        const blob = dataUrlToBlob(data);
+        if (blob && photoStore) {
+          const meta = { type: blob.type || 'image/jpeg', title: f.name, size: blob.size };
+          await photoStore.put(ph.id, blob, null, meta);
+        }
+      } catch (err) { console.warn('Не удалось сохранить фото в хранилище', err); }
     } catch (err) { console.warn('Не удалось загрузить фото', err); }
   }
   e.target.value = '';
@@ -52,19 +61,24 @@ function deletePhoto(id) {
     // фото удаляется и из событий, чтобы в календаре не оставалось «мёртвых» миниатюр
     db.events.forEach(ev => {
       if (!Array.isArray(ev.photos)) return;
-      ev.photos = ev.photos.filter(d => d !== ph.data);
+      ev.photos = ev.photos.filter(d => d !== ph.data && d !== ph.id);
       if (!ev.photos.length) delete ev.photos;
     });
+    if (photoStore && ph.id) photoStore.delete(ph.id); // убираем блоб из IndexedDB
   }
   db.photos = db.photos.filter(x => x.id !== id);
   selectedPhotos.delete(id);
+  clearThumbCache();
   save(); renderPhotos(); renderCalendar();
 }
-// К каким событиям привязано фото (data) — для фильтра «год → месяц → событие»
-function eventsForPhoto(data) {
+// К каким событиям привязано фото — для фильтра «год → месяц → событие».
+// События могут хранить id фото (v6+) или старый data-URL.
+function eventsForPhoto(p) {
   const res = [];
   for (const ev of db.events) {
-    if (!Array.isArray(ev.photos) || !ev.photos.includes(data)) continue;
+    if (!Array.isArray(ev.photos)) continue;
+    const hit = ev.photos.some(d => d === p.id || (p.data && d === p.data));
+    if (!hit) continue;
     const [y, m] = (ev.date || '').split('-');
     if (!y || !m) continue;
     res.push({ title: ev.title, year: y, month: m });
@@ -77,7 +91,7 @@ function filteredPhotos() {
     const f = eventFilter;
     if (f.year || f.month || f.title) {
       list = list.filter(p => {
-        const evs = eventsForPhoto(p.data);
+        const evs = eventsForPhoto(p);
         if (f.year && !evs.some(e => e.year === f.year)) return false;
         if (f.month && !evs.some(e => e.month === f.month)) return false;
         if (f.title && !evs.some(e => e.title === f.title)) return false;
@@ -124,7 +138,7 @@ function renderPhotosNow() {
   }
   grid.innerHTML = list.length ? list.map(p => `
     <div class="photo${p.pinned ? ' pinned' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}" data-drag-photo draggable="true">
-      <img src="${esc(p.data)}" alt="${esc(p.title)}" data-photo="${esc(p.data)}" loading="lazy">
+      <img src="${esc(photoSrc(p))}" alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">
       <button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>
       <button class="pin-photo${p.pinned ? ' active' : ''}" data-pin-photo="${p.id}" title="${p.pinned ? 'Открепить' : 'Закрепить'}">${p.pinned ? '⭐' : '☆'}</button>
       <button class="del-photo" data-del-photo="${p.id}" title="Удалить">✕</button>
@@ -140,7 +154,7 @@ function eventPhotosCount(year, month, title) {
   let n = 0;
   for (const p of db.photos) {
     if (!(p.labels || []).includes(EVENT_LABEL)) continue;
-    if (eventsForPhoto(p.data).some(e =>
+    if (eventsForPhoto(p).some(e =>
       (!year || e.year === year) && (!month || e.month === month) && (!title || e.title === title))) n++;
   }
   return n;
@@ -153,7 +167,7 @@ function renderEventBar() {
   if (!show) return;
   const f = eventFilter;
   // события, у которых есть фото в галерее
-  const evs = db.events.filter(ev => Array.isArray(ev.photos) && ev.photos.some(d => db.photos.some(p => p.data === d)));
+  const evs = db.events.filter(ev => Array.isArray(ev.photos) && ev.photos.some(d => db.photos.some(p => p.id === d || p.data === d)));
   const years = [...new Set(evs.map(e => (e.date || '').slice(0, 4)).filter(Boolean))].sort((a, b) => b - a);
   const monthsOf = year => [...new Set(evs.filter(e => (e.date || '').slice(0, 4) === year).map(e => (e.date || '').slice(5, 7)).filter(Boolean))].sort();
   const titlesOf = (year, month) => {

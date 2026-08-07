@@ -175,26 +175,49 @@ $('#calMonthSelect').addEventListener('change', e => jumpCalendar(e.target.value
 $('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.value));
 
 // Миниатюры фото события в панели дня
+// ev.photos может хранить data-URL (старые версии) или id фото (v6+).
+function photoByRef(ref) {
+  return db.photos.find(p => p.id === ref) || db.photos.find(p => p.data === ref) || null;
+}
 function evThumbs(e) {
   if (!(e.photos && e.photos.length)) return '';
-  return `<span class="ev-thumbs">${e.photos.map(p => `<img class="ev-thumb" src="${esc(p)}" alt="${esc(e.title)}" data-photo="${esc(p)}" loading="lazy">`).join('')}</span>`;
+  return `<span class="ev-thumbs">${e.photos.map(ref => {
+    const p = photoByRef(ref);
+    const src = p ? photoSrc(p) : ref;
+    const attr = p ? p.id : ref;
+    return `<img class="ev-thumb" src="${esc(src)}" alt="${esc(e.title)}" data-photo="${esc(attr)}" loading="lazy">`;
+  }).join('')}</span>`;
 }
 
 // Фото события кладём в общую галерею под общим лейблом «📅 События»;
 // название события остаётся подписью фото (title) и показывается в витрине событий.
 // Отдельные лейблы-названия не создаём — иначе фильтр засоряется после 30+ событий.
+// ev.photos хранит id фото (v6+); data-URL из старых версий подхватываем по совпадению.
 function addEventPhotosToGallery(photos, title) {
-  if (!photos.length) return;
+  if (!photos.length) return [];
   if (!db.labels.includes(EVENT_LABEL)) db.labels.push(EVENT_LABEL);
-  for (const photoData of photos) {
-    const ph = db.photos.find(p => p.data === photoData);
-    if (ph) {
-      if (!Array.isArray(ph.labels)) ph.labels = [];
-      if (!ph.labels.includes(EVENT_LABEL)) ph.labels.push(EVENT_LABEL);
+  const ids = [];
+  for (const photoRef of photos) {
+    const existing = db.photos.find(p => p.id === photoRef || p.data === photoRef);
+    if (existing) {
+      if (!Array.isArray(existing.labels)) existing.labels = [];
+      if (!existing.labels.includes(EVENT_LABEL)) existing.labels.push(EVENT_LABEL);
+      ids.push(existing.id);
     } else {
-      db.photos.unshift({ id: uid(), data: photoData, title, labels: [EVENT_LABEL], pinned: false, ts: Date.now(), order: 0 });
+      const ph = { id: uid(), data: photoRef, title, labels: [EVENT_LABEL], pinned: false, ts: Date.now(), order: 0 };
+      db.photos.unshift(ph);
+      ids.push(ph.id);
+      // Кладём копию в photoStore (в фоне), чтобы фото пережило перенос в IndexedDB
+      try {
+        const blob = dataUrlToBlob(photoRef);
+        if (blob && photoStore) {
+          const meta = { type: blob.type || 'image/webp', title, size: blob.size };
+          photoStore.put(ph.id, blob, null, meta).catch(e => console.warn('Не удалось сохранить фото события в хранилище', e));
+        }
+      } catch (e) { console.warn('Не удалось сохранить фото события в хранилище', e); }
     }
   }
+  return ids;
 }
 
 // Быстрое добавление фото к событию прямо из панели дня (кнопка 📷)
@@ -212,8 +235,8 @@ function addEventPhotoQuick(evId) {
     }
     inp.remove();
     if (!ok.length) return;
-    ev.photos = Array.isArray(ev.photos) ? ev.photos.concat(ok) : ok;
-    addEventPhotosToGallery(ok, ev.title);
+    const ids = addEventPhotosToGallery(ok, ev.title);
+    ev.photos = Array.isArray(ev.photos) ? ev.photos.concat(ids.length ? ids : ok) : (ids.length ? ids : ok);
     save(); renderCalendar(); renderHome();
   }, { once: true });
   inp.click();
@@ -470,8 +493,8 @@ function saveEventFromModal() {
   const data = { title, date, endDate, emoji: $('#evEmoji').value.trim() || '💜', repeat: $('#evRepeat').checked && !endDate };
   // Фото события: кладём в общую галерею и вешаем лейбл = названию события
   if (evPhotoData.length) {
-    data.photos = evPhotoData;
-    addEventPhotosToGallery(evPhotoData, title);
+    const ids = addEventPhotosToGallery(evPhotoData, title);
+    data.photos = ids.length ? ids : evPhotoData;
   }
   const ev = editingEventId ? db.events.find(x => x.id === editingEventId) : null;
   if (ev) {
