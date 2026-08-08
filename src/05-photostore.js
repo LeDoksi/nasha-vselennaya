@@ -463,13 +463,12 @@ function setThumbUrl(id, url) { thumbCache.set(id, url); }
 function clearThumbCache() { thumbCache.clear(); }
 
 // ===== Единый источник URL фото для рендеров =====
-// Порядок: кэш миниатюры → блоб в photoStore → старый p.data (если ещё не мигрирован).
-// Возвращает data-URL для <img>. Вызовы с одним id кэшируются в thumbCache.
+// Порядок: кэш миниатюры → блоб в photoStore. Возвращает data-URL для <img>.
+// Вызовы с одним id кэшируются в thumbCache.
 async function photoUrl(p, useThumb = true) {
   if (!p) return '';
   const cached = getThumbUrl(p.id);
   if (cached) return cached;
-  if (p.data && !p.id) return p.data; // легаси-фото без id
   if (photoStore && p.id) {
     try {
       let blob = null;
@@ -482,13 +481,14 @@ async function photoUrl(p, useThumb = true) {
       }
     } catch (e) {}
   }
-  return p.data || '';
+  return '';
 }
 
-// Синхронный превью-URL (для мгновенного каркаса): кэш или старый data.
+// Синхронный превью-URL (для мгновенного каркаса): только кэш миниатюр.
+// p.data в рендерах больше не используется — фото живёт в photoStore.
 function photoSrc(p) {
   if (!p) return '';
-  return getThumbUrl(p.id) || p.data || '';
+  return getThumbUrl(p.id) || '';
 }
 
 // Прогрев кэша миниатюр после разблокировки — галерея рендерится мгновенно.

@@ -32,6 +32,7 @@ $('#photoInput').addEventListener('change', async e => {
       const data = await readFile(f);
       const ph = { id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0 };
       db.photos.unshift(ph);
+      setThumbUrl(ph.id, data); // мгновенный показ из кэша миниатюр
       // Сразу кладём в photoStore — дальше фото живёт в IndexedDB (зашифровано).
       // Миниатюру (WebP) генерируем при загрузке; после записи убираем base64 из памяти.
       try {
@@ -42,7 +43,6 @@ $('#photoInput').addEventListener('change', async e => {
           const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size };
           await photoStore.put(ph.id, blob, thumb, meta);
           delete ph.data;            // блоб в сторе — из памяти убираем base64
-          setThumbUrl(ph.id, data);  // мгновенный показ из кэша миниатюр
         }
       } catch (err) { console.warn('Не удалось сохранить фото в хранилище', err); }
     } catch (err) { console.warn('Не удалось загрузить фото', err); }
@@ -66,7 +66,7 @@ function deletePhoto(id) {
     // фото удаляется и из событий, чтобы в календаре не оставалось «мёртвых» миниатюр
     db.events.forEach(ev => {
       if (!Array.isArray(ev.photos)) return;
-      ev.photos = ev.photos.filter(d => d !== ph.data && d !== ph.id);
+      ev.photos = ev.photos.filter(d => d !== ph.id);
       if (!ev.photos.length) delete ev.photos;
     });
     if (photoStore && ph.id) photoStore.delete(ph.id); // убираем блоб из IndexedDB
@@ -77,12 +77,12 @@ function deletePhoto(id) {
   save(); renderPhotos(); renderCalendar();
 }
 // К каким событиям привязано фото — для фильтра «год → месяц → событие».
-// События могут хранить id фото (v6+) или старый data-URL.
+// ev.photos хранит id фото (v6+).
 function eventsForPhoto(p) {
   const res = [];
   for (const ev of db.events) {
     if (!Array.isArray(ev.photos)) continue;
-    const hit = ev.photos.some(d => d === p.id || (p.data && d === p.data));
+    const hit = ev.photos.includes(p.id);
     if (!hit) continue;
     const [y, m] = (ev.date || '').split('-');
     if (!y || !m) continue;
@@ -171,8 +171,9 @@ function renderEventBar() {
   evBar.style.display = show ? 'flex' : 'none';
   if (!show) return;
   const f = eventFilter;
-  // события, у которых есть фото в галерее
-  const evs = db.events.filter(ev => Array.isArray(ev.photos) && ev.photos.some(d => db.photos.some(p => p.id === d || p.data === d)));
+  // события, у которых есть фото в галерее (ev.photos хранит id фото)
+  const photoIds = new Set(db.photos.map(p => p.id));
+  const evs = db.events.filter(ev => Array.isArray(ev.photos) && ev.photos.some(d => photoIds.has(d)));
   const years = [...new Set(evs.map(e => (e.date || '').slice(0, 4)).filter(Boolean))].sort((a, b) => b - a);
   const monthsOf = year => [...new Set(evs.filter(e => (e.date || '').slice(0, 4) === year).map(e => (e.date || '').slice(5, 7)).filter(Boolean))].sort();
   const titlesOf = (year, month) => {

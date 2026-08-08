@@ -624,13 +624,12 @@ function setThumbUrl(id, url) { thumbCache.set(id, url); }
 function clearThumbCache() { thumbCache.clear(); }
 
 // ===== Единый источник URL фото для рендеров =====
-// Порядок: кэш миниатюры → блоб в photoStore → старый p.data (если ещё не мигрирован).
-// Возвращает data-URL для <img>. Вызовы с одним id кэшируются в thumbCache.
+// Порядок: кэш миниатюры → блоб в photoStore. Возвращает data-URL для <img>.
+// Вызовы с одним id кэшируются в thumbCache.
 async function photoUrl(p, useThumb = true) {
   if (!p) return '';
   const cached = getThumbUrl(p.id);
   if (cached) return cached;
-  if (p.data && !p.id) return p.data; // легаси-фото без id
   if (photoStore && p.id) {
     try {
       let blob = null;
@@ -643,13 +642,14 @@ async function photoUrl(p, useThumb = true) {
       }
     } catch (e) {}
   }
-  return p.data || '';
+  return '';
 }
 
-// Синхронный превью-URL (для мгновенного каркаса): кэш или старый data.
+// Синхронный превью-URL (для мгновенного каркаса): только кэш миниатюр.
+// p.data в рендерах больше не используется — фото живёт в photoStore.
 function photoSrc(p) {
   if (!p) return '';
-  return getThumbUrl(p.id) || p.data || '';
+  return getThumbUrl(p.id) || '';
 }
 
 // Прогрев кэша миниатюр после разблокировки — галерея рендерится мгновенно.
@@ -1374,16 +1374,15 @@ function jumpCalendar(m, y) { calM = +m; calY = +y; selectedDate = null; hideJum
 $('#calMonthSelect').addEventListener('change', e => jumpCalendar(e.target.value, calY));
 $('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.value));
 
-// Миниатюры фото события в панели дня
-// ev.photos может хранить data-URL (старые версии) или id фото (v6+).
+// Миниатюры фото события в панели дня (v6+: ev.photos хранит id фото)
 function photoByRef(ref) {
-  return db.photos.find(p => p.id === ref) || db.photos.find(p => p.data === ref) || null;
+  return db.photos.find(p => p.id === ref) || null;
 }
 function evThumbs(e) {
   if (!(e.photos && e.photos.length)) return '';
   return `<span class="ev-thumbs">${e.photos.map(ref => {
     const p = photoByRef(ref);
-    const src = p ? photoSrc(p) : ref;
+    const src = p ? photoSrc(p) : ref; // сиротский data-URL из легаси-события показываем напрямую
     const attr = p ? p.id : ref;
     return `<img class="ev-thumb" src="${esc(src)}" alt="${esc(e.title)}" data-photo="${esc(attr)}" loading="lazy">`;
   }).join('')}</span>`;
@@ -1392,13 +1391,14 @@ function evThumbs(e) {
 // Фото события кладём в общую галерею под общим лейблом «📅 События»;
 // название события остаётся подписью фото (title) и показывается в витрине событий.
 // Отдельные лейблы-названия не создаём — иначе фильтр засоряется после 30+ событий.
-// ev.photos хранит id фото (v6+); data-URL из старых версий подхватываем по совпадению.
+// ev.photos хранит id фото (v6+). Новые фото события приходят как data-URL —
+// на каждую создаётся фото галереи с id, а в событие пишутся эти id.
 function addEventPhotosToGallery(photos, title) {
   if (!photos.length) return [];
   if (!db.labels.includes(EVENT_LABEL)) db.labels.push(EVENT_LABEL);
   const ids = [];
   for (const photoRef of photos) {
-    const existing = db.photos.find(p => p.id === photoRef || p.data === photoRef);
+    const existing = db.photos.find(p => p.id === photoRef);
     if (existing) {
       if (!Array.isArray(existing.labels)) existing.labels = [];
       if (!existing.labels.includes(EVENT_LABEL)) existing.labels.push(EVENT_LABEL);
@@ -2109,6 +2109,7 @@ $('#photoInput').addEventListener('change', async e => {
       const data = await readFile(f);
       const ph = { id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0 };
       db.photos.unshift(ph);
+      setThumbUrl(ph.id, data); // мгновенный показ из кэша миниатюр
       // Сразу кладём в photoStore — дальше фото живёт в IndexedDB (зашифровано).
       // Миниатюру (WebP) генерируем при загрузке; после записи убираем base64 из памяти.
       try {
@@ -2119,7 +2120,6 @@ $('#photoInput').addEventListener('change', async e => {
           const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size };
           await photoStore.put(ph.id, blob, thumb, meta);
           delete ph.data;            // блоб в сторе — из памяти убираем base64
-          setThumbUrl(ph.id, data);  // мгновенный показ из кэша миниатюр
         }
       } catch (err) { console.warn('Не удалось сохранить фото в хранилище', err); }
     } catch (err) { console.warn('Не удалось загрузить фото', err); }
@@ -2143,7 +2143,7 @@ function deletePhoto(id) {
     // фото удаляется и из событий, чтобы в календаре не оставалось «мёртвых» миниатюр
     db.events.forEach(ev => {
       if (!Array.isArray(ev.photos)) return;
-      ev.photos = ev.photos.filter(d => d !== ph.data && d !== ph.id);
+      ev.photos = ev.photos.filter(d => d !== ph.id);
       if (!ev.photos.length) delete ev.photos;
     });
     if (photoStore && ph.id) photoStore.delete(ph.id); // убираем блоб из IndexedDB
@@ -2154,12 +2154,12 @@ function deletePhoto(id) {
   save(); renderPhotos(); renderCalendar();
 }
 // К каким событиям привязано фото — для фильтра «год → месяц → событие».
-// События могут хранить id фото (v6+) или старый data-URL.
+// ev.photos хранит id фото (v6+).
 function eventsForPhoto(p) {
   const res = [];
   for (const ev of db.events) {
     if (!Array.isArray(ev.photos)) continue;
-    const hit = ev.photos.some(d => d === p.id || (p.data && d === p.data));
+    const hit = ev.photos.includes(p.id);
     if (!hit) continue;
     const [y, m] = (ev.date || '').split('-');
     if (!y || !m) continue;
@@ -2248,8 +2248,9 @@ function renderEventBar() {
   evBar.style.display = show ? 'flex' : 'none';
   if (!show) return;
   const f = eventFilter;
-  // события, у которых есть фото в галерее
-  const evs = db.events.filter(ev => Array.isArray(ev.photos) && ev.photos.some(d => db.photos.some(p => p.id === d || p.data === d)));
+  // события, у которых есть фото в галерее (ev.photos хранит id фото)
+  const photoIds = new Set(db.photos.map(p => p.id));
+  const evs = db.events.filter(ev => Array.isArray(ev.photos) && ev.photos.some(d => photoIds.has(d)));
   const years = [...new Set(evs.map(e => (e.date || '').slice(0, 4)).filter(Boolean))].sort((a, b) => b - a);
   const monthsOf = year => [...new Set(evs.filter(e => (e.date || '').slice(0, 4) === year).map(e => (e.date || '').slice(5, 7)).filter(Boolean))].sort();
   const titlesOf = (year, month) => {

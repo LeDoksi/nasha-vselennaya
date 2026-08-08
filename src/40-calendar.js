@@ -174,16 +174,15 @@ function jumpCalendar(m, y) { calM = +m; calY = +y; selectedDate = null; hideJum
 $('#calMonthSelect').addEventListener('change', e => jumpCalendar(e.target.value, calY));
 $('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.value));
 
-// Миниатюры фото события в панели дня
-// ev.photos может хранить data-URL (старые версии) или id фото (v6+).
+// Миниатюры фото события в панели дня (v6+: ev.photos хранит id фото)
 function photoByRef(ref) {
-  return db.photos.find(p => p.id === ref) || db.photos.find(p => p.data === ref) || null;
+  return db.photos.find(p => p.id === ref) || null;
 }
 function evThumbs(e) {
   if (!(e.photos && e.photos.length)) return '';
   return `<span class="ev-thumbs">${e.photos.map(ref => {
     const p = photoByRef(ref);
-    const src = p ? photoSrc(p) : ref;
+    const src = p ? photoSrc(p) : ref; // сиротский data-URL из легаси-события показываем напрямую
     const attr = p ? p.id : ref;
     return `<img class="ev-thumb" src="${esc(src)}" alt="${esc(e.title)}" data-photo="${esc(attr)}" loading="lazy">`;
   }).join('')}</span>`;
@@ -192,13 +191,14 @@ function evThumbs(e) {
 // Фото события кладём в общую галерею под общим лейблом «📅 События»;
 // название события остаётся подписью фото (title) и показывается в витрине событий.
 // Отдельные лейблы-названия не создаём — иначе фильтр засоряется после 30+ событий.
-// ev.photos хранит id фото (v6+); data-URL из старых версий подхватываем по совпадению.
+// ev.photos хранит id фото (v6+). Новые фото события приходят как data-URL —
+// на каждую создаётся фото галереи с id, а в событие пишутся эти id.
 function addEventPhotosToGallery(photos, title) {
   if (!photos.length) return [];
   if (!db.labels.includes(EVENT_LABEL)) db.labels.push(EVENT_LABEL);
   const ids = [];
   for (const photoRef of photos) {
-    const existing = db.photos.find(p => p.id === photoRef || p.data === photoRef);
+    const existing = db.photos.find(p => p.id === photoRef);
     if (existing) {
       if (!Array.isArray(existing.labels)) existing.labels = [];
       if (!existing.labels.includes(EVENT_LABEL)) existing.labels.push(EVENT_LABEL);

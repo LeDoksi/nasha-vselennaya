@@ -93,7 +93,7 @@ function __TEST__(s){
   s.selectedPhotos = selectedPhotos; s.renderLabels = renderLabels;
   s.deleteLabel = deleteLabel; s.deletePhoto = deletePhoto; s.applyLabelToSelected = applyLabelToSelected; s.openLabelOverlay = openLabelOverlay;
   s.applyLabelToPhotos = applyLabelToPhotos; s.removeLabelFromPhoto = removeLabelFromPhoto;
-  s.filteredPhotos = filteredPhotos; s.renderEventBar = renderEventBar; s.eventsForPhoto = eventsForPhoto;
+  s.filteredPhotos = filteredPhotos; s.renderEventBar = renderEventBar; s.eventsForPhoto = eventsForPhoto; s.photoByRef = photoByRef; s.addEventPhotosToGallery = addEventPhotosToGallery;
   s.wishCard = wishCard; s.fmtWishDate = fmtWishDate;
   s.relabelEventPhotos = relabelEventPhotos;
   s.createVault = createVault; s.unlockWith = unlockWith; s.savePassFor = savePassFor; s.changePass = changePass;
@@ -343,6 +343,10 @@ assert(w(`(s)=>s.photoStore.getMeta("${evPhId}")`) !== null, 'фото собы�
 w('(s)=>{s.selectedDate="2026-08-20";s.renderDayPanel();}');
 assert(registry['#dayPanel'].innerHTML.includes('ev-thumb'), 'панель дня показывает миниатюру фото события');
 assert(registry['#dayPanel'].innerHTML.includes('data-photo-event'), 'в панели дня есть кнопка быстрого добавления фото');
+// сиротский data-URL в старом событии без фото в галерее показывается напрямую
+w('(s)=>{s.db.events.push({id:"orphanEv",title:"Сирота",date:s.iso(2026,8,5),repeat:false,photos:["data:image/jpeg;base64,DD=="]});return 1;}');
+w('(s)=>{s.selectedDate=s.iso(2026,8,5);s.renderDayPanel();}');
+assert(registry['#dayPanel'].innerHTML.includes('src="data:image/jpeg;base64,DD=="'), 'сиротский data-URL рефа показывается в панели дня напрямую');
 
 // --- Витрина «📅 События» в галерее: фильтр кнопками «год → месяц → событие» ---
 w('(s)=>{s.currentLabel="📅 События";s.renderPhotos();}');
@@ -616,15 +620,15 @@ assert(w('(s)=>s.db.events.some(e=>e.title==="Клик-событие" && e.date
 assert(registry['#calendar'].innerHTML.includes('Клик-событие'),
   'созданное кликом событие видно в календаре');
 
-// --- deletePhoto чистит и галерею, и события ---
-w('(s)=>{s.db.photos.push({id:"phDel",data:"data:image/jpeg;base64,AAA=",title:"Фото для удаления",labels:["📅 События"],pinned:false,ts:1,order:0});s.db.events[0].photos=["data:image/jpeg;base64,AAA="];return 1;}');
+// --- deletePhoto чистит и галерею, и события (ev.photos хранит id фото) ---
+w('(s)=>{s.db.photos.push({id:"phDel",data:"data:image/jpeg;base64,AAA=",title:"Фото для удаления",labels:["📅 События"],pinned:false,ts:1,order:0});s.db.events[0].photos=["phDel"];return 1;}');
 w('(s)=>s.deletePhoto("phDel")');
 assert(w('(s)=>s.db.photos.some(p=>p.id==="phDel")') === false, 'deletePhoto удаляет фото из галереи');
-assert(w('(s)=>s.db.events.every(e=>!(e.photos||[]).includes("data:image/jpeg;base64,AAA="))') === true,
+assert(w('(s)=>s.db.events.every(e=>!(e.photos||[]).includes("phDel"))') === true,
   'deletePhoto убирает фото из событий');
 
 // --- Витрина «📅 События»: фильтр «год → месяц → событие» ---
-w('(s)=>{s.db.photos.push({id:"phEv",data:"data:image/jpeg;base64,BBB=",title:"Фото события",labels:["📅 События"],pinned:false,ts:2,order:0});s.db.events.push({id:"evF",title:"Поездка в горы",date:"2026-07-14",repeat:false,photos:["data:image/jpeg;base64,BBB="]});s.currentLabel="📅 События";s.eventFilter={year:"2026",month:"07",title:"Поездка в горы"};return 1;}');
+w('(s)=>{s.db.photos.push({id:"phEv",data:"data:image/jpeg;base64,BBB=",title:"Фото события",labels:["📅 События"],pinned:false,ts:2,order:0});s.db.events.push({id:"evF",title:"Поездка в горы",date:"2026-07-14",repeat:false,photos:["phEv"]});s.currentLabel="📅 События";s.eventFilter={year:"2026",month:"07",title:"Поездка в горы"};return 1;}');
 w('(s)=>s.renderPhotos()');
 assert(w('(s)=>s.filteredPhotos().some(p=>p.id==="phEv")') === true, 'фильтр «События» показывает фото с лейблом события');
 assert(w('(s)=>s.filteredPhotos().length') === 1, 'фильтр год→месяц→событие сужает список до одного фото');
@@ -658,6 +662,15 @@ assert(w('(s)=>s.getThumbUrl("psOld")') !== null, 'warmThumbCache заполня
 assert(await w('(s)=>s.photoUrl(s.db.photos.find(p=>p.id==="psOld"), true)') !== '', 'photoUrl возвращает data-URL');
 // photoSrc синхронно отдаёт из кэша
 assert(w('(s)=>s.photoSrc(s.db.photos.find(p=>p.id==="psOld"))') !== '', 'photoSrc отдаёт src из кэша');
+// --- Легаси p.data убран из рендеров: photoSrc/photoUrl отдают только кэш и store ---
+w('(s)=>{s.db.photos.push({id:"nolegacy",data:"data:image/jpeg;base64,CC==",title:"x",labels:[],pinned:false,ts:99,order:99});return 1;}');
+assert(w('(s)=>s.photoSrc(s.db.photos.find(p=>p.id==="nolegacy"))') === '', 'photoSrc не отдаёт p.data — только кэш миниатюр');
+assert(await w('(s)=>s.photoUrl(s.db.photos.find(p=>p.id==="nolegacy"), true)') === '', 'photoUrl не отдаёт p.data, если фото нет в store');
+assert(w('(s)=>s.photoByRef("data:image/jpeg;base64,CC==")') === null, 'photoByRef не ищет фото по data-URL');
+assert(w('(s)=>s.photoByRef("psOld")') !== null, 'photoByRef находит фото по id');
+assert(w('(s)=>JSON.stringify(s.addEventPhotosToGallery(["psOld"],"Ещё"))') === '["psOld"]', 'addEventPhotosToGallery находит существующее фото по id');
+w('(s)=>{s.db.photos.splice(s.db.photos.findIndex(p=>p.id==="nolegacy"),1);return 1;}');
+assert(w('(s)=>s.db.photos.filter(p=>p.id==="psOld").length') === 1, 'addEventPhotosToGallery по id не создаёт дубль фото');
 // экспорт блобов и импорт
 const blobs = await w('(s)=>s.photoStore.exportBlobs()');
 assert(blobs.some(b => b.id === 'psOld' && b.full), 'exportBlobs отдаёт зашифрованные блобы');
