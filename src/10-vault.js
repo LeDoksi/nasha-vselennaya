@@ -60,6 +60,7 @@ async function unlockWith(who, pass) {
     await photoStore.migratePhotos(db);
     await photoStore.refreshSizes();
     warmThumbCache(); // миниатюры в кэш — галерея рендерится без ожидания
+    try { await save(); } catch (e) { console.warn('Не удалось закрепить миграцию', e); } // p.data убран, ссылки событий на id
     unlockApp();
     return true;
   } catch (e) { return false; }

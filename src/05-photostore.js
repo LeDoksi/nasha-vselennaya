@@ -114,23 +114,35 @@ function dataUrlToBlob(dataUrl) {
 }
 
 // Перенос фото из db.photos[].data (data-URL) в хранилище блобов.
-// Идемпотентно: фото с id, уже лежащие в сторе, не трогаем; для старых
-// фото без id генерируем id. p.data НЕ удаляется — рендеры пока читают
-// его синхронно; store хранит зашифрованную копию (для IDB и бэкапа v2).
-// После перевода всех рендеров на photoUrl() удаление включим отдельно.
+// Идемпотентно: фото с id, уже лежащие в сторе, не дублируем.
+// После успешного переноса p.data удаляется из памяти — base64 больше не
+// живёт в сейфе/localStorage, рендеры работают через кэш миниатюр
+// (warmThumbCache после разблокировки) или photoUrl() из стора.
+// Старые события, ссылавшиеся на фото по data-URL, переводятся на id.
 async function migratePhotosToStore(store, db) {
   if (!db || !Array.isArray(db.photos)) return 0;
   let moved = 0;
+  const dataToId = new Map();
   for (const p of db.photos) {
-    if (p.data) {
+    if (!p.data) continue;
+    if (!p.id) p.id = uid();
+    const existing = await store.getMeta(p.id);
+    if (!existing) {
       const blob = dataUrlToBlob(p.data);
-      if (!blob) continue;
-      if (!p.id) p.id = uid();
-      const existing = await store.getMeta(p.id);
-      if (existing) continue;
+      if (!blob) continue; // не разобрали data-URL — оставляем как легаси
       const meta = { type: blob.type || 'image/webp', width: p.width, height: p.height, takenAt: p.takenAt || null, title: p.title || '', size: blob.size };
       await store.put(p.id, blob, null, meta);
-      moved++;
+    }
+    // фото перенесено в store — из памяти убираем base64
+    dataToId.set(p.data, p.id);
+    delete p.data;
+    moved++;
+  }
+  // v6: события ссылаются на фото по id; старые data-URL переводим на id
+  if (dataToId.size && Array.isArray(db.events)) {
+    for (const ev of db.events) {
+      if (!Array.isArray(ev.photos)) continue;
+      ev.photos = ev.photos.map(ref => dataToId.get(ref) || ref);
     }
   }
   return moved;
@@ -326,38 +338,72 @@ async function createThumbnail(img, maxDim = 256) {
   });
 }
 
-// Загрузка файла → WebP + миниатюра + EXIF-дата
+// Доступен ли canvas для кодирования миниатюр (в песочнице тестов — нет).
+function canDraw() {
+  try {
+    const cv = document.createElement('canvas');
+    return !!(cv && cv.getContext && cv.getContext('2d'));
+  } catch (e) { return false; }
+}
+
+// WebP-миниатюра из data-URL (Image + canvas). null, если браузер не умеет
+// рисовать (canvas/Image недоступны) или картинка не загрузилась за 3 c.
+async function makeThumbBlob(dataUrl, maxDim = 256) {
+  if (!canDraw() || typeof Image === 'undefined') return null;
+  return new Promise(resolve => {
+    const img = new Image();
+    let settled = false;
+    const finish = b => { if (!settled) { settled = true; resolve(b || null); } };
+    const timer = setTimeout(() => finish(null), 3000);
+    img.onload = () => { createThumbnail(img, maxDim).then(finish).catch(() => finish(null)); };
+    img.onerror = () => finish(null);
+    img.src = dataUrl;
+  });
+}
+
+// Загрузка файла → WebP (фолбэк JPEG) + миниатюра + EXIF-дата.
+// Canvas недоступен (тесты/старые браузеры) → null: вызывающий код
+// остаётся на старом пути readFile → dataUrlToBlob.
 async function processPhotoFile(file) {
-  return new Promise((resolve, reject) => {
+  if (!canDraw()) return null;
+  const dataUrl = await new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result;
-      const img = new Image();
-      img.onload = async () => {
-        let blob = null, type = 'image/webp';
-        try {
-          blob = await new Promise(res => img.toBlob ? img.toBlob(b => res(b), 'image/webp', 0.8) : res(null));
-          if (!blob || blob.type !== 'image/webp') {
-            blob = await new Promise(res => img.toBlob ? img.toBlob(b => res(b), 'image/jpeg', 0.82) : res(null));
-            type = 'image/jpeg';
-          }
-        } catch (e) {
-          blob = await new Promise(res => img.toBlob ? img.toBlob(b => res(b), 'image/jpeg', 0.82) : res(null));
-          type = 'image/jpeg';
-        }
-        if (!blob) { reject(new Error('Failed to encode image')); return; }
-        let thumbBlob = null;
-        try { thumbBlob = await createThumbnail(img, 256); } catch (e) {}
-        let takenAt = null;
-        try { takenAt = await extractExifDate(file); } catch (e) {}
-        resolve({ blob, thumbBlob, type, thumbType: thumbBlob?.type || 'image/webp', takenAt, width: img.naturalWidth, height: img.naturalHeight });
-      };
-      img.onerror = () => reject(new Error('Failed to load image'));
-      img.src = dataUrl;
-    };
+    reader.onload = () => resolve(reader.result);
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+  const img = await new Promise(resolve => {
+    const i = new Image();
+    let settled = false;
+    const finish = v => { if (!settled) { settled = true; resolve(v || null); } };
+    const timer = setTimeout(() => finish(null), 3000);
+    i.onload = () => { clearTimeout(timer); finish(i); };
+    i.onerror = () => finish(null);
+    i.src = dataUrl;
+  });
+  if (!img) return null;
+  const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+  if (!w || !h) return null;
+  const MAX = 1400;
+  const k = Math.min(1, MAX / Math.max(w, h));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(w * k); canvas.height = Math.round(h * k);
+  canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+  const toBlob = (type, q) => new Promise(res => {
+    try { canvas.toBlob(b => res(b), type, q); } catch (e) { res(null); }
+  });
+  let blob = await toBlob('image/webp', 0.8);
+  let type = 'image/webp';
+  if (!blob || blob.type !== 'image/webp') {
+    blob = await toBlob('image/jpeg', 0.82);
+    type = 'image/jpeg';
+  }
+  if (!blob) return null;
+  let thumbBlob = null;
+  try { thumbBlob = await createThumbnail(img, 256); } catch (e) {}
+  let takenAt = null;
+  try { takenAt = await extractExifDate(file); } catch (e) {}
+  return { blob, thumbBlob, type, thumbType: (thumbBlob && thumbBlob.type) || 'image/webp', takenAt, width: w, height: h };
 }
 
 // Простой EXIF-парсер (DateTimeOriginal / CreateDate)

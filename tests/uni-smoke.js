@@ -103,6 +103,7 @@ function __TEST__(s){
   s.migratePhotosToStore = migratePhotosToStore; s.dataUrlToBlob = dataUrlToBlob;
   s.photoUrl = photoUrl; s.photoSrc = photoSrc; s.warmThumbCache = warmThumbCache; s.clearPhotoStore = clearPhotoStore;
   s.initPhotoStore = initPhotoStore; s.getThumbUrl = getThumbUrl; s.setThumbUrl = setThumbUrl;
+  s.makeThumbBlob = makeThumbBlob; s.canDraw = canDraw;
 }`;
 const wrapped = new Function('sandbox', 'document', 'localStorage', 'sessionStorage', 'alert', 'confirm', 'URL',
   'FileReader', 'Blob', 'HTMLAudioElement', 'Image', 'setTimeout', 'setInterval', 'addEventListener',
@@ -326,15 +327,19 @@ registry['#evEnd'].value = '2026-08-24';
 w('(s)=>{s.evPhotoData=["data:image/jpeg;base64,BB=="];}');
 w('(s)=>s.saveEventFromModal()');
 const lastEv = w('(s)=>s.db.events[s.db.events.length-1]');
+const evPhId = w('(s)=>s.db.events[s.db.events.length-1].photos[0]');
 assert(lastEv.title === 'Поездка в горы' && Array.isArray(lastEv.photos) && lastEv.photos.length === 1 &&
-  (() => { const ph = w('(s)=>s.db.photos.find(p=>p.data==="data:image/jpeg;base64,BB==")'); return ph && ph.id === lastEv.photos[0]; })(),
+  (() => { const ph = w(`(s)=>s.db.photos.find(p=>p.id==="${evPhId}")`); return ph && ph.id === evPhId; })(),
   'событие сохранило фото');
 assert(lastEv.endDate === '2026-08-24' && lastEv.repeat === false, 'долгое событие сохраняет диапазон и не повторяется');
-assert(w('(s)=>s.db.photos.some(p=>p.data==="data:image/jpeg;base64,BB==")'), 'фото события появилось в галерее');
+assert(w(`(s)=>s.db.photos.some(p=>p.id==="${evPhId}")`), 'фото события появилось в галерее');
 assert(w('(s)=>s.db.labels.includes("📅 События")'), 'фото события получает общий лейбл «📅 События»');
 assert(w('(s)=>s.db.labels.includes("Поездка в горы")') === false, 'лейбл-название события больше не создаётся');
-assert(w('(s)=>JSON.stringify(s.db.photos.find(p=>p.data==="data:image/jpeg;base64,BB==").labels)') === '["📅 События"]', 'фото события подписано общим лейблом');
-assert(w('(s)=>s.db.photos.find(p=>p.data==="data:image/jpeg;base64,BB==").title') === 'Поездка в горы', 'название события остаётся подписью фото');
+assert(w(`(s)=>JSON.stringify(s.db.photos.find(p=>p.id==="${evPhId}").labels)`) === '["📅 События"]', 'фото события подписано общим лейблом');
+assert(w(`(s)=>s.db.photos.find(p=>p.id==="${evPhId}").title`) === 'Поездка в горы', 'название события остаётся подписью фото');
+await new Promise(r => setTimeout(r, 20)); // даём фоновой записи в photoStore завершиться
+assert(w(`(s)=>s.db.photos.find(p=>p.id==="${evPhId}").data`) === undefined, 'данные фото события убраны из памяти после записи в store');
+assert(w(`(s)=>s.photoStore.getMeta("${evPhId}")`) !== null, 'фото события записано в photoStore');
 w('(s)=>{s.selectedDate="2026-08-20";s.renderDayPanel();}');
 assert(registry['#dayPanel'].innerHTML.includes('ev-thumb'), 'панель дня показывает миниатюру фото события');
 assert(registry['#dayPanel'].innerHTML.includes('data-photo-event'), 'в панели дня есть кнопка быстрого добавления фото');
@@ -356,12 +361,12 @@ w('(s)=>{s.eventFilter.title="Поездка в горы";s.renderPhotos();}');
 assert(registry['#photosGrid'].innerHTML.includes('Поездка в горы'), 'фильтр по событию внутри витрины работает');
 assert(registry['#eventReset'].style.display === 'inline-block', 'при активном фильтре видна кнопка сброса');
 w('(s)=>s.deleteLabel("📅 События")');
-assert(w('(s)=>s.db.photos.find(p=>p.data==="data:image/jpeg;base64,BB==").labels.includes("📅 События")'), 'служебный лейбл «События» нельзя удалить');
+assert(w(`(s)=>s.db.photos.find(p=>p.id==="${evPhId}").labels.includes("📅 События")`), 'служебный лейбл «События» нельзя удалить');
 w('(s)=>{s.eventFilter={year:"",month:"",title:""};s.currentLabel="";s.renderPhotos();}');
 
 // --- Удаление фото убирает его и из события (в календаре не остаётся «мёртвых» миниатюр) ---
-w('(s)=>{const ph=s.db.photos.find(p=>p.data==="data:image/jpeg;base64,BB==");s.deletePhoto(ph.id);}');
-assert(w('(s)=>!s.db.photos.some(p=>p.data==="data:image/jpeg;base64,BB==")'), 'удаление убирает фото из галереи');
+w(`(s)=>{const ph=s.db.photos.find(p=>p.id==="${evPhId}");s.deletePhoto(ph.id);}`);
+assert(w(`(s)=>!s.db.photos.some(p=>p.id==="${evPhId}")`), 'удаление убирает фото из галереи');
 assert(w('(s)=>{const ev=s.db.events.find(x=>x.title==="Поездка в горы");return !ev.photos || ev.photos.length===0;}'), 'удалённое фото убирается из события');
 
 // --- v4-миграция: старые фото событий переходят на общий лейбл ---
@@ -639,7 +644,14 @@ await w('(s)=>{s.db.photos.push({id:"psOld",data:"data:image/webp;base64,"+btoa(
 const movedCount = await w('(s)=>s.photoStore.migratePhotos(s.db)');
 assert(movedCount >= 1, 'migratePhotos переносит data-URL в хранилище');
 assert(await w('(s)=>s.photoStore.getMeta("psOld")') !== null, 'фото лежит в хранилище с метаданными');
-assert(w('(s)=>s.db.photos.find(p=>p.id==="psOld").data') !== undefined, 'p.data сохранён в памяти для совместимости');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="psOld").data') === undefined, 'p.data удалён из памяти после миграции');
+// миграция переводит ссылки событий с data-URL на id фото
+await w('(s)=>{s.db.photos.push({id:"psOld2",data:"data:image/webp;base64,"+btoa("photo2"),title:"Второе",labels:[],pinned:false,ts:2,order:0});s.db.events.push({id:"psEv",title:"Миграция",date:"2026-01-01",photos:["data:image/webp;base64,"+btoa("photo2")],repeat:true});return 1;}');
+await w('(s)=>s.photoStore.migratePhotos(s.db)');
+assert(w('(s)=>s.db.events.find(e=>e.id==="psEv").photos[0]') === 'psOld2', 'миграция переводит ссылку события на id фото');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="psOld2").data') === undefined, 'миграция удаляет data-URL из памяти');
+// без canvas миниатюра не генерируется (graceful fallback)
+assert(await w('(s)=>s.makeThumbBlob("data:image/jpeg;base64,AA==")') === null, 'без canvas миниатюра не генерируется (graceful)');
 // кэш миниатюр: warmThumbCache прогревает, photoSrc отдаёт URL
 await w('(s)=>s.warmThumbCache()');
 assert(w('(s)=>s.getThumbUrl("psOld")') !== null, 'warmThumbCache заполняет кэш миниатюр');

@@ -32,12 +32,17 @@ $('#photoInput').addEventListener('change', async e => {
       const data = await readFile(f);
       const ph = { id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0 };
       db.photos.unshift(ph);
-      // Сразу кладём в photoStore — дальше фото живёт в IndexedDB (зашифровано)
+      // Сразу кладём в photoStore — дальше фото живёт в IndexedDB (зашифровано).
+      // Миниатюру (WebP) генерируем при загрузке; после записи убираем base64 из памяти.
       try {
         const blob = dataUrlToBlob(data);
         if (blob && photoStore) {
-          const meta = { type: blob.type || 'image/jpeg', title: f.name, size: blob.size };
-          await photoStore.put(ph.id, blob, null, meta);
+          let thumb = null, thumbType = null;
+          try { thumb = await makeThumbBlob(data, 256); thumbType = (thumb && thumb.type) || 'image/webp'; } catch (e) {}
+          const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size };
+          await photoStore.put(ph.id, blob, thumb, meta);
+          delete ph.data;            // блоб в сторе — из памяти убираем base64
+          setThumbUrl(ph.id, data);  // мгновенный показ из кэша миниатюр
         }
       } catch (err) { console.warn('Не удалось сохранить фото в хранилище', err); }
     } catch (err) { console.warn('Не удалось загрузить фото', err); }

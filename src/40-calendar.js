@@ -207,12 +207,17 @@ function addEventPhotosToGallery(photos, title) {
       const ph = { id: uid(), data: photoRef, title, labels: [EVENT_LABEL], pinned: false, ts: Date.now(), order: 0 };
       db.photos.unshift(ph);
       ids.push(ph.id);
-      // Кладём копию в photoStore (в фоне), чтобы фото пережило перенос в IndexedDB
+      setThumbUrl(ph.id, photoRef); // мгновенный показ из кэша миниатюр
+      // Кладём копию в photoStore (в фоне), чтобы фото пережило перенос в IndexedDB.
+      // Миниатюру (WebP) генерируем при загрузке; base64 из памяти убираем после записи.
       try {
         const blob = dataUrlToBlob(photoRef);
         if (blob && photoStore) {
-          const meta = { type: blob.type || 'image/webp', title, size: blob.size };
-          photoStore.put(ph.id, blob, null, meta).catch(e => console.warn('Не удалось сохранить фото события в хранилище', e));
+          makeThumbBlob(photoRef, 256).then(async thumb => {
+            const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size };
+            await photoStore.put(ph.id, blob, thumb, meta);
+            if (ph.data === photoRef) delete ph.data; // блоб в сторе — base64 из памяти убираем
+          }).catch(e => console.warn('Не удалось сохранить фото события в хранилище', e));
         }
       } catch (e) { console.warn('Не удалось сохранить фото события в хранилище', e); }
     }
