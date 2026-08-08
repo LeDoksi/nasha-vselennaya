@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>💜 Наша вселенная</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💜</text></svg>">
+  <meta name="theme-color" content="#7c3aed">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="auth"><!-- «auth» скрывает приложение до входа по паролю -->
@@ -307,10 +309,16 @@
     </div>
   </div>
 
-  <!-- ===== Просмотр фото ===== -->
-  <div class="overlay" id="lightbox" hidden>
-    <button class="modal-x" data-close="lightbox">✕</button>
-    <img id="lightboxImg" alt="Фото">
+  <!-- ===== Просмотр фото (светбокс 2.0: стрелки, свайп, зум, счётчик) ===== -->
+  <div class="overlay lightbox" id="lightbox" hidden role="dialog" aria-modal="true" aria-label="Просмотр фото">
+    <button type="button" class="modal-x lb-close" data-close="lightbox" aria-label="Закрыть" title="Закрыть (Esc)">✕</button>
+    <div class="lb-stage" id="lbStage">
+      <button type="button" class="lb-btn lb-arrow lb-prev" id="lbPrev" aria-label="Предыдущее фото" title="Предыдущее (←)">‹</button>
+      <img id="lightboxImg" alt="Фото">
+      <button type="button" class="lb-btn lb-arrow lb-next" id="lbNext" aria-label="Следующее фото" title="Следующее (→)">›</button>
+      <div class="lb-counter" id="lbCounter" aria-live="polite"></div>
+      <button type="button" class="lb-btn lb-zoom" id="lbZoomBtn" aria-label="Приблизить или отдалить" title="Зум: кнопка, двойной клик или щипок">🔍</button>
+    </div>
   </div>
 
   <!-- ===== Замок: экран входа ===== -->
@@ -368,6 +376,17 @@
       <button type="button" class="dp-mini clear" data-dp-clear>Очистить</button>
     </div>
     <div class="dp-live" id="dpLive" role="status" aria-live="polite"></div>
+  </div>
+
+  <!-- ===== Нижняя навигация (мобильные): 5 главных + «Ещё» ===== -->
+  <nav class="bottom-nav" id="bottomNav" aria-label="Основная навигация"></nav>
+  <div class="sheet-overlay" id="navSheetOverlay" hidden></div>
+  <div class="nav-sheet" id="navSheet" role="dialog" aria-modal="true" aria-label="Ещё разделы" hidden>
+    <div class="nav-sheet-head">
+      <b>Ещё разделы</b>
+      <button type="button" class="modal-x nav-sheet-x" data-close-sheet title="Закрыть" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="nav-sheet-grid" id="navSheetGrid"></div>
   </div>
 
   <div id="appToast" class="app-toast" hidden role="status" aria-live="polite"></div>

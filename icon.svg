@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Наша вселенная">
+  <defs>
+    <linearGradient id="uv-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a855f7"/>
+      <stop offset=".55" stop-color="#d946ef"/>
+      <stop offset="1" stop-color="#f472b6"/>
+    </linearGradient>
+    <linearGradient id="uv-heart" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#fbcfe8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#uv-bg)"/>
+  <g transform="translate(16 6) scale(20)">
+    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="url(#uv-heart)"/>
+  </g>
+  <circle cx="128" cy="110" r="24" fill="#ffffff" opacity=".85"/>
+  <circle cx="396" cy="132" r="15" fill="#ffffff" opacity=".6"/>
+  <circle cx="368" cy="392" r="11" fill="#ffffff" opacity=".55"/>
+  <circle cx="118" cy="400" r="9" fill="#ffffff" opacity=".7"/>
+</svg>

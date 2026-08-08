@@ -116,6 +116,14 @@ function __TEST__(s){
   s.onThisDayPhotos = onThisDayPhotos; s.pickHistoryPhotos = pickHistoryPhotos;
   s.shuffleHistoryPhotos = shuffleHistoryPhotos; s.historyPhotosHtml = historyPhotosHtml;
   Object.defineProperty(s, 'historyCollage', { get: () => historyCollage, set: v => { historyCollage = v; }, configurable: true });
+  s.closeOverlay = closeOverlay;
+  s.buildBottomNav = buildBottomNav; s.openNavSheet = openNavSheet; s.closeNavSheet = closeNavSheet;
+  s.BOTTOM_PRIMARY = BOTTOM_PRIMARY; s.BOTTOM_MORE = BOTTOM_MORE;
+  Object.defineProperty(s, 'lightboxList', { get: () => lightboxList, set: v => { lightboxList = v; }, configurable: true });
+  Object.defineProperty(s, 'lightboxIdx', { get: () => lightboxIdx, set: v => { lightboxIdx = v; }, configurable: true });
+  Object.defineProperty(s, 'lightboxZoom', { get: () => lightboxZoom, set: v => { lightboxZoom = v; }, configurable: true });
+  s.openLightbox = openLightbox; s.openLightboxFrom = openLightboxFrom;
+  s.lbNav = lbNav; s.lbZoomTo = lbZoomTo; s.lbZoomToggle = lbZoomToggle; s.lbClose = lbClose; s.lbRender = lbRender;
 }`;
 const wrapped = new Function('sandbox', 'document', 'localStorage', 'sessionStorage', 'alert', 'confirm', 'URL',
   'FileReader', 'Blob', 'HTMLAudioElement', 'Image', 'setTimeout', 'setInterval', 'addEventListener',
@@ -885,6 +893,48 @@ assert(!mbFuture2.some(d => d.dates.some(dd => dd.place === 'Грузия')), '�
 w('(s)=>{s.db.dates=[]; return 1;}');
 const mbDeleted = w('(s)=>s.memoryByDay()');
 assert(!mbDeleted.some(d => d.dates && d.dates.length > 0), 'память: после удаления свиданий — пусто');
+
+// --- Фаза C: нижняя навигация «5 + Ещё» ---
+assert(w('(s)=>s.BOTTOM_PRIMARY.length') === 5, 'навигация: 5 главных вкладок');
+assert(w('(s)=>s.BOTTOM_MORE.length') === 4, 'навигация: 4 вкладки в «Ещё»');
+const navAll = [...w('(s)=>s.BOTTOM_PRIMARY'), ...w('(s)=>s.BOTTOM_MORE')];
+assert(navAll.length === new Set(navAll).size && navAll.length === 9, 'навигация: все 9 вкладок, без повторов');
+w('(s)=>{s.buildBottomNav(); return 1;}');
+assert(true, 'buildBottomNav не падает в песочнице');
+w('(s)=>{s.openNavSheet(); return 1;}');
+assert(registry['#navSheet'].hidden === false && registry['#navSheetOverlay'].hidden === false, '«Ещё»-шторка открывается');
+w('(s)=>{s.closeNavSheet(); return 1;}');
+assert(registry['#navSheet'].hidden === true && registry['#navSheetOverlay'].hidden === true, '«Ещё»-шторка закрывается');
+
+// --- Фаза C: светбокс 2.0 (стрелки, зум, счётчик) ---
+w('(s)=>{s.openLightbox(["phA","phB","phC"], 1); return 1;}');
+assert(registry['#lightbox'].hidden === false, 'светбокс открывается');
+assert(w('(s)=>s.lightboxIdx') === 1 && registry['#lbCounter'].textContent === '2 / 3', 'светбокс открыт на выбранном фото, счётчик корректен');
+w('(s)=>{s.lbNav(1); return 1;}');
+assert(w('(s)=>s.lightboxIdx') === 2 && registry['#lbCounter'].textContent === '3 / 3', 'стрелка вперёд листает и обновляет счётчик');
+w('(s)=>{s.lbNav(1); return 1;}');
+assert(w('(s)=>s.lightboxIdx') === 0, 'листание замыкается по кругу');
+w('(s)=>{s.lbNav(-1); return 1;}');
+assert(w('(s)=>s.lightboxIdx') === 2, 'стрелка назад тоже замыкается');
+w('(s)=>{s.lbZoomToggle(); return 1;}');
+assert(w('(s)=>s.lightboxZoom') === 2.5, 'зум включается');
+assert(registry['#lightboxImg'].style.transform === 'scale(2.5)', 'к фото применён scale');
+w('(s)=>{s.lbZoomToggle(); return 1;}');
+assert(w('(s)=>s.lightboxZoom') === 1, 'повторный зум возвращает к 1');
+w('(s)=>{s.lbZoomTo(8); return 1;}');
+assert(w('(s)=>s.lightboxZoom') === 4, 'зум ограничен максимумом 4');
+// data-URL (хотелки) показывается напрямую
+w('(s)=>{s.openLightbox(["data:image/jpeg;base64,AB=="], 0); return 1;}');
+assert(registry['#lightboxImg'].src === 'data:image/jpeg;base64,AB==', 'светбокс показывает data-URL напрямую (хотелки)');
+assert(registry['#lbCounter'].textContent === '', 'одно фото — счётчик пуст');
+assert(registry['#lbPrev'].style.display === 'none' && registry['#lbNext'].style.display === 'none', 'одно фото — стрелки скрыты');
+// фото из галереи: миниатюра из кэша ставится сразу
+w('(s)=>{s.db.photos.push({id:"gal1", title:"Фото"}); s.setThumbUrl("gal1", "data:image/jpeg;base64,GAL="); s.openLightbox(["gal1","gal2"], 0); return 1;}');
+assert(registry['#lightboxImg'].src === 'data:image/jpeg;base64,GAL=', 'фото галереи: src из кэша миниатюр');
+// закрытие сбрасывает состояние
+w('(s)=>{s.closeOverlay("lightbox"); return 1;}');
+assert(registry['#lightbox'].hidden === true, 'светбокс закрывается');
+assert(w('(s)=>s.lightboxList.length') === 0, 'при закрытии список фото очищается');
 
 console.log('OK: ' + results.length + ' checks passed\n' + results.join('\n'));
 

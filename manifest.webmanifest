@@ -1,0 +1,26 @@
+{
+  "name": "Наша вселенная — Гоша и Даша",
+  "short_name": "Вселенная",
+  "description": "Личное приложение пары: календарь, заметки, списки, фото и «Память». Всё хранится локально.",
+  "lang": "ru",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#fdf4ff",
+  "theme_color": "#7c3aed",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

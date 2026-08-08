@@ -22,11 +22,18 @@ function toggleTheme() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
 
 /* ===== Навигация ===== */
 let activeView = 'home'; // текущая вкладка — для hash-роутинга и кнопки «назад»
+// Наборы вкладок нижней навигации «5 + Ещё». Объявлены ДО showView: он смотрит
+// BOTTOM_MORE, когда вкладка открывается по прямой ссылке (#/wishlist) — если бы
+// const стоял ниже, в этот момент была бы TDZ-ошибка.
+const BOTTOM_PRIMARY = ['home', 'calendar', 'notes', 'lists', 'photos'];
+const BOTTOM_MORE = ['wishlist', 'memory', 'song', 'settings'];
 function showView(view) {
   if (!$('#view-' + view)) return; // неизвестная вкладка — не трогаем экран
   activeView = view;
   $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  const moreBtn = $('#navMoreBtn');
+  if (moreBtn) moreBtn.classList.toggle('active', BOTTOM_MORE.indexOf(view) >= 0); // вкладка из «Ещё» — подсвечиваем кнопку
   if (view === 'home') renderHome();
   if (view === 'calendar') { calY = new Date().getFullYear(); calM = new Date().getMonth(); selectedDate = null; renderCalendar(); }
   if (view === 'notes') renderNotes();
@@ -60,4 +67,56 @@ if (typeof window !== 'undefined' && window.addEventListener) {
   if (initial && initial !== 'home' && $('#view-' + initial)) showView(initial);
 }
 $$('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
+
+/* ===== Нижняя навигация на мобильных: 5 главных + «Ещё» =====
+   Решение (утв.): на узких экранах вместо пилюль в шапке — закреплённая нижняя
+   панель с 5 частыми вкладками и кнопкой «Ещё» (шторка с остальными). Кнопки
+   клонируются из шапки, поэтому active-подсветка и клики работают как у оригинала. */
+
+function buildBottomNav() {
+  const bar = $('#bottomNav');
+  const grid = $('#navSheetGrid');
+  if (!bar || !grid || !bar.querySelectorAll) return;
+  const navBtn = view => [...document.querySelectorAll('.nav-btn')].find(b => b.dataset && b.dataset.view === view);
+  bar.innerHTML = '';
+  BOTTOM_PRIMARY.forEach(view => {
+    const src = navBtn(view);
+    const clone = src ? src.cloneNode(true) : document.createElement('button');
+    clone.type = 'button';
+    clone.className = 'nav-btn bottom-nav-btn' + (view === activeView ? ' active' : '');
+    if (!src) clone.dataset.view = view;
+    bar.appendChild(clone);
+  });
+  const moreBtn = document.createElement('button');
+  moreBtn.type = 'button';
+  moreBtn.className = 'nav-btn bottom-nav-btn bottom-nav-more' + (BOTTOM_MORE.indexOf(activeView) >= 0 ? ' active' : '');
+  moreBtn.id = 'navMoreBtn';
+  moreBtn.textContent = '⋯ Ещё';
+  moreBtn.setAttribute('aria-haspopup', 'dialog');
+  bar.appendChild(moreBtn);
+  grid.innerHTML = '';
+  BOTTOM_MORE.forEach(view => {
+    const src = navBtn(view);
+    const clone = src ? src.cloneNode(true) : document.createElement('button');
+    clone.type = 'button';
+    clone.className = 'nav-btn nav-sheet-btn' + (view === activeView ? ' active' : '');
+    if (!src) clone.dataset.view = view;
+    grid.appendChild(clone);
+  });
+}
+function openNavSheet() { const s = $('#navSheet'); if (s) s.hidden = false; const o = $('#navSheetOverlay'); if (o) o.hidden = false; }
+function closeNavSheet() { const s = $('#navSheet'); if (s) s.hidden = true; const o = $('#navSheetOverlay'); if (o) o.hidden = true; }
+
+// Клики по нижней панели и шторке (кнопки созданы клонированием — делегируем на document)
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('click', e => {
+    const nb = e.target && e.target.closest && e.target.closest('#bottomNav .nav-btn, #navSheet .nav-btn');
+    if (nb && nb.dataset && nb.dataset.view) { closeNavSheet(); go(nb.dataset.view); return; }
+    const sheetX = e.target && e.target.closest && e.target.closest('[data-close-sheet]');
+    if (sheetX) { closeNavSheet(); return; }
+    if (e.target && e.target.classList && e.target.classList.contains('sheet-overlay')) closeNavSheet();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeNavSheet(); });
+}
+buildBottomNav();
 

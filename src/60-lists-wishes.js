@@ -168,6 +168,7 @@ function toggleDateDone(id) {
 /* ===== Глобальные клики ===== */
 function closeOverlay(id) {
   $('#' + id).hidden = true;
+  if (id === 'lightbox') lbResetState(); // светбокс закрыт — сбрасываем список и зум
   if (id === 'eventOverlay') editingEventId = null;
 }
 document.addEventListener('click', e => {
@@ -238,15 +239,7 @@ document.addEventListener('click', e => {
     renderPhotos(); return;
   }
   const photo = e.target.closest('[data-photo]');
-  if (photo) {
-    const id = photo.dataset.photo;
-    const p = db.photos.find(x => x.id === id);
-    if (p) {
-      $('#lightbox').hidden = false;
-      photoUrl(p, false).then(url => { if (url) $('#lightboxImg').src = url; });
-    }
-    return;
-  }
+  if (photo) { openLightboxFrom(photo); return; }
 
   const wishDone = e.target.closest('[data-wish-done]');
   if (wishDone) {

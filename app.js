@@ -906,11 +906,18 @@ function toggleTheme() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
 
 /* ===== Навигация ===== */
 let activeView = 'home'; // текущая вкладка — для hash-роутинга и кнопки «назад»
+// Наборы вкладок нижней навигации «5 + Ещё». Объявлены ДО showView: он смотрит
+// BOTTOM_MORE, когда вкладка открывается по прямой ссылке (#/wishlist) — если бы
+// const стоял ниже, в этот момент была бы TDZ-ошибка.
+const BOTTOM_PRIMARY = ['home', 'calendar', 'notes', 'lists', 'photos'];
+const BOTTOM_MORE = ['wishlist', 'memory', 'song', 'settings'];
 function showView(view) {
   if (!$('#view-' + view)) return; // неизвестная вкладка — не трогаем экран
   activeView = view;
   $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  const moreBtn = $('#navMoreBtn');
+  if (moreBtn) moreBtn.classList.toggle('active', BOTTOM_MORE.indexOf(view) >= 0); // вкладка из «Ещё» — подсвечиваем кнопку
   if (view === 'home') renderHome();
   if (view === 'calendar') { calY = new Date().getFullYear(); calM = new Date().getMonth(); selectedDate = null; renderCalendar(); }
   if (view === 'notes') renderNotes();
@@ -944,6 +951,58 @@ if (typeof window !== 'undefined' && window.addEventListener) {
   if (initial && initial !== 'home' && $('#view-' + initial)) showView(initial);
 }
 $$('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
+
+/* ===== Нижняя навигация на мобильных: 5 главных + «Ещё» =====
+   Решение (утв.): на узких экранах вместо пилюль в шапке — закреплённая нижняя
+   панель с 5 частыми вкладками и кнопкой «Ещё» (шторка с остальными). Кнопки
+   клонируются из шапки, поэтому active-подсветка и клики работают как у оригинала. */
+
+function buildBottomNav() {
+  const bar = $('#bottomNav');
+  const grid = $('#navSheetGrid');
+  if (!bar || !grid || !bar.querySelectorAll) return;
+  const navBtn = view => [...document.querySelectorAll('.nav-btn')].find(b => b.dataset && b.dataset.view === view);
+  bar.innerHTML = '';
+  BOTTOM_PRIMARY.forEach(view => {
+    const src = navBtn(view);
+    const clone = src ? src.cloneNode(true) : document.createElement('button');
+    clone.type = 'button';
+    clone.className = 'nav-btn bottom-nav-btn' + (view === activeView ? ' active' : '');
+    if (!src) clone.dataset.view = view;
+    bar.appendChild(clone);
+  });
+  const moreBtn = document.createElement('button');
+  moreBtn.type = 'button';
+  moreBtn.className = 'nav-btn bottom-nav-btn bottom-nav-more' + (BOTTOM_MORE.indexOf(activeView) >= 0 ? ' active' : '');
+  moreBtn.id = 'navMoreBtn';
+  moreBtn.textContent = '⋯ Ещё';
+  moreBtn.setAttribute('aria-haspopup', 'dialog');
+  bar.appendChild(moreBtn);
+  grid.innerHTML = '';
+  BOTTOM_MORE.forEach(view => {
+    const src = navBtn(view);
+    const clone = src ? src.cloneNode(true) : document.createElement('button');
+    clone.type = 'button';
+    clone.className = 'nav-btn nav-sheet-btn' + (view === activeView ? ' active' : '');
+    if (!src) clone.dataset.view = view;
+    grid.appendChild(clone);
+  });
+}
+function openNavSheet() { const s = $('#navSheet'); if (s) s.hidden = false; const o = $('#navSheetOverlay'); if (o) o.hidden = false; }
+function closeNavSheet() { const s = $('#navSheet'); if (s) s.hidden = true; const o = $('#navSheetOverlay'); if (o) o.hidden = true; }
+
+// Клики по нижней панели и шторке (кнопки созданы клонированием — делегируем на document)
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('click', e => {
+    const nb = e.target && e.target.closest && e.target.closest('#bottomNav .nav-btn, #navSheet .nav-btn');
+    if (nb && nb.dataset && nb.dataset.view) { closeNavSheet(); go(nb.dataset.view); return; }
+    const sheetX = e.target && e.target.closest && e.target.closest('[data-close-sheet]');
+    if (sheetX) { closeNavSheet(); return; }
+    if (e.target && e.target.classList && e.target.classList.contains('sheet-overlay')) closeNavSheet();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeNavSheet(); });
+}
+buildBottomNav();
 
 /* ===== Главная: счётчик дней ===== */
 function daysTogether() {
@@ -1536,12 +1595,7 @@ function renderMemory() {
   feed.innerHTML = html;
   hydratePhotoImgs(feed);
   feed.querySelectorAll('[data-lightbox]').forEach(function (img) {
-    img.addEventListener('click', async function () {
-      var p = db.photos.find(function (x) { return x.id === img.dataset.lightbox; });
-      if (!p) return;
-      var url = await photoUrl(p, false);
-      if (url) { $('#lightboxImg').src = url; $('#lightbox').hidden = false; }
-    });
+    img.addEventListener('click', function () { openLightboxFrom(img); });
   });
 }
 
@@ -2496,6 +2550,7 @@ function toggleDateDone(id) {
 /* ===== Глобальные клики ===== */
 function closeOverlay(id) {
   $('#' + id).hidden = true;
+  if (id === 'lightbox') lbResetState(); // светбокс закрыт — сбрасываем список и зум
   if (id === 'eventOverlay') editingEventId = null;
 }
 document.addEventListener('click', e => {
@@ -2566,15 +2621,7 @@ document.addEventListener('click', e => {
     renderPhotos(); return;
   }
   const photo = e.target.closest('[data-photo]');
-  if (photo) {
-    const id = photo.dataset.photo;
-    const p = db.photos.find(x => x.id === id);
-    if (p) {
-      $('#lightbox').hidden = false;
-      photoUrl(p, false).then(url => { if (url) $('#lightboxImg').src = url; });
-    }
-    return;
-  }
+  if (photo) { openLightboxFrom(photo); return; }
 
   const wishDone = e.target.closest('[data-wish-done]');
   if (wishDone) {
@@ -3215,6 +3262,130 @@ function motionReduced() {
 const mt = $('#motionToggle');
 if (mt) mt.addEventListener('change', e => setMotion(e.target.checked ? 'reduced' : 'full'));
 
+/* ===== Светбокс 2.0: стрелки, свайп, зум, счётчик =====
+   Единая точка открытия фото: по id из галереи/календаря/«Памяти» или по
+   data-URL напрямую (хотелки). Стрелки ‹ ›, свайп и клавиши ←/→ листают;
+   зум — кнопка 🔍, двойной клик, щипок, клавиши +/-/0; счётчик «N / M». */
+let lightboxList = [];   // источники: id фото из db.photos ИЛИ data-URL
+let lightboxIdx = 0;
+let lightboxZoom = 1;
+
+function lbIsDataUrl(src) { return typeof src === 'string' && src.indexOf('data:') === 0; }
+function lbPhoto(src) { return Array.isArray(db.photos) ? db.photos.find(p => p.id === src) || null : null; }
+
+function openLightbox(ids, idx) {
+  lightboxList = Array.isArray(ids) ? ids.slice() : [];
+  lightboxIdx = Math.max(0, Math.min(idx || 0, lightboxList.length ? lightboxList.length - 1 : 0));
+  lightboxZoom = 1;
+  const lb = $('#lightbox');
+  if (lb) lb.hidden = false;
+  lbRender();
+}
+// Открытие по клику: листаем среди всех кликабельных фото текущей группы/вкладки
+function openLightboxFrom(el) {
+  if (!el || !el.closest) return;
+  const scope = el.closest('[data-photo-group]') || el.closest('.view') || document.body;
+  const els = scope.querySelectorAll ? [...scope.querySelectorAll('[data-photo], [data-lightbox]')] : [];
+  const src = el.dataset.lightbox || el.dataset.photo;
+  const list = els.map(x => x.dataset.lightbox || x.dataset.photo);
+  let at = list.indexOf(src);
+  if (at < 0) at = 0;
+  openLightbox(list, at);
+}
+function lbResetState() { lightboxList = []; lightboxIdx = 0; lightboxZoom = 1; }
+function lbClose() {
+  const lb = $('#lightbox');
+  if (lb) lb.hidden = true;
+  lbResetState();
+}
+function lbNav(dir) {
+  if (!lightboxList.length) return;
+  lightboxIdx = (lightboxIdx + dir + lightboxList.length) % lightboxList.length;
+  lightboxZoom = 1; // новое фото — без зума
+  lbRender();
+}
+function lbZoomTo(v) { lightboxZoom = Math.min(4, Math.max(1, v)); lbRender(); }
+function lbZoomToggle() { lbZoomTo(lightboxZoom > 1 ? 1 : 2.5); }
+
+function lbRender() {
+  const img = $('#lightboxImg');
+  const counter = $('#lbCounter');
+  const prev = $('#lbPrev');
+  const next = $('#lbNext');
+  const src = lightboxList[lightboxIdx];
+  const multi = lightboxList.length > 1;
+  if (prev) prev.style.display = multi ? '' : 'none';
+  if (next) next.style.display = multi ? '' : 'none';
+  if (counter) counter.textContent = multi ? (lightboxIdx + 1) + ' / ' + lightboxList.length : '';
+  if (!src) { if (img) img.src = ''; return; }
+  if (img) {
+    img.style.transform = 'scale(' + lightboxZoom + ')';
+    img.style.cursor = lightboxZoom > 1 ? 'zoom-out' : 'zoom-in';
+  }
+  if (lbIsDataUrl(src)) { if (img) img.src = src; return; }
+  const p = lbPhoto(src);
+  if (!p) { if (img) img.src = ''; return; }
+  const cached = photoSrc(p); // миниатюра из кэша — мгновенный показ
+  if (cached && img) img.src = cached;
+  photoUrl(p, false).then(url => {
+    if (url && img && lightboxList[lightboxIdx] === src && img.src !== url) img.src = url;
+  });
+}
+
+/* ===== События светбокса ===== */
+const lbPrevBtn = $('#lbPrev');
+if (lbPrevBtn) lbPrevBtn.addEventListener('click', () => lbNav(-1));
+const lbNextBtn = $('#lbNext');
+if (lbNextBtn) lbNextBtn.addEventListener('click', () => lbNav(1));
+const lbZoomBtn = $('#lbZoomBtn');
+if (lbZoomBtn) lbZoomBtn.addEventListener('click', () => lbZoomToggle());
+const lbImg = $('#lightboxImg');
+if (lbImg) lbImg.addEventListener('dblclick', () => lbZoomToggle());
+if (typeof document !== 'undefined' && document.addEventListener) {
+  // Клавиатура: ←/→ листают, +/−/0 зум, Esc закрывает (обработчик Esc — в 60-lists-wishes)
+  document.addEventListener('keydown', e => {
+    const lb = $('#lightbox');
+    if (!lb || lb.hidden) return;
+    if (e.key === 'ArrowLeft') { e.preventDefault(); lbNav(-1); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); lbNav(1); }
+    else if (e.key === '+' || e.key === '=') { e.preventDefault(); lbZoomTo(lightboxZoom + 0.5); }
+    else if (e.key === '-') { e.preventDefault(); lbZoomTo(lightboxZoom - 0.5); }
+    else if (e.key === '0') { e.preventDefault(); lbZoomTo(1); }
+  });
+}
+// Свайп (горизонтальный — листание) и щипок (пинч — зум)
+let lbTouchX = null;
+let lbTouchY = null;
+let lbPinch = null;
+function lbTouchDist(e) {
+  const t = e.touches;
+  const dx = t[0].clientX - t[1].clientX;
+  const dy = t[0].clientY - t[1].clientY;
+  return Math.sqrt(dx * dx + dy * dy) || 1;
+}
+const lbStage = $('#lbStage');
+if (lbStage) {
+  lbStage.addEventListener('touchstart', e => {
+    if (!e.touches) return;
+    if (e.touches.length === 1) { lbTouchX = e.touches[0].clientX; lbTouchY = e.touches[0].clientY; }
+    else if (e.touches.length === 2) { lbPinch = { d: lbTouchDist(e), s: lightboxZoom }; lbTouchX = null; }
+  }, { passive: true });
+  lbStage.addEventListener('touchmove', e => {
+    if (e.touches && e.touches.length === 2 && lbPinch) {
+      e.preventDefault(); // без этого браузер листает страницу
+      lbZoomTo(lbPinch.s * (lbTouchDist(e) / lbPinch.d));
+    }
+  }, { passive: false });
+  lbStage.addEventListener('touchend', e => {
+    if (lbTouchX != null && e.changedTouches && e.changedTouches[0]) {
+      const dx = e.changedTouches[0].clientX - lbTouchX;
+      const dy = e.changedTouches[0].clientY - lbTouchY;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) lbNav(dx < 0 ? 1 : -1);
+    }
+    lbTouchX = null;
+    lbPinch = null;
+  });
+}
 /* ===== Летающие сердечки ===== */
 function spawnHeart() {
   if (motionReduced()) return; // анимации отключены — сердечки не запускаем

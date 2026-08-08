@@ -242,12 +242,7 @@ function renderMemory() {
   feed.innerHTML = html;
   hydratePhotoImgs(feed);
   feed.querySelectorAll('[data-lightbox]').forEach(function (img) {
-    img.addEventListener('click', async function () {
-      var p = db.photos.find(function (x) { return x.id === img.dataset.lightbox; });
-      if (!p) return;
-      var url = await photoUrl(p, false);
-      if (url) { $('#lightboxImg').src = url; $('#lightbox').hidden = false; }
-    });
+    img.addEventListener('click', function () { openLightboxFrom(img); });
   });
 }
 
