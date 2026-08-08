@@ -40,7 +40,7 @@ setInterval(() => {
   if (!$('#view-home') || !$('#view-home').classList.contains('active')) return;
   spawnHeart();
 }, 3800);
-setInterval(() => { if (!isHidden()) renderFloatingPhotos(); }, 7000);
+// Коллаж «Наша история» стабилен в течение дня — обновлять его не нужно.
 spawnHeart();
 
 

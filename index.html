@@ -19,6 +19,7 @@
         <button class="nav-btn" data-view="lists">Списки</button>
         <button class="nav-btn" data-view="wishlist">Хотелки</button>
         <button class="nav-btn" data-view="photos">Фото</button>
+        <button class="nav-btn" data-view="memory">Память</button>
         <button class="nav-btn" data-view="song">Песня</button>
         <button class="nav-btn" data-view="settings">Настройки</button>
       </nav>
@@ -33,7 +34,6 @@
     <!-- ===== ГЛАВНАЯ ===== -->
     <section class="view active" id="view-home">
       <div class="hero-zone">
-        <div class="float-photos" id="floatPhotos"></div>
         <div class="hero-card">
           <span class="hero-deco" style="bottom:26px;left:42%;animation-delay:2s">✨</span>
           <h1>Наша вселенная</h1>
@@ -46,6 +46,7 @@
       </div>
       </div>
       <div class="countdown" id="countdown" hidden></div>
+      <div class="progress-ring" id="progressRing"></div>
       <div class="compliment" id="compliment"></div>
       <div class="date-bar">
         <button class="btn btn-date" id="addDateBtn">💘 Назначить свидание</button>
@@ -85,24 +86,14 @@
 
     <!-- ===== СПИСКИ ===== -->
     <section class="view" id="view-lists">
-      <div class="lists-wrap">
-        <div class="list-card">
-          <h3>🛒 Покупки <small id="shopCount"></small></h3>
-          <div class="list-add">
-            <input type="text" id="shopInput" placeholder="Что купить?">
-            <button class="btn" id="shopAddBtn">＋</button>
-          </div>
-          <ul class="items" id="shopList"></ul>
-        </div>
-        <div class="list-card">
-          <h3>✅ Дела <small id="todoCount"></small></h3>
-          <div class="list-add">
-            <input type="text" id="todoInput" placeholder="Что сделать?">
-            <button class="btn" id="todoAddBtn">＋</button>
-          </div>
-          <ul class="items" id="todoList"></ul>
-        </div>
+      <div class="lists-bar">
+        <h3>📋 Списки</h3>
       </div>
+      <div class="list-create">
+        <input type="text" id="listNameInput" placeholder="Название нового списка (например: «Подарки на 8 марта»)">
+        <button class="btn" id="listCreateBtn">＋ Создать список</button>
+      </div>
+      <div class="lists-wrap" id="listsWrap"></div>
     </section>
 
     <!-- ===== ХОТЕЛКИ ===== -->
@@ -137,6 +128,13 @@
       </div>
       <p class="drag-hint" id="dragHint" style="display:none">↕ Перетаскивай фото для порядка. Клик по ○ на фото — выбрать несколько.</p>
       <div class="photos-grid" id="photosGrid"></div>
+    </section>
+
+    <!-- ===== ПАМЯТЬ ===== -->
+    <section class="view" id="view-memory">
+      <h2 class="view-title">🕰 Наша память</h2>
+      <p class="cal-tip">История наших дней</p>
+      <div class="memory-feed" id="memoryFeed"></div>
     </section>
 
     <!-- ===== ПЕСНЯ ===== -->

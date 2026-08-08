@@ -41,7 +41,10 @@ function renderSettings() {
     `<span><b>Гоша:</b> ${hasPass('gosha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>` +
     `<span><b>Даша:</b> ${hasPass('dasha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>`;
   const addBtn = $('#addPassBtn');
-  if (addBtn) addBtn.style.display = (hasPass('gosha') && hasPass('dasha')) ? 'none' : '';
+  if (addBtn) {
+    addBtn.style.display = '';
+    addBtn.textContent = (hasPass('gosha') && hasPass('dasha')) ? '🔑 Сменить пароль партнёра' : '🔑 Добавить пароль для партнёра';
+  }
 }
 // Экспорт — зашифрованный сейф: без пароля файл не прочитать.
 // Фото-блобы лежат в IndexedDB (не в localStorage), поэтому их зашифрованные

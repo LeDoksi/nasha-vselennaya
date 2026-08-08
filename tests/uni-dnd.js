@@ -154,7 +154,7 @@ const PREIDS = ['notesGrid', 'photosGrid', 'labelBar', 'calendar', 'dayPanel', '
   'jumpInfo', 'noteAddBtn', 'noteText', 'userChip', 'themeToggle', 'settingsThemeBtn',
   'calPrev', 'calNext', 'calMonthSelect', 'calYearSelect', 'jumpNextBtn', 'addEventBtn',
   'authOverlay', 'evModal', 'evTitle', 'evDate', 'evEnd', 'evRepeat', 'evSave', 'evModalTitle', 'evHeadSub',
-  'datePop', 'dpDays', 'dpMonth', 'floatPhotos', 'countdownTick', 'labelOverlay', 'labelNewName', 'labelNewBtn',
+  'datePop', 'dpDays', 'dpMonth', 'countdownTick', 'labelOverlay', 'labelNewName', 'labelNewBtn',
   'eventYears', 'eventMonths', 'eventTitles', 'eventReset', 'view-home', 'view-calendar', 'view-notes',
   'view-lists', 'view-wishlist', 'view-photos', 'view-song', 'view-settings'];
 for (const id of PREIDS) { const el = makeEl('div'); el.id = id; registry['#' + id] = el; body.appendChild(el); }

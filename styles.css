@@ -113,16 +113,8 @@ h3{font-weight:800}
 .counter span{color:var(--muted);font-weight:700;margin-top:8px}
 .counter small{color:var(--muted);margin-top:2px}
 
-/* ===== Парящие фото на главной ===== */
+/* ===== Главная: герой ===== */
 .hero-zone{position:relative;margin-bottom:6px}
-.float-photos{position:absolute;inset:0;pointer-events:none;z-index:2}
-.float-photo{
-  position:absolute;width:96px;height:96px;object-fit:cover;border-radius:16px;
-  border:3px solid #fff;box-shadow:0 12px 26px rgba(139,92,246,.35);
-  animation:floaty 5s ease-in-out infinite;--r:0deg;opacity:.95;
-  transition:opacity .7s ease;
-}
-@keyframes floaty{0%,100%{transform:translateY(0) rotate(var(--r,0deg))}50%{transform:translateY(-14px) rotate(var(--r,0deg))}}
 
 /* ===== Свидания ===== */
 .date-bar{display:flex;justify-content:center;margin-top:22px}
@@ -160,6 +152,10 @@ h3{font-weight:800}
 .two-col .field{display:flex;flex-direction:column;gap:4px;min-width:0}
 .two-col .field input{width:100%}
 .modal textarea{resize:vertical;min-height:64px;font-family:inherit}
+
+/* Завершённое свидание в календаре */
+.date-evt.date-done{opacity:.65}
+.date-evt.date-done span{text-decoration:line-through;color:var(--muted)}
 
 
 /* ===== Календарь ===== */
@@ -254,6 +250,12 @@ h3{font-weight:800}
 .list-card h3 small{color:var(--muted);font-weight:600;font-size:13px}
 .list-add{display:flex;gap:8px;margin-bottom:14px}
 .list-add input{flex:1}
+.lists-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.lists-bar h3{margin:0;font-size:20px}
+.list-create{display:flex;gap:8px;margin-bottom:18px;max-width:540px}
+.list-create input{flex:1}
+.list-actions{margin-top:12px;padding-top:12px;border-top:1px dashed var(--border)}
+.btn-small{padding:8px 12px;font-size:13px}
 .items{list-style:none}
 .items li{display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:12px;font-size:15px}
 .items li:hover{background:#fbf5ff}
@@ -504,7 +506,13 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
   .lists-wrap{grid-template-columns:1fr}
   .header-inner{justify-content:center}
   .nav{justify-content:center}
-  .float-photo{display:none} /* на узких экранах вокруг блока нет места без наложений */
+  .history-photos{min-width:190px;height:110px} /* коллаж компактнее, но остаётся */
+  .history-photo{width:70px !important;height:70px !important}
+  .hp-badge{font-size:10px;padding:2px 7px;top:auto;bottom:4%}
+}
+@media(max-width:480px){
+  .history-photos{height:96px;min-width:0;width:100%}
+  .history-photo{width:64px !important;height:64px !important}
 }
 @media(max-width:480px){
   .cal-nav{width:36px;height:36px}
@@ -634,5 +642,97 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
   html:not([data-motion="full"]) .confetti{display:none}
 }
 
+/* ===== Фаза B: кольцо прогресса, настроение, память ===== */
+
+/* Блок «Наша история»: кольцо прогресса + коллаж фото + статистика */
+.progress-ring{
+  margin:14px auto 0;padding:16px 18px;
+  background:#fff;border:1px solid var(--border);border-radius:16px;
+  box-shadow:0 6px 18px rgba(139,92,246,.08)
+}
+[data-theme="dark"] .progress-ring{background:var(--card)}
+.history-main{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.ring-wrap{position:relative;width:104px;height:104px;flex:0 0 auto}
+.ring-svg{width:104px;height:104px;transform:rotate(-90deg)}
+.ring-bg{fill:none;stroke:var(--border);stroke-width:8}
+.ring-fg{fill:none;stroke:var(--pink);stroke-width:8;stroke-linecap:round;transition:stroke-dashoffset .6s ease}
+.ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.ring-center b{font-size:19px;color:var(--pink-ink)}
+.ring-center small{font-size:11px;color:var(--muted)}
+.ring-info{flex:0 1 auto;min-width:170px}
+.ring-info h4{margin:0 0 2px;color:var(--pink-ink)}
+.ring-info p{margin:0;font-weight:700;color:var(--ink)}
+.ring-info small{color:var(--muted)}
+
+/* Коллаж: 2-3 фото с поворотом, разным размером и парением (не ровный ряд) */
+.history-photos{flex:1;position:relative;height:132px;min-width:230px}
+.history-photos:empty{display:none}
+.history-photo{
+  position:absolute;object-fit:cover;border-radius:14px;cursor:pointer;
+  border:3px solid #fff;box-shadow:0 10px 22px rgba(139,92,246,.3);
+  animation:histFloat 6s ease-in-out infinite;
+  transition:transform .25s ease, box-shadow .25s ease;
+}
+.history-photo:hover{transform:translateY(-4px) scale(1.04);box-shadow:0 14px 30px rgba(139,92,246,.45)}
+@keyframes histFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+
+/* Статистика «чем заполнена история» — чипы под кольцом */
+.history-stats{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px dashed var(--border)}
+.hs-chip{
+  background:linear-gradient(135deg,#fff5fb,#fbf5ff);border:1px solid var(--border);
+  border-radius:999px;padding:6px 12px;font-size:13px;font-weight:700;color:var(--ink);
+}
+[data-theme="dark"] .hs-chip{background:linear-gradient(135deg,#3d2a50,#2a1f3a);color:var(--ink);border-color:#3d2a50}
+
+/* Хотелки — чип с прогрессом исполненных + кнопка «🎲 Перемешать» */
+.hs-wish{display:inline-flex;align-items:center;gap:6px}
+.hs-bar{display:inline-block;width:46px;height:6px;border-radius:99px;background:rgba(0,0,0,.12);overflow:hidden;vertical-align:middle}
+.hs-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#f472b6,#a78bfa);transition:width .4s ease}
+[data-theme="dark"] .hs-bar{background:rgba(255,255,255,.16)}
+.hs-shuffle{cursor:pointer;user-select:none;border-color:transparent;background:linear-gradient(135deg,#fff5fb,#f3e8ff)}
+.hs-shuffle:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(139,92,246,.3)}
+.hs-shuffle:active{transform:translateY(0)}
+.hs-shuffle:focus-visible{outline:2px solid var(--pink);outline-offset:2px}
+[data-theme="dark"] .hs-shuffle{background:linear-gradient(135deg,#3d2a50,#33244a)}
+
+/* Бейдж «✨ В этот день» на коллаже */
+.hp-badge{position:absolute;right:2%;top:8%;z-index:2;pointer-events:none;font-size:11px;font-weight:700;color:#fff;background:linear-gradient(135deg,#f472b6,#a78bfa);border-radius:999px;padding:3px 9px;box-shadow:0 4px 12px rgba(167,139,250,.45);white-space:nowrap}
+
+/* «В этот день» — события прошлых лет чипами в блоке «Наша история» */
+.history-otd{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px}
+.history-otd-label{font-size:13px;font-weight:800;color:var(--pink-ink)}
+.hs-otd-chip{background:linear-gradient(135deg,#fff0f7,#f3e8ff);border-color:#f9d4e7}
+.hs-otd-chip small{color:var(--muted);font-weight:600}
+[data-theme="dark"] .hs-otd-chip{background:linear-gradient(135deg,#3d2a50,#33244a);border-color:#4c3a66}
+
+/* Таймлайн-дерево «Память» */
+.view-title{text-align:center;margin:6px 0 2px;color:var(--pink-ink)}
+.rem-empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:15px}
+.tl{position:relative;max-width:720px;margin:16px auto 40px;padding:10px 0}
+.tl-stem{position:absolute;left:50%;top:0;bottom:0;width:3px;background:linear-gradient(to bottom,var(--pink),var(--violet),var(--pink));border-radius:2px;transform:translateX(-50%)}
+.tl-left,.tl-right{position:relative;width:50%;margin-bottom:28px}
+.tl-left{padding-right:28px}
+.tl-right{margin-left:50%;padding-left:28px}
+.tl-dot{position:absolute;top:16px;width:14px;height:14px;background:var(--pink);border:3px solid var(--bg1);border-radius:50%;z-index:2}
+.tl-left .tl-dot{right:-7px}
+.tl-right .tl-dot{left:-7px}
+.tl-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:14px;box-shadow:0 2px 12px rgba(139,92,246,.06);text-align:left}
+[data-theme="dark"] .tl-card{background:var(--card)}
+.tl-date{font-weight:800;color:var(--pink-ink);margin-bottom:8px;font-size:14px}
+.tl-photos{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;padding:2px 0}
+.tl-photos img{height:120px;border-radius:10px;object-fit:cover;flex-shrink:0;cursor:pointer;transition:transform .2s}
+.tl-photos img:hover{transform:scale(1.04)}
+.tl-item{padding:6px 0;border-top:1px dashed var(--border);font-size:14px}
+.tl-item-emoji{font-size:18px;margin-right:4px}
+.tl-item b{font-weight:700}
+.tl-item-photos{display:flex;gap:6px;flex-wrap:wrap;padding:4px 0}
+.tl-item-photos img{height:70px;border-radius:8px;object-fit:cover;flex-shrink:0;cursor:pointer}
+.tl-more-btn{align-self:center;border:1px dashed var(--pink);background:transparent;color:var(--pink-ink);border-radius:10px;padding:6px 10px;font-size:13px;cursor:pointer;flex-shrink:0}
+.tl-more-btn:hover{background:var(--bg1)}
+@media(max-width:640px){
+  .tl-stem{left:16px}
+  .tl-left,.tl-right{width:100%;margin-left:0!important;padding-left:42px!important;padding-right:0!important}
+  .tl-left .tl-dot,.tl-right .tl-dot{left:9px;right:auto}
+}
 
 

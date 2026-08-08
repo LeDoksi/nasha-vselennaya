@@ -52,6 +52,7 @@ function renderCalendar() {
   }
   $('#calendar').innerHTML = html + `<div class="cal-row">${cells}</div>`;
   renderDayPanel();
+  updateNearestJump();
 }
 function renderDayPanel() {
   const panel = $('#dayPanel');
@@ -70,7 +71,7 @@ function renderDayPanel() {
       : '<p class="cal-tip">В этот день событий пока нет.</p>') +
     (dts.length
       ? `<div class="day-sub">💘 Свидания</div>` + dts.map(dt =>
-          `<div class="day-event date-evt">${esc(dt.emoji || '💘')} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}</span> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`).join('')
+          `<div class="day-event date-evt${dt.done ? ' date-done' : ''}">${esc(dt.emoji || '💘')} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}${dt.done ? ' ✅' : ''}</span>${dtThumbs(dt)} <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${dt.done ? '💗' : '✅'}</button> <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото">📷</button> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`).join('')
       : '') +
     `<div class="day-add">
        <input type="text" id="dayTitle" placeholder="Название события">
@@ -88,9 +89,8 @@ function addDayEvent() {
   db.events.push({ id: uid(), title, date: selectedDate, emoji: $('#dayEmoji').value.trim() || '💜', repeat: true });
   save(); renderCalendar(); renderHome();
 }
-function hideJumpInfo() { const info = $('#jumpInfo'); if (info) info.hidden = true; }
-$('#calPrev').addEventListener('click', () => { calM--; if (calM < 0) { calM = 11; calY--; } selectedDate = null; hideJumpInfo(); renderCalendar(); });
-$('#calNext').addEventListener('click', () => { calM++; if (calM > 11) { calM = 0; calY++; } selectedDate = null; hideJumpInfo(); renderCalendar(); });
+$('#calPrev').addEventListener('click', () => { calM--; if (calM < 0) { calM = 11; calY--; } selectedDate = null; renderCalendar(); });
+$('#calNext').addEventListener('click', () => { calM++; if (calM > 11) { calM = 0; calY++; } selectedDate = null; renderCalendar(); });
 $('#addEventBtn').addEventListener('click', () => openEventModal());
 
 // «⏭ К ближайшему событию»: ближайшая дата события/свидания с учётом
@@ -126,21 +126,30 @@ function nextUpcoming() {
   cands.sort((a, b) => a.date.localeCompare(b.date));
   return cands[0] || null;
 }
-// «⏭ К ближайшему событию»: плашка + прыжок, если событие не в текущем месяце.
-// Вызывается при открытии вкладки календаря и по кнопке «⏭» — плашка видна
-// всегда, даже когда ближайшее событие уже видно в текущем месяце.
-function showNearestEvent() {
+// «⏭ К ближайшему событию»: кнопка и плашка видны, только когда ближайшее
+// событие/свидание НЕ в показываемом месяце. В месяце ближайшего события
+// их нет. Вызывается из renderCalendar при каждой перерисовке и по кнопке «⏭».
+function updateNearestJump() {
   const nx = nextUpcoming();
   const info = $('#jumpInfo');
-  if (!nx) { hideJumpInfo(); return; }
+  const btn = $('#jumpNextBtn');
+  if (!nx) { // впереди событий нет — кнопка остаётся (по клику — подсказка), плашка скрыта
+    if (info) info.hidden = true;
+    if (btn) btn.hidden = false;
+    return;
+  }
   const [y, m, d] = nx.date.split('-').map(Number);
-  if (y !== calY || m - 1 !== calM) { calY = y; calM = m - 1; }
-  selectedDate = nx.date;
-  renderCalendar();
+  const here = (y === calY && m - 1 === calM);
+  if (here) { // уже смотрим месяц ближайшего события — кнопка и плашка не нужны
+    if (info) info.hidden = true;
+    if (btn) btn.hidden = true;
+    return;
+  }
   if (info) {
     info.textContent = `⏭ Ближайшее: ${nx.emoji} «${nx.title}» — ${d} ${MONTHS[m - 1].toLowerCase()} ${y} г.`;
     info.hidden = false;
   }
+  if (btn) btn.hidden = false;
 }
 function jumpToNearestEvent() {
   const nx = nextUpcoming();
@@ -149,7 +158,10 @@ function jumpToNearestEvent() {
     if (info) { info.textContent = '💫 Ближайших событий пока нет — добавь первое!'; info.hidden = false; }
     return;
   }
-  showNearestEvent();
+  const [y, m] = nx.date.split('-').map(Number);
+  calY = y; calM = m - 1;
+  selectedDate = nx.date;
+  renderCalendar(); // updateNearestJump() скроет кнопку/плашку: ближайшее уже на экране
 }
 $('#jumpNextBtn').addEventListener('click', jumpToNearestEvent);
 
@@ -170,7 +182,7 @@ function fillCalJump() {
   ms.value = String(calM);
   ys.value = String(calY);
 }
-function jumpCalendar(m, y) { calM = +m; calY = +y; selectedDate = null; hideJumpInfo(); renderCalendar(); }
+function jumpCalendar(m, y) { calM = +m; calY = +y; selectedDate = null; renderCalendar(); }
 $('#calMonthSelect').addEventListener('change', e => jumpCalendar(e.target.value, calY));
 $('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.value));
 
@@ -178,9 +190,16 @@ $('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.
 function photoByRef(ref) {
   return db.photos.find(p => p.id === ref) || null;
 }
+// «Мёртвые» id (фото удалено из галереи) пропускаем — не рисуем битую рамку.
+// Легаси data-URL показываем напрямую.
+function thumbRefs(refs) {
+  return refs.filter(ref => photoByRef(ref) || (typeof ref === 'string' && ref.startsWith('data:')));
+}
 function evThumbs(e) {
   if (!(e.photos && e.photos.length)) return '';
-  return `<span class="ev-thumbs">${e.photos.map(ref => {
+  const refs = thumbRefs(e.photos);
+  if (!refs.length) return '';
+  return `<span class="ev-thumbs">${refs.map(ref => {
     const p = photoByRef(ref);
     const src = p ? photoSrc(p) : ref; // сиротский data-URL из легаси-события показываем напрямую
     const attr = p ? p.id : ref;
@@ -245,6 +264,74 @@ function addEventPhotoQuick(evId) {
     save(); renderCalendar(); renderHome();
   }, { once: true });
   inp.click();
+}
+
+// Фото свидания кладём в общую галерею под лейблом «💞 Свидания»;
+// dt.photos хранит id фото. Новые фото приходят как data-URL.
+function addDatePhotosToGallery(photos, title) {
+  if (!photos.length) return [];
+  if (!db.labels.includes(DATE_LABEL)) db.labels.push(DATE_LABEL);
+  const ids = [];
+  for (const photoRef of photos) {
+    const existing = db.photos.find(p => p.id === photoRef);
+    if (existing) {
+      if (!Array.isArray(existing.labels)) existing.labels = [];
+      if (!existing.labels.includes(DATE_LABEL)) existing.labels.push(DATE_LABEL);
+      ids.push(existing.id);
+    } else {
+      const ph = { id: uid(), data: photoRef, title, labels: [DATE_LABEL], pinned: false, ts: Date.now(), order: 0 };
+      db.photos.unshift(ph);
+      ids.push(ph.id);
+      setThumbUrl(ph.id, photoRef);
+      try {
+        const blob = dataUrlToBlob(photoRef);
+        if (blob && photoStore) {
+          makeThumbBlob(photoRef, 256).then(async thumb => {
+            const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size };
+            await photoStore.put(ph.id, blob, thumb, meta);
+            if (ph.data === photoRef) delete ph.data;
+          }).catch(e => console.warn('Не удалось сохранить фото свидания в хранилище', e));
+        }
+      } catch (e) { console.warn('Не удалось сохранить фото свидания в хранилище', e); }
+    }
+  }
+  return ids;
+}
+
+// Быстрое добавление фото к свиданию из панели дня (кнопка 📷)
+function addDatePhotoQuick(dtId) {
+  const dt = db.dates.find(x => x.id === dtId);
+  if (!dt) return;
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+  inp.style.display = 'none';
+  document.body.appendChild(inp);
+  inp.addEventListener('change', async () => {
+    const ok = [];
+    for (const f of [...inp.files].slice(0, 5)) {
+      try { ok.push(await readFile(f)); } catch (err) { console.warn('Не удалось прочитать фото свидания', err); }
+    }
+    inp.remove();
+    if (!ok.length) return;
+    const title = dt.place || dt.note || 'Свидание';
+    const ids = addDatePhotosToGallery(ok, title);
+    dt.photos = Array.isArray(dt.photos) ? dt.photos.concat(ids.length ? ids : ok) : (ids.length ? ids : ok);
+    save(); renderCalendar(); renderHome();
+  }, { once: true });
+  inp.click();
+}
+
+// Миниатюры фото свидания в панели дня
+function dtThumbs(dt) {
+  if (!(dt.photos && dt.photos.length)) return '';
+  const refs = thumbRefs(dt.photos);
+  if (!refs.length) return '';
+  return '<span class="ev-thumbs">' + refs.map(ref => {
+    const p = photoByRef(ref);
+    const src = p ? photoSrc(p) : ref;
+    const attr = p ? p.id : ref;
+    return '<img class="ev-thumb" src="' + esc(src) + '" alt="" data-photo="' + esc(attr) + '" loading="lazy">';
+  }).join('') + '</span>';
 }
 
 /* ===== Кастомный date-picker в стиле сайта =====

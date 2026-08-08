@@ -30,7 +30,11 @@ $('#photoInput').addEventListener('change', async e => {
   for (const f of files) {
     try {
       const data = await readFile(f);
-      const ph = { id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0 };
+      // Дата съёмки из EXIF (если камера её записала). Нужна для «В этот день»:
+      // фото показывается только по EXIF-дате или по дате события, НЕ по дате загрузки.
+      let takenAt = null;
+      try { takenAt = await extractExifDate(f); } catch (e) {}
+      const ph = { id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0, takenAt };
       db.photos.unshift(ph);
       setThumbUrl(ph.id, data); // мгновенный показ из кэша миниатюр
       // Сразу кладём в photoStore — дальше фото живёт в IndexedDB (зашифровано).
@@ -40,7 +44,7 @@ $('#photoInput').addEventListener('change', async e => {
         if (blob && photoStore) {
           let thumb = null, thumbType = null;
           try { thumb = await makeThumbBlob(data, 256); thumbType = (thumb && thumb.type) || 'image/webp'; } catch (e) {}
-          const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size };
+          const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size, takenAt };
           await photoStore.put(ph.id, blob, thumb, meta);
           delete ph.data;            // блоб в сторе — из памяти убираем base64
         }
@@ -54,27 +58,36 @@ function renderLabels() {
   const bar = $('#labelBar');
   if (!bar) return;
   const evCount = db.photos.filter(p => (p.labels || []).includes(EVENT_LABEL)).length;
+  const dtCount = db.photos.filter(p => (p.labels || []).includes(DATE_LABEL)).length;
+  const sysLabels = [EVENT_LABEL, DATE_LABEL];
   bar.innerHTML =
     `<button class="album-chip${currentLabel === '' ? ' active' : ''}" data-label="">🖼 Все фото (${db.photos.length})</button>` +
     (evCount ? `<button class="album-chip${currentLabel === EVENT_LABEL ? ' active' : ''}" data-label="${esc(EVENT_LABEL)}">📅 События (${evCount})</button>` : '') +
-    db.labels.filter(l => l !== EVENT_LABEL).map(l => `<button class="album-chip${currentLabel === l ? ' active' : ''}" data-label="${esc(l)}" draggable="true" title="Перетащи на фото, чтобы навесить лейбл"># ${esc(l)}<span class="label-del" data-label-del="${esc(l)}" title="Удалить лейбл">✕</span></button>`).join('') +
+    (dtCount ? `<button class="album-chip${currentLabel === DATE_LABEL ? ' active' : ''}" data-label="${esc(DATE_LABEL)}">💞 Свидания (${dtCount})</button>` : '') +
+    db.labels.filter(l => !sysLabels.includes(l)).map(l => `<button class="album-chip${currentLabel === l ? ' active' : ''}" data-label="${esc(l)}" draggable="true" title="Перетащи на фото, чтобы навесить лейбл"># ${esc(l)}<span class="label-del" data-label-del="${esc(l)}" title="Удалить лейбл">✕</span></button>`).join('') +
     `<button class="btn album-add-btn" data-label-new title="Создать лейбл">＋ Лейбл</button>`;
 }
 function deletePhoto(id) {
   const ph = db.photos.find(x => x.id === id);
   if (ph) {
-    // фото удаляется и из событий, чтобы в календаре не оставалось «мёртвых» миниатюр
+    // фото удаляется и из событий, и из свиданий, чтобы в календаре не оставалось «мёртвых» миниатюр
     db.events.forEach(ev => {
       if (!Array.isArray(ev.photos)) return;
       ev.photos = ev.photos.filter(d => d !== ph.id);
       if (!ev.photos.length) delete ev.photos;
     });
+    db.dates.forEach(dt => {
+      if (!Array.isArray(dt.photos)) return;
+      dt.photos = dt.photos.filter(d => d !== ph.id);
+      if (!dt.photos.length) delete dt.photos;
+    });
     if (photoStore && ph.id) photoStore.delete(ph.id); // убираем блоб из IndexedDB
   }
   db.photos = db.photos.filter(x => x.id !== id);
   selectedPhotos.delete(id);
-  clearThumbCache();
-  save(); renderPhotos(); renderCalendar();
+  // Удаляем из кэша только удалённое фото — остальные миниатюры остаются
+  if (id) thumbCache.delete(id);
+  save(); renderPhotos(); renderCalendar(); renderHome();
 }
 // К каким событиям привязано фото — для фильтра «год → месяц → событие».
 // ev.photos хранит id фото (v6+).
@@ -148,7 +161,7 @@ function renderPhotosNow() {
       <button class="pin-photo${p.pinned ? ' active' : ''}" data-pin-photo="${p.id}" title="${p.pinned ? 'Открепить' : 'Закрепить'}">${p.pinned ? '⭐' : '☆'}</button>
       <button class="del-photo" data-del-photo="${p.id}" title="Удалить">✕</button>
       ${(p.labels || []).length ? `<div class="photo-labels">${p.labels.map(l =>
-        `<span class="photo-label">${esc(l)}${l === EVENT_LABEL ? '' : `<span class="photo-label-del" data-label-off="${esc(l)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</span>`}</span>`
+        `<span class="photo-label">${esc(l)}${l === EVENT_LABEL || l === DATE_LABEL ? '' : `<span class="photo-label-del" data-label-off="${esc(l)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</span>`}</span>`
       ).join('')}</div>` : ''}
       ${currentLabel === EVENT_LABEL && p.title ? `<span class="photo-caption">${esc(eventFilter.title || p.title)}</span>` : ''}
     </div>`).join('')
@@ -209,7 +222,7 @@ function renderEventBar() {
 }
 // Лейблы: удаление (фото не трогаем), добавление выбранным, создание
 function deleteLabel(name) {
-  if (name === EVENT_LABEL) return; // служебный лейбл витрины «📅 События» защищён от удаления
+  if (name === EVENT_LABEL || name === DATE_LABEL) return; // служебные лейблы защищены от удаления
   db.labels = db.labels.filter(l => l !== name);
   db.photos.forEach(p => { if (p.labels) p.labels = p.labels.filter(l => l !== name); });
   if (currentLabel === name) currentLabel = '';
@@ -239,7 +252,7 @@ function removeLabelFromPhoto(photoId, name) {
 function openLabelOverlay() {
   $('#labelNewName').value = '';
   const pick = $('#labelPick');
-  const manualLabels = db.labels.filter(l => l !== EVENT_LABEL);
+  const manualLabels = db.labels.filter(l => l !== EVENT_LABEL && l !== DATE_LABEL);
   pick.innerHTML = manualLabels.length
     ? '<option value="">— выбери лейбл —</option>' + manualLabels.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('')
     : '<option value="">Сначала создай новый лейбл выше</option>';
@@ -335,20 +348,20 @@ $('#photosGrid').addEventListener('dragend', () => { dragPhotoId = null; });
 // Перетаскивание фото на кнопку лейбла: лейбл получает и перетаскиваемое фото, и все отмеченные (если есть)
 $('#labelBar').addEventListener('dragover', e => {
   const chip = e.target.closest('.album-chip[data-label]');
-  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL) return;
+  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL || chip.dataset.label === DATE_LABEL) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'copy';
 });
 $('#labelBar').addEventListener('dragenter', e => {
   e.preventDefault();
   const chip = e.target.closest('.album-chip[data-label]');
-  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL) return;
+  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL || chip.dataset.label === DATE_LABEL) return;
   chip.classList.add('drag-over');
 });
 // Обратное направление: чип лейбла можно перетащить прямо на фото
 $('#labelBar').addEventListener('dragstart', e => {
   const chip = e.target.closest('.album-chip[data-label]');
-  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL) { e.preventDefault(); return; }
+  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL || chip.dataset.label === DATE_LABEL) { e.preventDefault(); return; }
   dragLabel = chip.dataset.label;
   e.dataTransfer.effectAllowed = 'copyMove';
   e.dataTransfer.setData('text/plain', dragLabel);
@@ -366,7 +379,7 @@ $('#labelBar').addEventListener('drop', e => {
   if (chip) chip.classList.remove('drag-over');
   if (!dragPhotoId) return;
   const name = chip && chip.dataset.label;
-  if (!name || name === EVENT_LABEL || e.target.closest('[data-label-del]')) return;
+  if (!name || name === EVENT_LABEL || name === DATE_LABEL || e.target.closest('[data-label-del]')) return;
   const targets = new Set(selectedPhotos); // массовое назначение: всем отмеченным…
   targets.add(dragPhotoId);                // …и перетаскиваемому фото
   applyLabelToPhotos(name, targets);

@@ -30,10 +30,14 @@ function renderHome() {
 
   // Напоминания убраны: ближайшее событие и так видно на таймере (#countdown).
   renderDates();
-  renderFloatingPhotos();
   renderCompliment();
   renderCountdown();
   renderMobilePhotos();
+  // Фаза B: кольцо прогресса (в блоке — коллаж фото, события «в этот день», статистика)
+  renderProgressRing();
+  // Фото с data-photo-src (кэш миниатюр не прогрет) — заполняем src асинхронно
+  hydratePhotoImgs($('#mobilePhotosGrid'));
+  hydratePhotoImgs($('#progressRing'));
   maybeCelebrateAnniversary(rem);
 }
 
@@ -143,13 +147,18 @@ function maybeCelebrateAnniversary(rem) {
 function renderMobilePhotos() {
   const grid = $('#mobilePhotosGrid');
   if (!grid) return;
-  grid.innerHTML = [...db.photos].sort(photoSort).slice(0, 12).map(p =>
-    `<img src="${esc(photoSrc(p))}" alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">`).join('');
+  grid.innerHTML = [...db.photos].sort(photoSort).slice(0, 12).map(p => {
+    const url = photoSrc(p);
+    return url
+      ? `<img src="${esc(url)}" alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">`
+      : `<img data-photo-src="${esc(p.id)}" alt="${esc(p.title)}" loading="lazy">`;
+  }).join('');
 }
 
 /* ===== Свидания ===== */
+// datesOn: показывает ВСЕ свидания (включая done) для календаря и памяти
 function datesOn(dateStr) {
-  return db.dates.filter(d => d.date === dateStr && !d.done);
+  return db.dates.filter(d => d.date === dateStr);
 }
 function fmtDateLong(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -242,57 +251,97 @@ function saveDateFromModal() {
 }
 $('#dtSave').addEventListener('click', saveDateFromModal);
 
-/* ===== Парящие фото на главной ===== */
-// 5 «гнёзд» вокруг блока приветствия — несимметрично, в стороне от текста.
-// Из них случайно заполняются 3, остальные пустуют (это даёт живость).
-const FLOAT_SLOTS = [
-  { st: 'left:-16px; top:8%',     rot: -8, dur: 6.2, delay: 0    },
-  { st: 'right:-16px; top:16%',   rot:  7, dur: 5.6, delay: 0.7  },
-  { st: 'left:16%; top:-26px',    rot: -4, dur: 6.8, delay: 1.3  },
-  { st: 'right:15%; bottom:-18px',rot:  9, dur: 5.9, delay: 0.4  },
-  { st: 'left:3%; bottom:4%',     rot: -7, dur: 6.5, delay: 1.8  }
+/* ===== Коллаж «Наша история»: фото «в этот день» + случайные, с асимметрией ===== */
+// Фото живут внутри блока «Наша история» (#progressRing): разный размер,
+// поворот и вертикальный сдвиг — без ровных рядов. В приоритете — фото
+// «в этот день» из прошлых лет (EXIF/дата события/свидания), остальные
+// слоты заполняются случайными. Выбор стабилен в течение дня (seed по дате);
+// кнопка «🎲 Перемешать» меняет коллаж вручную, но тоже фиксирует его до конца дня.
+const HISTORY_PHOTO_SLOTS = [
+  { st: 'left:1%; top:16%; width:84px; height:84px; rotate:-7deg',  dur: 6.4, delay: 0 },
+  { st: 'left:29%; top:5%; width:100px; height:100px; rotate:5deg', dur: 5.8, delay: 0.6 },
+  { st: 'left:58%; top:24%; width:72px; height:72px; rotate:-3deg', dur: 6.9, delay: 1.2 }
 ];
-function renderFloatingPhotos() {
-  const box = $('#floatPhotos');
-  if (!db.photos.length) { box.innerHTML = ''; return; }
-  // Слоты создаём только один раз — анимация парения не перезапускается
-  if (!box.children.length) {
-    box.innerHTML = FLOAT_SLOTS.map((s, i) =>
-      `<img class="float-photo" data-slot="${i}" alt="" src="" style="${s.st};--r:${s.rot}deg;animation-duration:${s.dur}s;animation-delay:${s.delay}s">`).join('');
-    // Первая заливка — сразу, без задержки и без гашения
-    const first = pickFloating();
-    [...box.querySelectorAll('.float-photo')].forEach((im, i) => {
-      const p = first[i];
-      if (!p) { im.style.display = 'none'; return; }
-      im.src = photoSrc(p);
-      im.dataset.src = photoSrc(p);
-    });
-    return;
-  }
-  const picks = pickFloating();
-  [...box.querySelectorAll('.float-photo')].forEach((im, i) => {
-    const p = picks[i];
-    if (!p) { im.style.display = 'none'; return; }
-    im.style.display = '';
-    if (im.dataset.src !== photoSrc(p)) {
-      im.style.opacity = '0';                    // плавно гасим…
-      setTimeout(() => {
-        im.src = photoSrc(p);                     // …меняем фото…
-        im.dataset.src = photoSrc(p);
-        im.style.opacity = '1';                   // …и плавно проявляем
-      }, 650);
-    }
-  });
+function daySeed(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h;
 }
-function pickFloating() {
-  const photos = [...db.photos];
-  const picks = new Array(FLOAT_SLOTS.length).fill(null);
-  const slots = [...FLOAT_SLOTS];
-  for (let n = Math.min(3, photos.length); n > 0; n--) {
-    const si = Math.floor(Math.random() * slots.length);
-    const slot = slots.splice(si, 1)[0];
-    picks[FLOAT_SLOTS.indexOf(slot)] = photos.splice(Math.floor(Math.random() * photos.length), 1)[0];
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// Фото «в этот день» из прошлых лет (по EXIF или дате события/свидания)
+function onThisDayPhotos(at) {
+  return onThisDayItems(at).filter(it => it.kind === 'photo' && it.p).map(it => it.p);
+}
+// Зафиксированный на день выбор коллажа {day, sig, ids}; ручной перемес живёт до полуночи.
+// sig — сигнатура состава галереи: при добавлении/удалении фото коллаж пересобирается.
+let historyCollage = null;
+function photoSignature() {
+  return [...db.photos].map(p => p.id).sort().join(',');
+}
+function shufflePick(photos, rnd) {
+  for (let i = photos.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [photos[i], photos[j]] = [photos[j], photos[i]];
   }
+}
+// «В этот день» встают первыми (до 3 слотов), остальные — случайные из перетасованного списка
+function pinOnThisDay(photos, n, at) {
+  const picks = [];
+  const otd = onThisDayPhotos(at);
+  for (const p of otd) { if (picks.length >= n) break; if (!picks.includes(p)) picks.push(p); }
+  for (const p of photos) { if (picks.length >= n) break; if (!picks.includes(p)) picks.push(p); }
   return picks;
 }
+function pickHistoryPhotos(at) {
+  const dayStr = (at || new Date()).toDateString();
+  const sig = photoSignature();
+  if (historyCollage && historyCollage.day === dayStr && historyCollage.sig === sig) {
+    const byId = new Map(db.photos.map(p => [p.id, p]));
+    return historyCollage.ids.map(id => byId.get(id)).filter(Boolean);
+  }
+  const photos = [...db.photos];
+  const n = Math.min(HISTORY_PHOTO_SLOTS.length, photos.length);
+  shufflePick(photos, mulberry32(daySeed(dayStr) + n * 7919));
+  const picks = pinOnThisDay(photos, n, at);
+  historyCollage = { day: dayStr, sig, ids: picks.map(p => p.id) };
+  return picks;
+}
+// «🎲 Перемешать коллаж» — заново тасует случайную часть; фото «в этот день» остаются
+function shuffleHistoryPhotos() {
+  const photos = [...db.photos];
+  const n = Math.min(HISTORY_PHOTO_SLOTS.length, photos.length);
+  shufflePick(photos, mulberry32((Math.random() * 0xffffffff) >>> 0));
+  const picks = pinOnThisDay(photos, n);
+  historyCollage = { day: new Date().toDateString(), sig: photoSignature(), ids: picks.map(p => p.id) };
+  renderProgressRing();
+  hydratePhotoImgs($('#progressRing'));
+}
+function historyPhotosHtml(at) {
+  const picks = pickHistoryPhotos(at);
+  const otdIds = new Set(onThisDayPhotos(at).map(p => p.id));
+  const badge = picks.some(p => otdIds.has(p.id)) ? '<span class="hp-badge">✨ В этот день</span>' : '';
+  return badge + picks.map((p, i) => {
+    const s = HISTORY_PHOTO_SLOTS[i];
+    const url = photoSrc(p); // кэш миниатюр может быть не прогрет — ставим fallback
+    return '<img class="history-photo" data-photo="' + esc(p.id) + '" alt="' + esc(p.title || '') + '"' +
+      (url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"') +
+      ' style="' + s.st + 'animation-duration:' + s.dur + 's;animation-delay:' + s.delay + 's" loading="lazy">';
+  }).join('');
+}
+// Делегирование: innerHTML #progressRing перерисовывается на каждом рендере
+$('#progressRing').addEventListener('click', e => {
+  if (e.target.closest && e.target.closest('#shuffleHistoryBtn')) shuffleHistoryPhotos();
+});
+$('#progressRing').addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('#shuffleHistoryBtn')) {
+    e.preventDefault(); shuffleHistoryPhotos();
+  }
+});
 

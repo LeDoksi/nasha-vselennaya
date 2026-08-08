@@ -493,6 +493,7 @@ function photoSrc(p) {
 
 // Прогрев кэша миниатюр после разблокировки — галерея рендерится мгновенно.
 // Если миниатюры нет (старое фото при миграции), берём полный блоб.
+// После завершения перерисовывает открытые вьюхи, чтобы подхватить URL из кэша.
 async function warmThumbCache() {
   if (!photoStore || !db || !Array.isArray(db.photos)) return;
   for (const p of db.photos) {
@@ -505,6 +506,12 @@ async function warmThumbCache() {
         setThumbUrl(p.id, url);
       }
     } catch (e) {}
+  }
+  // Кэш прогрет — обновляем вьюхи, которые могли отрисоваться с пустым кэшем
+  if (!authLocked) {
+    renderHome();
+    renderPhotos();
+    renderCalendar();
   }
 }
 

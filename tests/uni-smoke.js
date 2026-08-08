@@ -62,13 +62,17 @@ function __TEST__(s){
   Object.defineProperty(s, 'countdownTarget', { get: () => countdownTarget, set: v => { countdownTarget = v; }, configurable: true });
   Object.defineProperty(s, 'currentUser', { get: () => currentUser, set: v => { currentUser = v; }, configurable: true });
   Object.defineProperty(s, 'masterKey', { get: () => masterKey, configurable: true });
-  s.renderHome = renderHome; s.renderDates = renderDates; s.renderFloatingPhotos = renderFloatingPhotos;
+  s.renderHome = renderHome; s.renderDates = renderDates;
   s.renderCalendar = renderCalendar; s.renderDayPanel = renderDayPanel; s.renderNotes = renderNotes;
   s.startEditNote = startEditNote; s.saveNoteEdit = saveNoteEdit; s.cancelNoteEdit = cancelNoteEdit;
   s.togglePinNote = togglePinNote; s.deleteNote = deleteNote;
-  s.nextUpcoming = nextUpcoming; s.jumpToNearestEvent = jumpToNearestEvent; s.showNearestEvent = showNearestEvent;
+  s.nextUpcoming = nextUpcoming; s.jumpToNearestEvent = jumpToNearestEvent; s.updateNearestJump = updateNearestJump;
+  Object.defineProperty(s, 'calM', { get: () => calM, set: v => { calM = v; }, configurable: true });
+  Object.defineProperty(s, 'calY', { get: () => calY, set: v => { calY = v; }, configurable: true });
   s.reorderNoteIds = reorderNoteIds;
   s.renderLists = renderLists; s.renderPhotos = renderPhotos;
+  s.createList = createList; s.addListSubtask = addListSubtask;
+  s.toggleSubtask = toggleSubtask; s.delSubtask = delSubtask; s.completeList = completeList;
   s.renderWishlist = renderWishlist; s.renderCountdown = renderCountdown; s.tickCountdown = tickCountdown; s.renderSettings = renderSettings;
   s.renderCompliment = renderCompliment; s.renderMobilePhotos = renderMobilePhotos;
   s.go = go; s.daysTogether = daysTogether; s.iso = iso;
@@ -76,6 +80,7 @@ function __TEST__(s){
   s.setUser = setUser; s.getUser = getUser;
   s.toggleTheme = toggleTheme; s.setTheme = setTheme; s.getTheme = getTheme; s.celebrate = celebrate; s.openEventModal = openEventModal;
   s.openDateModal = openDateModal; s.openWishModal = openWishModal;
+  s.toggleDateDone = toggleDateDone;
   s.saveDateFromModal = saveDateFromModal; s.saveWishFromModal = saveWishFromModal;
   s.migrateDB = migrateDB;
   Object.defineProperty(s, 'currentLabel', { get: () => currentLabel, set: v => { currentLabel = v; }, configurable: true });
@@ -93,7 +98,7 @@ function __TEST__(s){
   s.selectedPhotos = selectedPhotos; s.renderLabels = renderLabels;
   s.deleteLabel = deleteLabel; s.deletePhoto = deletePhoto; s.applyLabelToSelected = applyLabelToSelected; s.openLabelOverlay = openLabelOverlay;
   s.applyLabelToPhotos = applyLabelToPhotos; s.removeLabelFromPhoto = removeLabelFromPhoto;
-  s.filteredPhotos = filteredPhotos; s.renderEventBar = renderEventBar; s.eventsForPhoto = eventsForPhoto; s.photoByRef = photoByRef; s.addEventPhotosToGallery = addEventPhotosToGallery;
+  s.filteredPhotos = filteredPhotos; s.renderEventBar = renderEventBar; s.eventsForPhoto = eventsForPhoto; s.photoByRef = photoByRef; s.addEventPhotosToGallery = addEventPhotosToGallery; s.evThumbs = evThumbs; s.dtThumbs = dtThumbs;
   s.wishCard = wishCard; s.fmtWishDate = fmtWishDate;
   s.relabelEventPhotos = relabelEventPhotos;
   s.createVault = createVault; s.unlockWith = unlockWith; s.savePassFor = savePassFor; s.changePass = changePass;
@@ -104,6 +109,13 @@ function __TEST__(s){
   s.photoUrl = photoUrl; s.photoSrc = photoSrc; s.warmThumbCache = warmThumbCache; s.clearPhotoStore = clearPhotoStore;
   s.initPhotoStore = initPhotoStore; s.getThumbUrl = getThumbUrl; s.setThumbUrl = setThumbUrl;
   s.makeThumbBlob = makeThumbBlob; s.canDraw = canDraw;
+  s.photoDate = photoDate; s.onThisDayItems = onThisDayItems; s.memoryByDay = memoryByDay;
+  s.renderMemory = renderMemory;
+  s.memoryPhotosHtml = memoryPhotosHtml; s.toggleMemoryPhotos = toggleMemoryPhotos;
+  s.renderProgressRing = renderProgressRing;
+  s.onThisDayPhotos = onThisDayPhotos; s.pickHistoryPhotos = pickHistoryPhotos;
+  s.shuffleHistoryPhotos = shuffleHistoryPhotos; s.historyPhotosHtml = historyPhotosHtml;
+  Object.defineProperty(s, 'historyCollage', { get: () => historyCollage, set: v => { historyCollage = v; }, configurable: true });
 }`;
 const wrapped = new Function('sandbox', 'document', 'localStorage', 'sessionStorage', 'alert', 'confirm', 'URL',
   'FileReader', 'Blob', 'HTMLAudioElement', 'Image', 'setTimeout', 'setInterval', 'addEventListener',
@@ -133,10 +145,11 @@ assert(!vaultRaw.includes('"123456"'), 'пароль не хранится в с
 assert(w('(s)=>s.localStorage.getItem("universe")') === null, 'старый открытый файл удалён после миграции');
 
 // --- Миграция: старые данные получили version и новые поля ---
-assert(w('(s)=>s.db.version') === 6, 'db.version = 6 после миграции');
+assert(w('(s)=>s.db.version') === 8, 'db.version = 8 после миграции');
 assert(Array.isArray(w('(s)=>s.db.wishlist')), 'wishlist добавлен миграцией');
 assert(w('(s)=>s.db.backupDate') === null, 'backupDate добавлен миграцией');
 assert(Array.isArray(w('(s)=>s.db.labels')), 'labels добавлен миграцией');
+assert(Array.isArray(w('(s)=>s.db.lists')), 'lists добавлен миграцией');
 assert(w('(s)=>JSON.stringify(s.db.photos[0].labels)') === '["Поездка"]', 'старый альбом фото стал лейблом');
 assert(w('(s)=>s.db.labels.includes("Поездка")'), 'лейблы собраны в общий список');
 
@@ -220,12 +233,47 @@ w('(s)=>s.saveWishFromModal()');
 assert(w('(s)=>s.db.wishlist[0].owner') === 'dasha', 'хотелка Даши попадает в её список');
 w('(s)=>s.setUser("gosha")');
 
-// --- Бесшовные парящие фото: 5 гнёзд, 3 фото, слоты один раз ---
-w('(s)=>{s.db.photos.push({id:"p1",data:"data:image/jpeg;base64,AA==",pinned:false,ts:1});s.renderFloatingPhotos();}');
-const fp1 = registry['#floatPhotos'].innerHTML;
-assert(fp1.includes('float-photo'), 'floating photos rendered');
-assert((fp1.match(/data-slot=/g) || []).length === 5, 'five spawn spots');
-assert(fp1.includes('left:-16px') && fp1.includes('right:-16px'), 'photos bound to hero block sides');
+// --- Коллаж «Наша история»: 2-3 случайных фото с асимметрией в блоке прогресса ---
+w('(s)=>{s.db.photos=[{id:"p1",title:"Лето",data:"data:image/jpeg;base64,AA==",pinned:false,ts:1},{id:"p2",title:"Парк",data:"data:image/jpeg;base64,BB==",pinned:false,ts:2}];s.renderProgressRing();return 1;}');
+const hisHtml = registry['#progressRing'].innerHTML;
+assert((hisHtml.match(/class="history-photo"/g) || []).length === 2, 'коллаж показывает столько фото, сколько есть (2 из 3 слотов)');
+assert(hisHtml.includes('data-photo="p1"') && hisHtml.includes('data-photo="p2"'), 'фото коллажа кликабельны (lightbox)');
+assert(hisHtml.includes('data-photo-src'), 'без прогретого кэша миниатюр — fallback data-photo-src');
+assert(hisHtml.includes('rotate:-7deg') && hisHtml.includes('rotate:5deg'), 'коллаж асимметричный: повороты у фото разные');
+assert(hisHtml.includes('history-stats') && hisHtml.includes('hs-chip') && hisHtml.includes('📸 2'), 'в блоке «Наша история» — статистика счётчиков');
+// Выбор фото стабилен в течение дня (seed по дате) — повторный рендер не меняет коллаж
+w('(s)=>{s.renderProgressRing();return 1;}');
+assert(registry['#progressRing'].innerHTML === hisHtml, 'коллаж стабилен при повторном рендере в тот же день');
+
+// --- Коллаж: фото «в этот день» из прошлых лет приоритетнее случайных ---
+w('(s)=>{const t=new Date();const d=new Date(t.getFullYear()-1,t.getMonth(),t.getDate());s.db.photos.push({id:"phOtd",title:"В этот день год назад",pinned:false,ts:9,takenAt:d.getTime()});s.renderProgressRing();return 1;}');
+const hisOtd = registry['#progressRing'].innerHTML;
+assert(hisOtd.includes('data-photo="phOtd"'), 'коллаж приоритетно показывает фото «в этот день»');
+assert(hisOtd.includes('hp-badge') && hisOtd.includes('В этот день'), 'при фото «в этот день» на коллаже есть бейдж');
+assert(hisOtd.includes('shuffleHistoryBtn'), 'в блоке «Наша история» есть кнопка «🎲 Перемешать»');
+w('(s)=>{s.renderProgressRing();return 1;}');
+assert(registry['#progressRing'].innerHTML === hisOtd, 'коллаж с «в этот день» стабилен при повторном рендере');
+
+// --- Кнопка «🎲 Перемешать»: фиксирует новый выбор на день, «в этот день» не выкидывает ---
+w('(s)=>{s.shuffleHistoryPhotos();return 1;}');
+const afterIds = w('(s)=>s.historyCollage.ids.join(",")');
+assert(typeof afterIds === 'string' && afterIds.length > 0 && afterIds.split(",").length === 3, 'перемес даёт полный набор из 3 фото');
+assert(afterIds.includes('phOtd'), 'перемес не выкидывает фото «в этот день»');
+assert(w('(s)=>s.historyCollage.day') === new Date().toDateString(), 'перемес закреплён до конца дня');
+assert(((registry['#progressRing']._handlers || {}).click || []).length >= 1, 'кнопка «🎲 Перемешать» подключена через делегирование');
+const hisSh = registry['#progressRing'].innerHTML;
+w('(s)=>{s.renderProgressRing();return 1;}');
+assert(registry['#progressRing'].innerHTML === hisSh, 'после перемеса коллаж стабилен при повторном рендере');
+
+// --- Прогресс хотелок в статистике: счётчик 2/3 и полоска 67% ---
+w('(s)=>{s.db.wishlist=[{id:"w1",text:"К1",done:true,owner:"gosha"},{id:"w2",text:"К2",done:true,owner:"gosha"},{id:"w3",text:"К3",done:false,owner:"gosha"}];s.renderProgressRing();return 1;}');
+const hisWish = registry['#progressRing'].innerHTML;
+assert(hisWish.includes('hs-wish') && hisWish.includes('2/3'), 'статистика показывает прогресс хотелок 2/3');
+assert(hisWish.includes('width:67%'), 'полоска прогресса хотелок заполнена на 67%');
+w('(s)=>{s.db.wishlist.push({id:"w4",text:"К4",done:false,owner:"gosha"});s.renderProgressRing();return 1;}');
+assert(registry['#progressRing'].innerHTML.includes('2/4'), 'прогресс хотелок обновляется при изменении списка');
+w('(s)=>{s.db.wishlist=[];s.renderProgressRing();return 1;}');
+assert(registry['#progressRing'].innerHTML.includes('пока пусто'), 'без хотелок чип показывает «пока пусто»');
 
 // --- Календарь отмечает дату со свиданием ---
 w('(s)=>{s.go("calendar");s.renderCalendar();}');
@@ -399,24 +447,34 @@ w('(s)=>s.saveEventFromModal()');
 assert(w('(s)=>s.db.events.length') === evCountBefore, 'конец раньше начала не сохраняет событие');
 
 // --- Календарь: «⏭ К ближайшему событию» ---
+// Ближайшее событие — сегодня: в месяце ближайшего события кнопки и плашки нет
 w('(s)=>{const d=new Date();s.db.events.push({id:"nx1",title:"Ближайшее событие",date:s.iso(d.getFullYear(),d.getMonth(),d.getDate()),emoji:"🎈",repeat:false});}');
 const nx = w('(s)=>{const r=s.nextUpcoming();if(!r)return null;const [yy,mm]=r.date.split("-").map(Number);s.jumpToNearestEvent();return {date:r.date,title:r.title,m:mm-1,y:yy};}');
 assert(nx && nx.date !== undefined, 'nextUpcoming: есть ближайшее событие/свидание');
 assert(registry['#calMonthSelect'].value === String(nx.m) && registry['#calYearSelect'].value === String(nx.y), 'кнопка переключила календарь на месяц ближайшего события');
 assert(w('(s)=>s.selectedDate') === nx.date, 'после прыжка выделен день ближайшего события');
-assert(registry['#jumpInfo'].hidden === false && registry['#jumpInfo'].textContent.includes(nx.title), 'подпись показывает, что за событие');
-w('(s)=>s.jumpCalendar(0,2026)');
-assert(registry['#jumpInfo'].hidden === true, 'ручная навигация прячет подпись');
+assert(registry['#jumpInfo'].hidden === true, 'в месяце ближайшего события плашки нет');
+assert(registry['#jumpNextBtn'].hidden === true, 'в месяце ближайшего события кнопки нет');
 
-// --- Календарь: плашка видна, даже когда событие в текущем месяце (без прыжка) ---
-w('(s)=>{s.jumpCalendar(new Date().getMonth(), new Date().getFullYear());s.selectedDate=null;s.showNearestEvent();}');
-assert(registry['#jumpInfo'].hidden === false && registry['#jumpInfo'].textContent.includes('Ближайшее'),
-  'плашка показывается и для события в текущем месяце');
-// --- Календарь: открытие вкладки само показывает и прыгает к ближайшему событию ---
+// Смотрим месяц без ближайшего события → появляются кнопка и плашка с описанием
+w('(s)=>{s.jumpCalendar(0,2026);}');
+assert(registry['#jumpInfo'].hidden === false && registry['#jumpInfo'].textContent.includes(nx.title), 'в другом месяце плашка рассказывает о ближайшем событии');
+assert(registry['#jumpNextBtn'].hidden === false, 'в другом месяце кнопка перехода видна');
+
+// Даже месяц со своими событиями (2027), но без ближайшего → кнопка есть
+w('(s)=>{s.db.events.push({id:"far27",title:"Событие 2027",date:"2027-01-15",emoji:"🚀",repeat:false});s.jumpCalendar(0,2027);}');
+assert(registry['#jumpNextBtn'].hidden === false, 'кнопка видна и в месяце со своими событиями, если ближайшее не здесь');
+
+// Клик по кнопке возвращает к ближайшему событию
+w('(s)=>s.jumpToNearestEvent()');
+assert(w('(s)=>s.selectedDate') === nx.date, 'повторный клик снова прыгает к ближайшему событию');
+assert(registry['#jumpInfo'].hidden === true, 'после возврата плашка скрыта');
+
+// --- Календарь: открытие вкладки показывает текущий месяц, без прыжка ---
 w('(s)=>{s.jumpCalendar(0,2020);s.go("calendar");}');
-assert(registry['#jumpInfo'].hidden === false, 'открытие календаря само показывает плашку (без кнопки)');
-assert(w('(s)=>{const [yy,mm]=s.selectedDate.split("-").map(Number);return mm-1;}') === +registry['#calMonthSelect'].value,
-  'открытие календаря само прыгает на месяц ближайшего события');
+const nowCal = new Date();
+assert(w('(s)=>s.calM') === nowCal.getMonth() && w('(s)=>s.calY') === nowCal.getFullYear(), 'открытие календаря показывает текущий месяц (без прыжка)');
+assert(w('(s)=>s.selectedDate') === null, 'открытие календаря не выделяет день ближайшего события');
 
 // --- drag&drop заметок: чистая логика перестановки (порядок ids) ---
 assert(JSON.stringify(w('(s)=>s.reorderNoteIds(["a","b","c"],"a","c",true)')) === '["b","c","a"]', 'reorderNoteIds: перенос в конец');
@@ -476,6 +534,38 @@ const wdUndo = w('(s)=>s.wishCard({id:"x",text:"x",owner:"dasha",done:true,doneB
 assert(wdUndo.includes('data-wish-done') && wdUndo.includes('Снять отметку'), 'исполнивший может снять отметку');
 const wdLocked = w('(s)=>s.wishCard({id:"x",text:"x",owner:"dasha",done:true,doneBy:"dasha",doneAt:1,ts:1})');
 assert(!wdLocked.includes('data-wish-done'), 'чужую отметку нельзя снять');
+
+// --- Списки: произвольные блоки вместо жёстких «Покупки/Дела» ---
+w('(s)=>{s.db.lists=[{id:"L1",name:"Подарки",items:[]},{id:"L2",name:"Дела",items:[]}];s.renderLists();return 1;}');
+let listsHtml = registry['#listsWrap'].innerHTML;
+assert(listsHtml.includes('Подарки') && listsHtml.includes('Дела'), 'произвольные списки рендерятся карточками');
+assert(listsHtml.includes('listInput-L1') && listsHtml.includes('data-list-add="L1"'), 'у списка есть поле и кнопка подзадачи');
+assert(listsHtml.includes('data-list-complete="L1"'), 'у списка есть действие «выполнить список»');
+w('(s)=>{s.db.lists=[];s.renderLists();return 1;}');
+assert(registry['#listsWrap'].innerHTML.includes('Пока нет ни одного списка'), 'пустое состояние списков');
+// создание списка
+const newList = w('(s)=>s.createList("План на выходные")');
+assert(newList !== null && w('(s)=>s.db.lists.some(l=>l.name==="План на выходные")'), 'createList добавляет список с произвольным названием');
+assert(w('(s)=>s.createList("   ")') === null, 'пустое название списка отклоняется');
+// подзадачи: добавить, выполнить/снять, удалить (L1 вернули после проверки пустого состояния)
+w('(s)=>{s.db.lists.unshift({id:"L1",name:"Подарки",items:[]},{id:"L2",name:"Дела",items:[]}); return 1;}');
+w('(s)=>{s.document.querySelector("#listInput-L1").value="Купить цветы"; return 1;}');
+assert(w('(s)=>s.addListSubtask("L1","listInput-L1")') === true, 'добавление подзадачи в список');
+assert(w('(s)=>s.db.lists.find(l=>l.id==="L1").items.length') === 1, 'подзадача сохранена в списке');
+assert(w('(s)=>s.db.lists.find(l=>l.id==="L1").items[0].text') === 'Купить цветы', 'текст подзадачи сохранён');
+const subId = w('(s)=>s.db.lists.find(l=>l.id==="L1").items[0].id');
+assert(w(`(s)=>s.toggleSubtask("L1","${subId}")`) === true, 'подзадача выполняется (done=true)');
+assert(w(`(s)=>s.toggleSubtask("L1","${subId}")`) === false, 'выполнение подзадачи снимается');
+w(`(s)=>{const l=s.db.lists.find(x=>x.id==="L1");l.items=[{id:"i1",text:"х",done:false},{id:"i2",text:"y",done:false}];s.delSubtask("L1","i1");return 1;}`);
+assert(w('(s)=>s.db.lists.find(l=>l.id==="L1").items.length') === 1, 'подзадача удаляется из списка');
+// «выполнить список» — подтверждение (confirm=true в песочнице) и удаление блока
+assert(w('(s)=>s.completeList("L2")') === true, '«выполнить список» возвращает true');
+assert(w('(s)=>!s.db.lists.some(l=>l.id==="L2")'), '«выполнить список» удаляет весь блок');
+// миграция v8: старые «Покупки» и «Дела» становятся списками
+assert(w('(s)=>s.migrateDB({events:[],notes:[],shopping:[{id:"s1",text:"Хлеб",done:false}],todos:[{id:"t1",text:"Позвонить",done:false}],photos:[],dates:[],wishlist:[],labels:[]}).lists.length') === 2,
+  'миграция v8: старые покупки и дела стали списками');
+assert(w('(s)=>s.migrateDB({events:[],notes:[],shopping:[{id:"s1",text:"Хлеб",done:false}],todos:[{id:"t1",text:"Позвонить",done:false}],photos:[],dates:[],wishlist:[],labels:[]}).shopping.length') === 0,
+  'миграция v8: легаси-поле shopping очищено');
 
 // --- Фото: лейблы вместо альбомов, выбор нескольких ---
 w('(s)=>{s.db.photos.push({id:"p2",data:"data:image/jpeg;base64,AA==",title:"море",labels:["Поездка","Семья"],pinned:false,ts:2,order:1});s.db.photos.push({id:"p3",data:"data:image/jpeg;base64,AA==",title:"кафе",labels:["Свидание"],pinned:false,ts:3,order:2});s.db.labels=["Поездка","Семья","Свидание"];s.renderPhotos();}');
@@ -691,6 +781,110 @@ assert(w('(s)=>s.db.photos.some(p=>p.id==="psOld")'), 'после входа ф�
 // --- Сброс очищает сейф ---
 w('(s)=>{s.localStorage.removeItem("universe_vault"); s.localStorage.removeItem("universe");}');
 assert(w('(s)=>s.loadVault()') === null, 'после сброса сейфа нет');
+
+// --- Фаза B: «В этот день», даты фото, память-дерево ---
+w('(s)=>{s.db.events=[]; s.db.notes=[]; s.db.photos=[]; s.db.dates=[]; return 1;}');
+// фото с EXIF-датой, фото с привязкой к событию и фото только с датой загрузки
+w('(s)=>{s.db.photos.push({id:"ph1", takenAt:new Date(2025,7,7).getTime(), title:"Лето"}); return 1;}');
+w('(s)=>{s.db.events.push({id:"ev1", date:"2025-08-07", title:"День в парке", emoji:"🌳", photos:["ph2"]}); s.db.photos.push({id:"ph2", title:"Парк"}); return 1;}');
+w('(s)=>{s.db.photos.push({id:"ph3", ts:new Date(2025,7,7).getTime(), title:"Загрузка"}); return 1;}');
+w('(s)=>{s.db.notes.push({id:"n1", text:"Вспомнили поездку", ts:new Date(2025,7,7,12).getTime(), author:"gosha", order:0}); return 1;}');
+w('(s)=>{s.db.events.push({id:"ev2", date:"2025-08-07", title:"Пикник", emoji:"🧺"}); return 1;}');
+
+assert(w('(s)=>s.photoDate(s.db.photos.find(p=>p.id==="ph1"))') === '2025-08-07', 'photoDate: EXIF-дата снимка');
+assert(w('(s)=>s.photoDate(s.db.photos.find(p=>p.id==="ph2"))') === '2025-08-07', 'photoDate: дата события');
+assert(w('(s)=>s.photoDate(s.db.photos.find(p=>p.id==="ph3"))') === null, 'photoDate: только дата загрузки → null');
+
+const otd = w('(s)=>s.onThisDayItems(new Date(2026,7,7))');
+assert(Array.isArray(otd) && otd.length === 5, 'в этот день: 2 события+заметка+2 фото, но не фото с ts');
+assert(otd.some(i => i.kind === 'event' && i.title === 'Пикник'), 'в этот день: событие прошлого года');
+assert(otd.some(i => i.kind === 'note' && i.text === 'Вспомнили поездку'), 'в этот день: заметка прошлого года');
+assert(otd.some(i => i.kind === 'photo' && i.p && i.p.id === 'ph1'), 'в этот день: фото по EXIF');
+assert(otd.some(i => i.kind === 'photo' && i.p && i.p.id === 'ph2'), 'в этот день: фото по дате события');
+assert(!otd.some(i => i.p && i.p.id === 'ph3'), 'в этот день: фото только с датой загрузки НЕ показывается');
+
+// Память-дерево: группировка по дням
+const mb = w('(s)=>s.memoryByDay()');
+assert(mb.some(d => d.date === '2025-08-07'), 'память: день с событиями есть');
+assert(mb.some(d => d.photos.some(p => p.id === 'ph1')), 'память: фото с EXIF');
+assert(mb.some(d => d.events.some(e => e.photos.some(p => p.id === 'ph2'))), 'память: фото события — в карточке события');
+assert(!mb.some(d => d.photos.some(p => p.id === 'ph2')), 'память: фото события НЕ дублируется в сетке дня');
+assert(!mb.some(d => d.photos.some(p => p.id === 'ph3')), 'память: фото только с ts НЕ попадает');
+assert(mb.some(d => d.events.some(e => e.title === 'Пикник')), 'память: событие на месте');
+assert(mb.every(d => !d.notes), 'память: заметок нет');
+// Свидание — только done=true попадает
+w('(s)=>{s.db.dates.push({id:"d1",date:"2025-08-07",place:"Кафе",emoji:"💘",done:true,responses:{}}); return 1;}');
+w('(s)=>{s.db.dates.push({id:"d2",date:"2025-08-07",place:"Отмена",emoji:"💔",done:false,responses:{}}); return 1;}');
+const mb2 = w('(s)=>s.memoryByDay()');
+const day0807 = mb2.find(d => d.date === '2025-08-07');
+assert(day0807 && day0807.dates.some(dd => dd.place === 'Кафе'), 'память: прошедшее свидание есть');
+assert(day0807 && !day0807.dates.some(dd => dd.place === 'Отмена'), 'память: отменённое свидание не попадает');
+// EXIF-фото, привязанное к событию, показывается только в карточке события — без дубля
+w('(s)=>{s.db.photos.push({id:"ph4", takenAt:new Date(2025,7,7).getTime(), title:"Лето4"}); s.db.events[1].photos=["ph4"]; return 1;}');
+const mb3 = w('(s)=>s.memoryByDay()');
+const day3 = mb3.find(d => d.date === '2025-08-07');
+assert(day3 && day3.events.some(e => e.title === 'Пикник' && e.photos.some(p => p.id === 'ph4')), 'память: EXIF-фото события в карточке события');
+assert(day3 && !day3.photos.some(p => p.id === 'ph4'), 'память: EXIF-фото события НЕ в сетке дня');
+
+// Рендер памяти-дерева не падает
+w('(s)=>{s.db.photos=[{id:"ph1", takenAt:new Date(2025,7,7).getTime(), title:"Лето"}]; return 1;}');
+w('(s)=>{s.renderMemory(); return 1;}');
+assert(registry['#memoryFeed'].innerHTML.includes('tl-card'), 'дерево «Память» рендерит карточки');
+
+// --- Память: фото ряда сворачиваются (3 сразу, остальные за кнопкой «ещё») ---
+w('(s)=>{s.db.photos=' + JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ id: 'mp' + i, takenAt: new Date(2025, 7, 7).getTime(), title: 'Ф' + i }))) + '; return 1;}');
+w('(s)=>{s.renderMemory(); return 1;}');
+const memHtml = registry['#memoryFeed'].innerHTML;
+assert((memHtml.match(/data-tl-expand/g) || []).length === 1, 'память: при 10 фото дня есть одна кнопка «ещё»');
+assert((memHtml.match(/tl-more-photo/g) || []).length === 7, 'память: скрыты фото сверх превью (10−3=7)');
+assert((memHtml.match(/<img/g) || []).length === 10, 'память: в HTML остаются все фото, скрытые — display:none');
+assert(w('(s)=>s.memoryPhotosHtml([{id:"a",title:"1"},{id:"b",title:"2"},{id:"c",title:"3"},{id:"d",title:"4"}],"g1","tl-photos")').includes('Показать ещё 1'), 'memoryPhotosHtml: кнопка показывает число скрытых');
+assert(!w('(s)=>s.memoryPhotosHtml([{id:"a",title:"1"},{id:"b",title:"2"}],"g2","tl-photos")').includes('data-tl-expand'), 'memoryPhotosHtml: при <=3 фото кнопки нет');
+assert(w('(s)=>s.toggleMemoryPhotos("g1")') === 'more', 'память: первый клик раскрывает скрытые фото');
+assert(w('(s)=>s.toggleMemoryPhotos("g1")') === 'less', 'память: повторный клик сворачивает обратно');
+// «В этот день» больше не отдельный виджет: события прошлых лет — чипами в блоке «Наша история»
+w('(s)=>{s.renderProgressRing(new Date(2026,7,7)); return 1;}');
+assert(registry['#progressRing'].innerHTML.includes('history-otd'), 'в этот день: чипы событий в блоке истории');
+assert(registry['#progressRing'].innerHTML.includes('Пикник'), 'в этот день: событие прошлого года видно в блоке истории');
+assert(registry['#progressRing'].innerHTML.includes('Кафе'), 'в этот день: свидание прошлого года — чип в блоке истории');
+assert(registry['#progressRing'].innerHTML.includes('ring-svg'), 'кольцо прогресса рендерится');
+w('(s)=>{s.renderHome(); return 1;}');
+assert(!registry['#onThisDay'] || registry['#onThisDay'].innerHTML === '', 'отдельный виджет «В этот день» больше не рендерится');
+
+// Удаление фото чистит и свидания: без «мёртвой» рамки в панели дня
+w('(s)=>{s.db.dates=[{id:"d1", date:"2025-08-07", place:"Кафе", emoji:"💘", photos:["ph1"], done:true, responses:{}}]; s.db.photos=[{id:"ph1", takenAt:new Date(2025,7,7).getTime(), title:"Лето"}]; return 1;}');
+w('(s)=>{s.deletePhoto("ph1"); return 1;}');
+assert(w('(s)=>(s.db.dates[0].photos === undefined)'), 'удаление фото чистит dt.photos (битая рамка не остаётся)');
+
+// --- Свидание: «прошло» отмечается и снимается прямо из календаря (панель дня) ---
+w('(s)=>{s.db.dates=[{id:"doneT", date:"2025-08-07", place:"Кафе", emoji:"💘", done:false, responses:{}}]; s.selectedDate="2025-08-07"; s.renderDayPanel(); return 1;}');
+assert(registry['#dayPanel'].innerHTML.includes('data-done-date="doneT"'), 'панель дня: есть кнопка отметить/снять свидание');
+assert(w('(s)=>s.toggleDateDone("doneT")') === true, 'панель дня: свидание помечено «прошло» (done=true)');
+assert(w('(s)=>s.toggleDateDone("doneT")') === false, 'панель дня: отметку можно снять (done=false)');
+w('(s)=>{s.db.dates=[]; return 1;}');
+// Мёртвые id в ev.photos/dt.photos (например, из старых данных) не рисуют битую миниатюру
+w('(s)=>{s.db.photos=[]; return 1;}');
+assert(w('(s)=>s.dtThumbs({photos:["deadId"]})') === '', 'dtThumbs: мёртвый id — без битой рамки');
+assert(w('(s)=>s.evThumbs({title:"Пикник", photos:["deadId"]})') === '', 'evThumbs: мёртвый id — без битой рамки');
+assert(w('(s)=>s.dtThumbs({photos:["data:image/jpeg;base64,AA=="]})').includes('<img'), 'dtThumbs: легаси data-URL показывается напрямую');
+
+// --- Фаза C: память — будущие события/свидания не попадают ---
+w('(s)=>{s.db.events=[]; s.db.dates=[]; s.db.photos=[]; s.db.notes=[]; return 1;}');
+const futureDate = new Date(); futureDate.setFullYear(futureDate.getFullYear() + 1);
+const futureStr = futureDate.getFullYear() + '-' + String(futureDate.getMonth()+1).padStart(2,'0') + '-' + String(futureDate.getDate()).padStart(2,'0');
+w(`(s)=>{s.db.events.push({id:"ev_future", date:"${futureStr}", title:"Грузия", emoji:"🇬🇪", repeat:false}); return 1;}`);
+const mbFuture = w('(s)=>s.memoryByDay()');
+assert(!mbFuture.some(d => d.events.some(e => e.title === 'Грузия')), 'память: будущее событие НЕ попадает');
+
+// Будущее свидание (done:true, но дата ещё не наступила) — тоже НЕ попадает
+w(`(s)=>{s.db.dates.push({id:"dt_future", date:"${futureStr}", place:"Грузия", done:true, responses:{}}); return 1;}`);
+const mbFuture2 = w('(s)=>s.memoryByDay()');
+assert(!mbFuture2.some(d => d.dates.some(dd => dd.place === 'Грузия')), 'память: будущее свидание (done:true) НЕ попадает');
+
+// Удалённое свидание (из массива db.dates) — НЕ попадает
+w('(s)=>{s.db.dates=[]; return 1;}');
+const mbDeleted = w('(s)=>s.memoryByDay()');
+assert(!mbDeleted.some(d => d.dates && d.dates.length > 0), 'память: после удаления свиданий — пусто');
 
 console.log('OK: ' + results.length + ' checks passed\n' + results.join('\n'));
 

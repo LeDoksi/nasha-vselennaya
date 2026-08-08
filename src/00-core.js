@@ -88,13 +88,14 @@ async function aesDec(key, blob) {
 }
 
 /* ===== Схема данных и миграции ===== */
-const DB_VERSION = 6;
-const EVENT_LABEL = '📅 События'; // общий лейбл всех фото, прикреплённых к событиям
+const DB_VERSION = 8;
+const EVENT_LABEL = '📅 События'; // общий лейбл фото, прикреплённых к событиям
+const DATE_LABEL = '💞 Свидания'; // общий лейбл фото, прикреплённых к свиданиям
 function defaultDB() {
   return {
     version: DB_VERSION,
     events: [{ id: uid(), title: 'Мы начали встречаться', date: START_DATE, emoji: '💜', repeat: true }],
-    notes: [], shopping: [], todos: [], photos: [], dates: [],
+    notes: [], shopping: [], todos: [], photos: [], dates: [], lists: [],
     wishlist: [], labels: [], backupDate: null, moods: []
   };
 }
@@ -120,6 +121,16 @@ function migrateDB(d) {
     [...d.notes].sort((a, b) => (b.pinned - a.pinned) || (b.ts - a.ts)).forEach((n, i) => {
       if (n.order === undefined) n.order = i;
     });
+  }
+  // v8: произвольные списки. Старые «Покупки» и «Дела» становятся обычными списками,
+  // легаси-поля очищаются (данные перенесены в db.lists).
+  if (!Array.isArray(d.lists)) d.lists = [];
+  if ((Array.isArray(d.shopping) && d.shopping.length) || (Array.isArray(d.todos) && d.todos.length)) {
+    const legacy = [];
+    if (Array.isArray(d.shopping) && d.shopping.length) legacy.push({ id: uid(), name: '🛒 Покупки', items: d.shopping });
+    if (Array.isArray(d.todos) && d.todos.length) legacy.push({ id: uid(), name: '✅ Дела', items: d.todos });
+    d.lists = legacy.concat(d.lists);
+    d.shopping = []; d.todos = [];
   }
   d.version = DB_VERSION;
   return d;

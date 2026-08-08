@@ -1,28 +1,84 @@
 /* ===== Списки ===== */
-function itemHTML(list, it) {
+function listItemHTML(listId, it) {
   return `<li class="${it.done ? 'done' : ''}">
-    <button class="check" data-toggle data-list="${list}" data-id="${it.id}" title="Готово">${it.done ? '✅' : '○'}</button>
+    <button class="check" data-toggle-item="${listId}" data-id="${it.id}" title="Готово">${it.done ? '✅' : '○'}</button>
     <span>${esc(it.text)}</span>
-    <button class="mini-x" data-del data-list="${list}" data-id="${it.id}" title="Удалить">✕</button>
+    <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>
   </li>`;
 }
 function renderLists() {
-  $('#shopList').innerHTML = db.shopping.length ? db.shopping.map(i => itemHTML('shopping', i)).join('') : '<li class="empty-li">Пока пусто 🫧</li>';
-  $('#todoList').innerHTML = db.todos.length ? db.todos.map(i => itemHTML('todos', i)).join('') : '<li class="empty-li">Пока пусто 🫧</li>';
-  $('#shopCount').textContent = `${db.shopping.filter(i => !i.done).length} в работе`;
-  $('#todoCount').textContent = `${db.todos.filter(i => !i.done).length} в работе`;
+  const wrap = $('#listsWrap');
+  if (!wrap) return;
+  if (!db.lists.length) {
+    wrap.innerHTML = '<div class="rem-empty">Пока нет ни одного списка 🫧<br>Создайте первый — например, «Подарки на 8 марта».</div>';
+    return;
+  }
+  wrap.innerHTML = db.lists.map(list => {
+    const active = list.items.filter(i => !i.done).length;
+    const items = list.items.length
+      ? list.items.map(it => listItemHTML(list.id, it)).join('')
+      : '<li class="empty-li">Пока пусто 🫧</li>';
+    return `<div class="list-card">
+      <h3>${esc(list.name)} <small>${active} в работе</small></h3>
+      <div class="list-add">
+        <input type="text" id="listInput-${list.id}" placeholder="Добавить подзадачу…">
+        <button class="btn" data-list-add="${list.id}" title="Добавить">＋</button>
+      </div>
+      <ul class="items">${items}</ul>
+      <div class="list-actions">
+        <button class="btn btn-danger btn-small" data-list-complete="${list.id}" title="Выполнить все подзадачи и удалить список">✔ Выполнить список</button>
+      </div>
+    </div>`;
+  }).join('');
 }
-function addItem(list, inputId) {
+// Создать список с произвольным названием; возвращает список или null.
+function createList(rawName) {
+  const name = String(rawName || '').trim();
+  if (!name) return null;
+  const list = { id: uid(), name, items: [] };
+  db.lists.push(list);
+  save(); renderLists();
+  const inp = $('#listNameInput');
+  if (inp) inp.value = '';
+  return list;
+}
+function addListSubtask(listId, inputId) {
+  const list = db.lists.find(x => x.id === listId);
+  if (!list) return false;
   const inp = $('#' + inputId);
-  const t = inp.value.trim();
-  if (!t) return;
-  db[list].unshift({ id: uid(), text: t, done: false });
-  save(); inp.value = ''; renderLists();
+  const text = (inp && inp.value ? String(inp.value) : '').trim();
+  if (!text) return false;
+  list.items.unshift({ id: uid(), text, done: false });
+  save(); if (inp) inp.value = ''; renderLists();
+  return true;
 }
-$('#shopAddBtn').addEventListener('click', () => addItem('shopping', 'shopInput'));
-$('#todoAddBtn').addEventListener('click', () => addItem('todos', 'todoInput'));
-$('#shopInput').addEventListener('keydown', e => { if (e.key === 'Enter') addItem('shopping', 'shopInput'); });
-$('#todoInput').addEventListener('keydown', e => { if (e.key === 'Enter') addItem('todos', 'todoInput'); });
+function toggleSubtask(listId, itemId) {
+  const list = db.lists.find(x => x.id === listId);
+  if (!list) return false;
+  const it = list.items.find(x => x.id === itemId);
+  if (!it) return false;
+  it.done = !it.done;
+  save(); renderLists();
+  return it.done;
+}
+function delSubtask(listId, itemId) {
+  const list = db.lists.find(x => x.id === listId);
+  if (!list) return false;
+  list.items = list.items.filter(x => x.id !== itemId);
+  save(); renderLists();
+  return true;
+}
+// «Выполнить список»: после подтверждения удаляет весь блок вместе с подзадачами.
+function completeList(listId) {
+  const list = db.lists.find(x => x.id === listId);
+  if (!list) return false;
+  if (!confirm('Выполнить список «' + list.name + '»? Он будет удалён вместе с подзадачами.')) return false;
+  db.lists = db.lists.filter(x => x.id !== listId);
+  save(); renderLists();
+  return true;
+}
+$('#listCreateBtn').addEventListener('click', () => createList($('#listNameInput').value));
+$('#listNameInput').addEventListener('keydown', e => { if (e.key === 'Enter') createList($('#listNameInput').value); });
 
 /* ===== Хотелки (общие, но разделены по людям: у каждого свой список) ===== */
 let wishPhotoData = null;
@@ -100,6 +156,15 @@ function saveWishFromModal() {
 }
 $('#wishSave').addEventListener('click', saveWishFromModal);
 
+// Отметить свидание «прошло» / снять отметку (кнопка есть на главной и в календаре).
+function toggleDateDone(id) {
+  const d = db.dates.find(x => x.id === id);
+  if (!d) return false;
+  d.done = !d.done;
+  save(); renderHome(); renderCalendar();
+  return d.done;
+}
+
 /* ===== Глобальные клики ===== */
 function closeOverlay(id) {
   $('#' + id).hidden = true;
@@ -121,6 +186,9 @@ document.addEventListener('click', e => {
   const photoEv = e.target.closest('[data-photo-event]');
   if (photoEv) { addEventPhotoQuick(photoEv.dataset.photoEvent); return; }
 
+  const photoDate = e.target.closest('[data-photo-date]');
+  if (photoDate) { addDatePhotoQuick(photoDate.dataset.photoDate); return; }
+
   const answerDate = e.target.closest('[data-answer-date]');
   if (answerDate) {
     const d = db.dates.find(x => x.id === answerDate.dataset.answerDate);
@@ -135,11 +203,7 @@ document.addEventListener('click', e => {
     return;
   }
   const doneDate = e.target.closest('[data-done-date]');
-  if (doneDate) {
-    const d = db.dates.find(x => x.id === doneDate.dataset.doneDate);
-    if (d) { d.done = !d.done; save(); renderHome(); renderCalendar(); }
-    return;
-  }
+  if (doneDate) { toggleDateDone(doneDate.dataset.doneDate); return; }
   const delDate = e.target.closest('[data-del-date]');
   if (delDate) { db.dates = db.dates.filter(x => x.id !== delDate.dataset.delDate); save(); renderHome(); renderCalendar(); return; }
 
@@ -154,10 +218,14 @@ document.addEventListener('click', e => {
   const cancelNoteBtn = e.target.closest('[data-cancel-note]');
   if (cancelNoteBtn) { cancelNoteEdit(); return; }
 
-  const tog = e.target.closest('[data-toggle]');
-  if (tog) { const it = db[tog.dataset.list].find(x => x.id === tog.dataset.id); if (it) it.done = !it.done; save(); renderLists(); return; }
-  const delIt = e.target.closest('[data-del]');
-  if (delIt) { db[delIt.dataset.list] = db[delIt.dataset.list].filter(x => x.id !== delIt.dataset.id); save(); renderLists(); return; }
+  const togItem = e.target.closest('[data-toggle-item]');
+  if (togItem) { toggleSubtask(togItem.dataset.toggleItem, togItem.dataset.id); return; }
+  const delItem = e.target.closest('[data-del-item]');
+  if (delItem) { delSubtask(delItem.dataset.delItem, delItem.dataset.id); return; }
+  const listAdd = e.target.closest('[data-list-add]');
+  if (listAdd) { addListSubtask(listAdd.dataset.listAdd, 'listInput-' + listAdd.dataset.listAdd); return; }
+  const listDone = e.target.closest('[data-list-complete]');
+  if (listDone) { completeList(listDone.dataset.listComplete); return; }
 
   const delPhoto = e.target.closest('[data-del-photo]');
   if (delPhoto) { deletePhoto(delPhoto.dataset.delPhoto); return; }
@@ -220,6 +288,12 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     const open = document.querySelector('.overlay:not([hidden])');
     if (open) closeOverlay(open.id);
+    return;
+  }
+  // Списки: Enter в поле подзадачи добавляет её
+  if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('listInput-') === 0) {
+    e.preventDefault();
+    addListSubtask(e.target.id.slice('listInput-'.length), e.target.id);
     return;
   }
   // Календарь: Enter / пробел на дне — как клик по ячейке

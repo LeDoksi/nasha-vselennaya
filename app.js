@@ -88,13 +88,14 @@ async function aesDec(key, blob) {
 }
 
 /* ===== Схема данных и миграции ===== */
-const DB_VERSION = 6;
-const EVENT_LABEL = '📅 События'; // общий лейбл всех фото, прикреплённых к событиям
+const DB_VERSION = 8;
+const EVENT_LABEL = '📅 События'; // общий лейбл фото, прикреплённых к событиям
+const DATE_LABEL = '💞 Свидания'; // общий лейбл фото, прикреплённых к свиданиям
 function defaultDB() {
   return {
     version: DB_VERSION,
     events: [{ id: uid(), title: 'Мы начали встречаться', date: START_DATE, emoji: '💜', repeat: true }],
-    notes: [], shopping: [], todos: [], photos: [], dates: [],
+    notes: [], shopping: [], todos: [], photos: [], dates: [], lists: [],
     wishlist: [], labels: [], backupDate: null, moods: []
   };
 }
@@ -120,6 +121,16 @@ function migrateDB(d) {
     [...d.notes].sort((a, b) => (b.pinned - a.pinned) || (b.ts - a.ts)).forEach((n, i) => {
       if (n.order === undefined) n.order = i;
     });
+  }
+  // v8: произвольные списки. Старые «Покупки» и «Дела» становятся обычными списками,
+  // легаси-поля очищаются (данные перенесены в db.lists).
+  if (!Array.isArray(d.lists)) d.lists = [];
+  if ((Array.isArray(d.shopping) && d.shopping.length) || (Array.isArray(d.todos) && d.todos.length)) {
+    const legacy = [];
+    if (Array.isArray(d.shopping) && d.shopping.length) legacy.push({ id: uid(), name: '🛒 Покупки', items: d.shopping });
+    if (Array.isArray(d.todos) && d.todos.length) legacy.push({ id: uid(), name: '✅ Дела', items: d.todos });
+    d.lists = legacy.concat(d.lists);
+    d.shopping = []; d.todos = [];
   }
   d.version = DB_VERSION;
   return d;
@@ -654,6 +665,7 @@ function photoSrc(p) {
 
 // Прогрев кэша миниатюр после разблокировки — галерея рендерится мгновенно.
 // Если миниатюры нет (старое фото при миграции), берём полный блоб.
+// После завершения перерисовывает открытые вьюхи, чтобы подхватить URL из кэша.
 async function warmThumbCache() {
   if (!photoStore || !db || !Array.isArray(db.photos)) return;
   for (const p of db.photos) {
@@ -666,6 +678,12 @@ async function warmThumbCache() {
         setThumbUrl(p.id, url);
       }
     } catch (e) {}
+  }
+  // Кэш прогрет — обновляем вьюхи, которые могли отрисоваться с пустым кэшем
+  if (!authLocked) {
+    renderHome();
+    renderPhotos();
+    renderCalendar();
   }
 }
 
@@ -887,16 +905,43 @@ function setTheme(t) {
 function toggleTheme() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
 
 /* ===== Навигация ===== */
-function go(view) {
+let activeView = 'home'; // текущая вкладка — для hash-роутинга и кнопки «назад»
+function showView(view) {
+  if (!$('#view-' + view)) return; // неизвестная вкладка — не трогаем экран
+  activeView = view;
   $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   if (view === 'home') renderHome();
-  if (view === 'calendar') { calY = new Date().getFullYear(); calM = new Date().getMonth(); selectedDate = null; showNearestEvent(); }
+  if (view === 'calendar') { calY = new Date().getFullYear(); calM = new Date().getMonth(); selectedDate = null; renderCalendar(); }
   if (view === 'notes') renderNotes();
   if (view === 'lists') renderLists();
   if (view === 'wishlist') renderWishlist();
   if (view === 'photos') renderPhotos();
+  if (view === 'memory') renderMemory();
   if (view === 'settings') renderSettings();
+}
+function go(view) {
+  showView(view);
+  // hash-роутинг: #/view — кнопка «назад» в браузере и прямые ссылки на вкладку.
+  // location нет в песочнице тестов — там остаёмся на синхронном показе.
+  if (typeof location !== 'undefined' && location.hash !== '#/' + view) {
+    try { location.hash = '#/' + view; } catch (e) {}
+  }
+}
+function hashView() {
+  if (typeof location === 'undefined') return '';
+  const m = /^#\/([a-z]+)/.exec(location.hash || '');
+  return m ? m[1] : '';
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('hashchange', () => {
+    const v = hashView();
+    if (v && v !== activeView && $('#view-' + v)) showView(v);
+  });
+  // Открытие по ссылке вида index.html#/notes — сразу показываем нужную вкладку.
+  // '#/home' не трогаем: главная активна по умолчанию в разметке.
+  const initial = hashView();
+  if (initial && initial !== 'home' && $('#view-' + initial)) showView(initial);
 }
 $$('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
@@ -932,10 +977,14 @@ function renderHome() {
 
   // Напоминания убраны: ближайшее событие и так видно на таймере (#countdown).
   renderDates();
-  renderFloatingPhotos();
   renderCompliment();
   renderCountdown();
   renderMobilePhotos();
+  // Фаза B: кольцо прогресса (в блоке — коллаж фото, события «в этот день», статистика)
+  renderProgressRing();
+  // Фото с data-photo-src (кэш миниатюр не прогрет) — заполняем src асинхронно
+  hydratePhotoImgs($('#mobilePhotosGrid'));
+  hydratePhotoImgs($('#progressRing'));
   maybeCelebrateAnniversary(rem);
 }
 
@@ -1045,13 +1094,18 @@ function maybeCelebrateAnniversary(rem) {
 function renderMobilePhotos() {
   const grid = $('#mobilePhotosGrid');
   if (!grid) return;
-  grid.innerHTML = [...db.photos].sort(photoSort).slice(0, 12).map(p =>
-    `<img src="${esc(photoSrc(p))}" alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">`).join('');
+  grid.innerHTML = [...db.photos].sort(photoSort).slice(0, 12).map(p => {
+    const url = photoSrc(p);
+    return url
+      ? `<img src="${esc(url)}" alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">`
+      : `<img data-photo-src="${esc(p.id)}" alt="${esc(p.title)}" loading="lazy">`;
+  }).join('');
 }
 
 /* ===== Свидания ===== */
+// datesOn: показывает ВСЕ свидания (включая done) для календаря и памяти
 function datesOn(dateStr) {
-  return db.dates.filter(d => d.date === dateStr && !d.done);
+  return db.dates.filter(d => d.date === dateStr);
 }
 function fmtDateLong(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -1144,59 +1198,400 @@ function saveDateFromModal() {
 }
 $('#dtSave').addEventListener('click', saveDateFromModal);
 
-/* ===== Парящие фото на главной ===== */
-// 5 «гнёзд» вокруг блока приветствия — несимметрично, в стороне от текста.
-// Из них случайно заполняются 3, остальные пустуют (это даёт живость).
-const FLOAT_SLOTS = [
-  { st: 'left:-16px; top:8%',     rot: -8, dur: 6.2, delay: 0    },
-  { st: 'right:-16px; top:16%',   rot:  7, dur: 5.6, delay: 0.7  },
-  { st: 'left:16%; top:-26px',    rot: -4, dur: 6.8, delay: 1.3  },
-  { st: 'right:15%; bottom:-18px',rot:  9, dur: 5.9, delay: 0.4  },
-  { st: 'left:3%; bottom:4%',     rot: -7, dur: 6.5, delay: 1.8  }
+/* ===== Коллаж «Наша история»: фото «в этот день» + случайные, с асимметрией ===== */
+// Фото живут внутри блока «Наша история» (#progressRing): разный размер,
+// поворот и вертикальный сдвиг — без ровных рядов. В приоритете — фото
+// «в этот день» из прошлых лет (EXIF/дата события/свидания), остальные
+// слоты заполняются случайными. Выбор стабилен в течение дня (seed по дате);
+// кнопка «🎲 Перемешать» меняет коллаж вручную, но тоже фиксирует его до конца дня.
+const HISTORY_PHOTO_SLOTS = [
+  { st: 'left:1%; top:16%; width:84px; height:84px; rotate:-7deg',  dur: 6.4, delay: 0 },
+  { st: 'left:29%; top:5%; width:100px; height:100px; rotate:5deg', dur: 5.8, delay: 0.6 },
+  { st: 'left:58%; top:24%; width:72px; height:72px; rotate:-3deg', dur: 6.9, delay: 1.2 }
 ];
-function renderFloatingPhotos() {
-  const box = $('#floatPhotos');
-  if (!db.photos.length) { box.innerHTML = ''; return; }
-  // Слоты создаём только один раз — анимация парения не перезапускается
-  if (!box.children.length) {
-    box.innerHTML = FLOAT_SLOTS.map((s, i) =>
-      `<img class="float-photo" data-slot="${i}" alt="" src="" style="${s.st};--r:${s.rot}deg;animation-duration:${s.dur}s;animation-delay:${s.delay}s">`).join('');
-    // Первая заливка — сразу, без задержки и без гашения
-    const first = pickFloating();
-    [...box.querySelectorAll('.float-photo')].forEach((im, i) => {
-      const p = first[i];
-      if (!p) { im.style.display = 'none'; return; }
-      im.src = photoSrc(p);
-      im.dataset.src = photoSrc(p);
-    });
-    return;
-  }
-  const picks = pickFloating();
-  [...box.querySelectorAll('.float-photo')].forEach((im, i) => {
-    const p = picks[i];
-    if (!p) { im.style.display = 'none'; return; }
-    im.style.display = '';
-    if (im.dataset.src !== photoSrc(p)) {
-      im.style.opacity = '0';                    // плавно гасим…
-      setTimeout(() => {
-        im.src = photoSrc(p);                     // …меняем фото…
-        im.dataset.src = photoSrc(p);
-        im.style.opacity = '1';                   // …и плавно проявляем
-      }, 650);
-    }
-  });
+function daySeed(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h;
 }
-function pickFloating() {
-  const photos = [...db.photos];
-  const picks = new Array(FLOAT_SLOTS.length).fill(null);
-  const slots = [...FLOAT_SLOTS];
-  for (let n = Math.min(3, photos.length); n > 0; n--) {
-    const si = Math.floor(Math.random() * slots.length);
-    const slot = slots.splice(si, 1)[0];
-    picks[FLOAT_SLOTS.indexOf(slot)] = photos.splice(Math.floor(Math.random() * photos.length), 1)[0];
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// Фото «в этот день» из прошлых лет (по EXIF или дате события/свидания)
+function onThisDayPhotos(at) {
+  return onThisDayItems(at).filter(it => it.kind === 'photo' && it.p).map(it => it.p);
+}
+// Зафиксированный на день выбор коллажа {day, sig, ids}; ручной перемес живёт до полуночи.
+// sig — сигнатура состава галереи: при добавлении/удалении фото коллаж пересобирается.
+let historyCollage = null;
+function photoSignature() {
+  return [...db.photos].map(p => p.id).sort().join(',');
+}
+function shufflePick(photos, rnd) {
+  for (let i = photos.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [photos[i], photos[j]] = [photos[j], photos[i]];
   }
+}
+// «В этот день» встают первыми (до 3 слотов), остальные — случайные из перетасованного списка
+function pinOnThisDay(photos, n, at) {
+  const picks = [];
+  const otd = onThisDayPhotos(at);
+  for (const p of otd) { if (picks.length >= n) break; if (!picks.includes(p)) picks.push(p); }
+  for (const p of photos) { if (picks.length >= n) break; if (!picks.includes(p)) picks.push(p); }
   return picks;
 }
+function pickHistoryPhotos(at) {
+  const dayStr = (at || new Date()).toDateString();
+  const sig = photoSignature();
+  if (historyCollage && historyCollage.day === dayStr && historyCollage.sig === sig) {
+    const byId = new Map(db.photos.map(p => [p.id, p]));
+    return historyCollage.ids.map(id => byId.get(id)).filter(Boolean);
+  }
+  const photos = [...db.photos];
+  const n = Math.min(HISTORY_PHOTO_SLOTS.length, photos.length);
+  shufflePick(photos, mulberry32(daySeed(dayStr) + n * 7919));
+  const picks = pinOnThisDay(photos, n, at);
+  historyCollage = { day: dayStr, sig, ids: picks.map(p => p.id) };
+  return picks;
+}
+// «🎲 Перемешать коллаж» — заново тасует случайную часть; фото «в этот день» остаются
+function shuffleHistoryPhotos() {
+  const photos = [...db.photos];
+  const n = Math.min(HISTORY_PHOTO_SLOTS.length, photos.length);
+  shufflePick(photos, mulberry32((Math.random() * 0xffffffff) >>> 0));
+  const picks = pinOnThisDay(photos, n);
+  historyCollage = { day: new Date().toDateString(), sig: photoSignature(), ids: picks.map(p => p.id) };
+  renderProgressRing();
+  hydratePhotoImgs($('#progressRing'));
+}
+function historyPhotosHtml(at) {
+  const picks = pickHistoryPhotos(at);
+  const otdIds = new Set(onThisDayPhotos(at).map(p => p.id));
+  const badge = picks.some(p => otdIds.has(p.id)) ? '<span class="hp-badge">✨ В этот день</span>' : '';
+  return badge + picks.map((p, i) => {
+    const s = HISTORY_PHOTO_SLOTS[i];
+    const url = photoSrc(p); // кэш миниатюр может быть не прогрет — ставим fallback
+    return '<img class="history-photo" data-photo="' + esc(p.id) + '" alt="' + esc(p.title || '') + '"' +
+      (url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"') +
+      ' style="' + s.st + 'animation-duration:' + s.dur + 's;animation-delay:' + s.delay + 's" loading="lazy">';
+  }).join('');
+}
+// Делегирование: innerHTML #progressRing перерисовывается на каждом рендере
+$('#progressRing').addEventListener('click', e => {
+  if (e.target.closest && e.target.closest('#shuffleHistoryBtn')) shuffleHistoryPhotos();
+});
+$('#progressRing').addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('#shuffleHistoryBtn')) {
+    e.preventDefault(); shuffleHistoryPhotos();
+  }
+});
+
+/* ===== Фаза B: «В этот день», кольцо отношений, трекер настроения, лента «Память» =====
+   Решение 07.08.2026: дата фото для «В этот день» — ТОЛЬКО EXIF (p.takenAt)
+   ИЛИ дата события/свидания, к которому фото привязано. Если есть только дата
+   загрузки (p.ts) — фото НЕ показывается. В «Памяти» фото, привязанные к
+   событию/свиданию, живут только в их карточках (без дублей в сетке дня). */
+
+function isoFromMs(ms) {
+  if (!ms) return null;
+  const d = new Date(ms);
+  return isNaN(d.getTime()) ? null : iso(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function photoTitle(p) { return (p && p.title) || 'Фото'; }
+
+// Дата фото для «В этот день»: EXIF-дата снимка, дата события или дата свидания (самое раннее).
+// Дата загрузки здесь сознательно НЕ используется.
+function photoDate(p) {
+  if (!p) return null;
+  if (p.takenAt) { const s = isoFromMs(p.takenAt); if (s) return s; }
+  let best = null;
+  if (Array.isArray(db.events)) {
+    for (const ev of db.events) {
+      if (!Array.isArray(ev.photos) || !ev.photos.includes(p.id) || !ev.date) continue;
+      if (!best || ev.date < best) best = ev.date;
+    }
+  }
+  if (Array.isArray(db.dates)) {
+    for (const dt of db.dates) {
+      if (!Array.isArray(dt.photos) || !dt.photos.includes(p.id) || !dt.date) continue;
+      if (!best || dt.date < best) best = dt.date;
+    }
+  }
+  return best || null;
+}
+
+/* ===== «В этот день» ===== */
+function onThisDayItems(at) {
+  const now = at || new Date();
+  const yNow = now.getFullYear();
+  const items = [];
+  const isThisDay = dt => !!dt && dt.getFullYear() < yNow && dt.getMonth() === now.getMonth() && dt.getDate() === now.getDate();
+  for (const ev of db.events) {
+    const dt = parseLocalIso(ev.date);
+    if (isThisDay(dt)) items.push({ kind: 'event', date: ev.date, emoji: ev.emoji || '💜', title: ev.title });
+  }
+  // Свидания тоже «в этот день»: чипы рядом с событиями прошлых лет
+  for (const dt of db.dates) {
+    if (!dt.date) continue;
+    const dDate = parseLocalIso(dt.date);
+    if (isThisDay(dDate)) items.push({ kind: 'date', date: dt.date, emoji: dt.emoji || '💘', title: dt.place || dt.note || 'Свидание' });
+  }
+  for (const n of db.notes) {
+    if (!n.ts) continue;
+    const dt = new Date(n.ts);
+    if (isThisDay(dt)) items.push({ kind: 'note', date: isoFromMs(n.ts), text: n.text, author: n.author });
+  }
+  for (const p of db.photos) {
+    const ds = photoDate(p); // только EXIF или событие
+    if (ds && isThisDay(parseLocalIso(ds))) items.push({ kind: 'photo', date: ds, p });
+  }
+  return items.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+function otdYear(dateStr) {
+  const y = String(dateStr || '').slice(0, 4);
+  return y ? y + ' год' : '';
+}
+
+// Отдельный виджет «В этот день» удалён — он дублировал коллаж «Наша история»:
+// фото «в этот день» встают в коллаж (см. 30-home.js), а события прошлых лет
+// показываются чипами прямо в блоке «Наша история» (renderProgressRing → .history-otd).
+
+/* ===== Кольцо прогресса до годовщины ===== */
+function pluralYears(n) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return 'год';
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 'года';
+  return 'лет';
+}
+function pluralDays(n) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return 'день';
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 'дня';
+  return 'дней';
+}
+// Универсальные формы: plural(5, 'событие', 'события', 'событий') → «событий»
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+function renderProgressRing(at) {
+  const box = $('#progressRing');
+  if (!box) return;
+  const [sy, sm, sd] = START_DATE.split('-').map(Number);
+  const start = new Date(sy, sm - 1, sd);
+  const now = new Date();
+  const cur = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((cur - start) / 86400000);
+  let anniv = new Date(start);
+  while (anniv.getTime() <= cur.getTime()) anniv.setFullYear(anniv.getFullYear() + 1);
+  const prev = new Date(anniv); prev.setFullYear(prev.getFullYear() - 1);
+  const total = Math.max(1, Math.round((anniv - prev) / 86400000));
+  const elapsed = Math.max(0, Math.round((cur - prev) / 86400000));
+  const pct = Math.max(0, Math.min(100, Math.round((elapsed / total) * 100)));
+  const R = 42, CIRC = 2 * Math.PI * R;
+  const off = CIRC - (CIRC * pct) / 100;
+  const yearsTogether = Math.floor(days / 365.25);
+  // Статистика под кольцом — чем заполнена наша история (v7)
+  // Хотелки — чип с прогрессом исполненных (полоска + счётчик), кнопка 🎲 — перемес коллажа
+  const wishDone = db.wishlist.filter(w => w.done).length;
+  const wishTotal = db.wishlist.length;
+  const wishPct = wishTotal ? Math.round((wishDone / wishTotal) * 100) : 0;
+  const wishLabel = wishTotal ? wishDone + '/' + wishTotal : 'пока пусто';
+  const wishTitle = wishTotal ? 'Исполнено ' + wishDone + ' из ' + wishTotal + ' хотелок' : 'Хотелок пока нет — загадай желание 💜';
+  const stats = [
+    ['📸', db.photos.length, 'фото', 'фото', 'фото'],
+    ['📅', db.events.length, 'событие', 'события', 'событий'],
+    ['💘', db.dates.length, 'свидание', 'свидания', 'свиданий'],
+    ['📝', db.notes.length, 'заметка', 'заметки', 'заметок']
+  ].map(a => `<span class="hs-chip">${a[0]} ${a[1]} ${plural(a[1], a[2], a[3], a[4])}</span>`).join('') +
+    `<span class="hs-chip hs-wish" title="${wishTitle}">🎁 ${wishLabel}<span class="hs-bar"><i style="width:${wishPct}%"></i></span></span>` +
+    `<span class="hs-chip hs-shuffle" id="shuffleHistoryBtn" role="button" tabindex="0" title="Перемешать фото коллажа">🎲 Перемешать</span>`;
+  // «В этот день» (только когда есть события/свидания прошлых лет): чипы под кольцом.
+  // Фото «в этот день» уже встали в коллаж выше — здесь только события и свидания, без дублей.
+  const otdEvents = onThisDayItems(at || new Date()).filter(it => it.kind === 'event' || it.kind === 'date');
+  const otdRow = otdEvents.length
+    ? '<div class="history-otd"><span class="history-otd-label">✨ В этот день</span>' +
+      otdEvents.map(ev =>
+        '<span class="hs-chip hs-otd-chip" title="' + esc(ev.title) + ' — ' + otdYear(ev.date) + '">' +
+        esc(ev.emoji) + ' ' + esc(ev.title) + ' <small>· ' + esc(String(ev.date).slice(0, 4)) + '</small></span>'
+      ).join('') +
+      '</div>'
+    : '';
+  box.innerHTML = `
+    <div class="history-main">
+      <div class="ring-wrap">
+        <svg class="ring-svg" viewBox="0 0 100 100" role="img" aria-label="Прогресс до годовщины: ${pct}%">
+          <circle class="ring-bg" cx="50" cy="50" r="${R}"></circle>
+          <circle class="ring-fg" cx="50" cy="50" r="${R}" stroke-dasharray="${CIRC}" stroke-dashoffset="${off}"></circle>
+        </svg>
+        <div class="ring-center"><b>${pct}%</b><small>до годовщины</small></div>
+      </div>
+      <div class="ring-info">
+        <h4>${yearsTogether > 0 ? yearsTogether + ' ' + pluralYears(yearsTogether) + ' вместе' : 'Наша история'}</h4>
+        <p>${days} ${pluralDays(days)} вместе</p>
+        <small>с ${fmtShort(START_DATE)}</small>
+      </div>
+      <div class="history-photos">${historyPhotosHtml(at)}</div>
+    </div>
+    ${otdRow}
+    <div class="history-stats">${stats}</div>`;
+}
+
+/* ===== Лента «Память»: таймлайн-дерево ===== */
+// Группировка по дням: события, прошедшие свидания, фото (только EXIF).
+// Заметки, настроения и фото без даты — НЕ попадают в память.
+// ВАЖНО: события и свидания попадают в память только если их дата <= сегодня.
+// Фото, привязанные к событию/свиданию, показываются только в их карточках —
+// в сетку дня они НЕ дублируются.
+function memoryByDay() {
+  const map = new Map();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = iso(today.getFullYear(), today.getMonth(), today.getDate());
+  function ensure(dateStr) {
+    if (!map.has(dateStr)) map.set(dateStr, { date: dateStr, events: [], dates: [], photos: [] });
+    return map.get(dateStr);
+  }
+  for (const ev of db.events) {
+    if (!ev.date) continue;
+    // Событие попадает в память только если его дата уже наступила
+    if (ev.date > todayStr) continue;
+    const d = ensure(ev.date);
+    const evPhotos = (ev.photos || []).map(id => db.photos.find(p => p.id === id)).filter(Boolean);
+    d.events.push({ emoji: ev.emoji || '💜', title: ev.title, photos: evPhotos });
+  }
+  for (const dt of db.dates) {
+    // Свидание попадает в память только если оно завершено (done:true) И дата уже наступила
+    if (!dt.date || !dt.done) continue;
+    if (dt.date > todayStr) continue;
+    const d = ensure(dt.date);
+    const dtPhotos = (dt.photos || []).map(id => db.photos.find(p => p.id === id)).filter(Boolean);
+    d.dates.push({ emoji: dt.emoji || '💘', place: dt.place, time: dt.time, photos: dtPhotos });
+  }
+  for (const p of db.photos) {
+    if (!p.takenAt) continue; // в сетку дня — только фото с реальной датой снимка (EXIF)
+    const ds = isoFromMs(p.takenAt);
+    if (!ds || ds > todayStr) continue;
+    // Фото, привязанные к событию/свиданию, показываются только в их карточках — не дублируем.
+    // Учитываем только карточки, которые реально попадут в память: дата <= сегодня,
+    // у свиданий — ещё и done:true.
+    const attached = db.events.some(ev => !!ev.date && ev.date <= todayStr &&
+                       Array.isArray(ev.photos) && ev.photos.includes(p.id)) ||
+                     db.dates.some(dt => !!dt.date && dt.date <= todayStr && dt.done &&
+                       Array.isArray(dt.photos) && dt.photos.includes(p.id));
+    if (attached) continue;
+    const d = ensure(ds);
+    d.photos.push(p);
+  }
+  return [...map.values()]
+    .filter(d => d.events.length || d.dates.length || d.photos.length)
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+function renderMemory() {
+  const feed = $('#memoryFeed');
+  if (!feed) return;
+  const days = memoryByDay();
+  if (!days.length) {
+    feed.innerHTML = '<div class="rem-empty">Пока пусто 💜<br>Добавляйте события и фото — здесь сложится история вашей вселенной.</div>';
+    return;
+  }
+  let html = '<div class="tl"><div class="tl-stem"></div>';
+  let side = 0;
+  let gid = 0;
+  for (const day of days) {
+    const dt = parseLocalIso(day.date);
+    const label = dt ? dt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : day.date;
+    const cls = side % 2 === 0 ? 'tl-left' : 'tl-right';
+    let card = '<div class="tl-date">' + esc(label) + '</div>';
+    if (day.photos.length) {
+      card += memoryPhotosHtml(day.photos, 'day' + (gid++), 'tl-photos');
+    }
+    for (const d of day.dates) {
+      const info = [d.place, d.time].filter(Boolean).join(' · ');
+      card += '<div class="tl-item"><span class="tl-item-emoji">' + esc(d.emoji) + '</span><b>Свидание' + (info ? ' · ' + esc(info) : '') + '</b></div>';
+      if (d.photos && d.photos.length) {
+        card += memoryPhotosHtml(d.photos, 'dt' + (gid++), 'tl-item-photos');
+      }
+    }
+    for (const ev of day.events) {
+      card += '<div class="tl-item"><span class="tl-item-emoji">' + esc(ev.emoji) + '</span><b>' + esc(ev.title) + '</b></div>';
+      if (ev.photos.length) {
+        card += memoryPhotosHtml(ev.photos, 'ev' + (gid++), 'tl-item-photos');
+      }
+    }
+    html += '<div class="' + cls + '"><div class="tl-dot"></div><div class="tl-card">' + card + '</div></div>';
+    side++;
+  }
+  html += '</div>';
+  feed.innerHTML = html;
+  hydratePhotoImgs(feed);
+  feed.querySelectorAll('[data-lightbox]').forEach(function (img) {
+    img.addEventListener('click', async function () {
+      var p = db.photos.find(function (x) { return x.id === img.dataset.lightbox; });
+      if (!p) return;
+      var url = await photoUrl(p, false);
+      if (url) { $('#lightboxImg').src = url; $('#lightbox').hidden = false; }
+    });
+  });
+}
+
+/* ===== Превью фото в «Памяти» ===== */
+// Сразу показываем не больше MEMORY_PHOTOS_PREVIEW фото в ряду; остальные —
+// скрыты и раскрываются кнопкой «Показать ещё N» (клик ловит делегат ниже).
+const MEMORY_PHOTOS_PREVIEW = 3;
+
+function tlPhotoImg(p, extraCls) {
+  const cls = extraCls ? ' class="' + extraCls + '"' : '';
+  const stl = extraCls ? ' style="display:none"' : '';
+  const url = photoSrc(p);
+  return url
+    ? '<img' + cls + stl + ' src="' + esc(url) + '" alt="" data-lightbox="' + esc(p.id) + '">'
+    : '<img' + cls + stl + ' data-photo-src="' + esc(p.id) + '" alt="" data-lightbox="' + esc(p.id) + '">';
+}
+function memoryPhotosHtml(photos, groupId, rowCls) {
+  const shown = photos.slice(0, MEMORY_PHOTOS_PREVIEW);
+  const rest = photos.slice(MEMORY_PHOTOS_PREVIEW);
+  return '<div class="' + rowCls + '" data-photo-group="' + groupId + '" data-more-count="' + rest.length + '">' +
+    shown.map(p => tlPhotoImg(p)).join('') +
+    (rest.length
+      ? '<button class="tl-more-btn" data-tl-expand="' + groupId + '" title="Показать ещё фото">Показать ещё ' + rest.length + '</button>' +
+        rest.map(p => tlPhotoImg(p, 'tl-more-photo')).join('')
+      : '') +
+    '</div>';
+}
+// Переключатель «Показать ещё N фото ⇄ Свернуть». Возвращает 'more' | 'less' | null.
+function toggleMemoryPhotos(groupId) {
+  const row = document.querySelector('[data-photo-group="' + groupId + '"]');
+  if (!row) return null;
+  const collapse = row.dataset.expanded === '1';
+  const hidden = row.querySelectorAll ? row.querySelectorAll('.tl-more-photo') : [];
+  const btn = row.querySelectorAll ? row.querySelectorAll('[data-tl-expand]')[0] : null;
+  const total = +row.dataset.moreCount || hidden.length;
+  if (collapse) {
+    row.dataset.expanded = '0';
+    for (const el of hidden) el.style.display = 'none';
+    if (btn) btn.textContent = 'Показать ещё ' + total;
+  } else {
+    row.dataset.expanded = '1';
+    for (const el of hidden) el.style.display = '';
+    if (btn) btn.textContent = 'Свернуть';
+  }
+  return collapse ? 'less' : 'more';
+}
+document.addEventListener('click', e => {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-tl-expand]') : null;
+  if (btn) toggleMemoryPhotos(btn.dataset.tlExpand);
+});
 
 /* ===== Календарь ===== */
 let calY = new Date().getFullYear(), calM = new Date().getMonth(), selectedDate = null;
@@ -1252,6 +1647,7 @@ function renderCalendar() {
   }
   $('#calendar').innerHTML = html + `<div class="cal-row">${cells}</div>`;
   renderDayPanel();
+  updateNearestJump();
 }
 function renderDayPanel() {
   const panel = $('#dayPanel');
@@ -1270,7 +1666,7 @@ function renderDayPanel() {
       : '<p class="cal-tip">В этот день событий пока нет.</p>') +
     (dts.length
       ? `<div class="day-sub">💘 Свидания</div>` + dts.map(dt =>
-          `<div class="day-event date-evt">${esc(dt.emoji || '💘')} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}</span> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`).join('')
+          `<div class="day-event date-evt${dt.done ? ' date-done' : ''}">${esc(dt.emoji || '💘')} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}${dt.done ? ' ✅' : ''}</span>${dtThumbs(dt)} <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${dt.done ? '💗' : '✅'}</button> <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото">📷</button> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`).join('')
       : '') +
     `<div class="day-add">
        <input type="text" id="dayTitle" placeholder="Название события">
@@ -1288,9 +1684,8 @@ function addDayEvent() {
   db.events.push({ id: uid(), title, date: selectedDate, emoji: $('#dayEmoji').value.trim() || '💜', repeat: true });
   save(); renderCalendar(); renderHome();
 }
-function hideJumpInfo() { const info = $('#jumpInfo'); if (info) info.hidden = true; }
-$('#calPrev').addEventListener('click', () => { calM--; if (calM < 0) { calM = 11; calY--; } selectedDate = null; hideJumpInfo(); renderCalendar(); });
-$('#calNext').addEventListener('click', () => { calM++; if (calM > 11) { calM = 0; calY++; } selectedDate = null; hideJumpInfo(); renderCalendar(); });
+$('#calPrev').addEventListener('click', () => { calM--; if (calM < 0) { calM = 11; calY--; } selectedDate = null; renderCalendar(); });
+$('#calNext').addEventListener('click', () => { calM++; if (calM > 11) { calM = 0; calY++; } selectedDate = null; renderCalendar(); });
 $('#addEventBtn').addEventListener('click', () => openEventModal());
 
 // «⏭ К ближайшему событию»: ближайшая дата события/свидания с учётом
@@ -1326,21 +1721,30 @@ function nextUpcoming() {
   cands.sort((a, b) => a.date.localeCompare(b.date));
   return cands[0] || null;
 }
-// «⏭ К ближайшему событию»: плашка + прыжок, если событие не в текущем месяце.
-// Вызывается при открытии вкладки календаря и по кнопке «⏭» — плашка видна
-// всегда, даже когда ближайшее событие уже видно в текущем месяце.
-function showNearestEvent() {
+// «⏭ К ближайшему событию»: кнопка и плашка видны, только когда ближайшее
+// событие/свидание НЕ в показываемом месяце. В месяце ближайшего события
+// их нет. Вызывается из renderCalendar при каждой перерисовке и по кнопке «⏭».
+function updateNearestJump() {
   const nx = nextUpcoming();
   const info = $('#jumpInfo');
-  if (!nx) { hideJumpInfo(); return; }
+  const btn = $('#jumpNextBtn');
+  if (!nx) { // впереди событий нет — кнопка остаётся (по клику — подсказка), плашка скрыта
+    if (info) info.hidden = true;
+    if (btn) btn.hidden = false;
+    return;
+  }
   const [y, m, d] = nx.date.split('-').map(Number);
-  if (y !== calY || m - 1 !== calM) { calY = y; calM = m - 1; }
-  selectedDate = nx.date;
-  renderCalendar();
+  const here = (y === calY && m - 1 === calM);
+  if (here) { // уже смотрим месяц ближайшего события — кнопка и плашка не нужны
+    if (info) info.hidden = true;
+    if (btn) btn.hidden = true;
+    return;
+  }
   if (info) {
     info.textContent = `⏭ Ближайшее: ${nx.emoji} «${nx.title}» — ${d} ${MONTHS[m - 1].toLowerCase()} ${y} г.`;
     info.hidden = false;
   }
+  if (btn) btn.hidden = false;
 }
 function jumpToNearestEvent() {
   const nx = nextUpcoming();
@@ -1349,7 +1753,10 @@ function jumpToNearestEvent() {
     if (info) { info.textContent = '💫 Ближайших событий пока нет — добавь первое!'; info.hidden = false; }
     return;
   }
-  showNearestEvent();
+  const [y, m] = nx.date.split('-').map(Number);
+  calY = y; calM = m - 1;
+  selectedDate = nx.date;
+  renderCalendar(); // updateNearestJump() скроет кнопку/плашку: ближайшее уже на экране
 }
 $('#jumpNextBtn').addEventListener('click', jumpToNearestEvent);
 
@@ -1370,7 +1777,7 @@ function fillCalJump() {
   ms.value = String(calM);
   ys.value = String(calY);
 }
-function jumpCalendar(m, y) { calM = +m; calY = +y; selectedDate = null; hideJumpInfo(); renderCalendar(); }
+function jumpCalendar(m, y) { calM = +m; calY = +y; selectedDate = null; renderCalendar(); }
 $('#calMonthSelect').addEventListener('change', e => jumpCalendar(e.target.value, calY));
 $('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.value));
 
@@ -1378,9 +1785,16 @@ $('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.
 function photoByRef(ref) {
   return db.photos.find(p => p.id === ref) || null;
 }
+// «Мёртвые» id (фото удалено из галереи) пропускаем — не рисуем битую рамку.
+// Легаси data-URL показываем напрямую.
+function thumbRefs(refs) {
+  return refs.filter(ref => photoByRef(ref) || (typeof ref === 'string' && ref.startsWith('data:')));
+}
 function evThumbs(e) {
   if (!(e.photos && e.photos.length)) return '';
-  return `<span class="ev-thumbs">${e.photos.map(ref => {
+  const refs = thumbRefs(e.photos);
+  if (!refs.length) return '';
+  return `<span class="ev-thumbs">${refs.map(ref => {
     const p = photoByRef(ref);
     const src = p ? photoSrc(p) : ref; // сиротский data-URL из легаси-события показываем напрямую
     const attr = p ? p.id : ref;
@@ -1445,6 +1859,74 @@ function addEventPhotoQuick(evId) {
     save(); renderCalendar(); renderHome();
   }, { once: true });
   inp.click();
+}
+
+// Фото свидания кладём в общую галерею под лейблом «💞 Свидания»;
+// dt.photos хранит id фото. Новые фото приходят как data-URL.
+function addDatePhotosToGallery(photos, title) {
+  if (!photos.length) return [];
+  if (!db.labels.includes(DATE_LABEL)) db.labels.push(DATE_LABEL);
+  const ids = [];
+  for (const photoRef of photos) {
+    const existing = db.photos.find(p => p.id === photoRef);
+    if (existing) {
+      if (!Array.isArray(existing.labels)) existing.labels = [];
+      if (!existing.labels.includes(DATE_LABEL)) existing.labels.push(DATE_LABEL);
+      ids.push(existing.id);
+    } else {
+      const ph = { id: uid(), data: photoRef, title, labels: [DATE_LABEL], pinned: false, ts: Date.now(), order: 0 };
+      db.photos.unshift(ph);
+      ids.push(ph.id);
+      setThumbUrl(ph.id, photoRef);
+      try {
+        const blob = dataUrlToBlob(photoRef);
+        if (blob && photoStore) {
+          makeThumbBlob(photoRef, 256).then(async thumb => {
+            const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size };
+            await photoStore.put(ph.id, blob, thumb, meta);
+            if (ph.data === photoRef) delete ph.data;
+          }).catch(e => console.warn('Не удалось сохранить фото свидания в хранилище', e));
+        }
+      } catch (e) { console.warn('Не удалось сохранить фото свидания в хранилище', e); }
+    }
+  }
+  return ids;
+}
+
+// Быстрое добавление фото к свиданию из панели дня (кнопка 📷)
+function addDatePhotoQuick(dtId) {
+  const dt = db.dates.find(x => x.id === dtId);
+  if (!dt) return;
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+  inp.style.display = 'none';
+  document.body.appendChild(inp);
+  inp.addEventListener('change', async () => {
+    const ok = [];
+    for (const f of [...inp.files].slice(0, 5)) {
+      try { ok.push(await readFile(f)); } catch (err) { console.warn('Не удалось прочитать фото свидания', err); }
+    }
+    inp.remove();
+    if (!ok.length) return;
+    const title = dt.place || dt.note || 'Свидание';
+    const ids = addDatePhotosToGallery(ok, title);
+    dt.photos = Array.isArray(dt.photos) ? dt.photos.concat(ids.length ? ids : ok) : (ids.length ? ids : ok);
+    save(); renderCalendar(); renderHome();
+  }, { once: true });
+  inp.click();
+}
+
+// Миниатюры фото свидания в панели дня
+function dtThumbs(dt) {
+  if (!(dt.photos && dt.photos.length)) return '';
+  const refs = thumbRefs(dt.photos);
+  if (!refs.length) return '';
+  return '<span class="ev-thumbs">' + refs.map(ref => {
+    const p = photoByRef(ref);
+    const src = p ? photoSrc(p) : ref;
+    const attr = p ? p.id : ref;
+    return '<img class="ev-thumb" src="' + esc(src) + '" alt="" data-photo="' + esc(attr) + '" loading="lazy">';
+  }).join('') + '</span>';
 }
 
 /* ===== Кастомный date-picker в стиле сайта =====
@@ -1845,30 +2327,86 @@ $('#notesGrid').addEventListener('dragend', () => {
 });
 
 /* ===== Списки ===== */
-function itemHTML(list, it) {
+function listItemHTML(listId, it) {
   return `<li class="${it.done ? 'done' : ''}">
-    <button class="check" data-toggle data-list="${list}" data-id="${it.id}" title="Готово">${it.done ? '✅' : '○'}</button>
+    <button class="check" data-toggle-item="${listId}" data-id="${it.id}" title="Готово">${it.done ? '✅' : '○'}</button>
     <span>${esc(it.text)}</span>
-    <button class="mini-x" data-del data-list="${list}" data-id="${it.id}" title="Удалить">✕</button>
+    <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>
   </li>`;
 }
 function renderLists() {
-  $('#shopList').innerHTML = db.shopping.length ? db.shopping.map(i => itemHTML('shopping', i)).join('') : '<li class="empty-li">Пока пусто 🫧</li>';
-  $('#todoList').innerHTML = db.todos.length ? db.todos.map(i => itemHTML('todos', i)).join('') : '<li class="empty-li">Пока пусто 🫧</li>';
-  $('#shopCount').textContent = `${db.shopping.filter(i => !i.done).length} в работе`;
-  $('#todoCount').textContent = `${db.todos.filter(i => !i.done).length} в работе`;
+  const wrap = $('#listsWrap');
+  if (!wrap) return;
+  if (!db.lists.length) {
+    wrap.innerHTML = '<div class="rem-empty">Пока нет ни одного списка 🫧<br>Создайте первый — например, «Подарки на 8 марта».</div>';
+    return;
+  }
+  wrap.innerHTML = db.lists.map(list => {
+    const active = list.items.filter(i => !i.done).length;
+    const items = list.items.length
+      ? list.items.map(it => listItemHTML(list.id, it)).join('')
+      : '<li class="empty-li">Пока пусто 🫧</li>';
+    return `<div class="list-card">
+      <h3>${esc(list.name)} <small>${active} в работе</small></h3>
+      <div class="list-add">
+        <input type="text" id="listInput-${list.id}" placeholder="Добавить подзадачу…">
+        <button class="btn" data-list-add="${list.id}" title="Добавить">＋</button>
+      </div>
+      <ul class="items">${items}</ul>
+      <div class="list-actions">
+        <button class="btn btn-danger btn-small" data-list-complete="${list.id}" title="Выполнить все подзадачи и удалить список">✔ Выполнить список</button>
+      </div>
+    </div>`;
+  }).join('');
 }
-function addItem(list, inputId) {
+// Создать список с произвольным названием; возвращает список или null.
+function createList(rawName) {
+  const name = String(rawName || '').trim();
+  if (!name) return null;
+  const list = { id: uid(), name, items: [] };
+  db.lists.push(list);
+  save(); renderLists();
+  const inp = $('#listNameInput');
+  if (inp) inp.value = '';
+  return list;
+}
+function addListSubtask(listId, inputId) {
+  const list = db.lists.find(x => x.id === listId);
+  if (!list) return false;
   const inp = $('#' + inputId);
-  const t = inp.value.trim();
-  if (!t) return;
-  db[list].unshift({ id: uid(), text: t, done: false });
-  save(); inp.value = ''; renderLists();
+  const text = (inp && inp.value ? String(inp.value) : '').trim();
+  if (!text) return false;
+  list.items.unshift({ id: uid(), text, done: false });
+  save(); if (inp) inp.value = ''; renderLists();
+  return true;
 }
-$('#shopAddBtn').addEventListener('click', () => addItem('shopping', 'shopInput'));
-$('#todoAddBtn').addEventListener('click', () => addItem('todos', 'todoInput'));
-$('#shopInput').addEventListener('keydown', e => { if (e.key === 'Enter') addItem('shopping', 'shopInput'); });
-$('#todoInput').addEventListener('keydown', e => { if (e.key === 'Enter') addItem('todos', 'todoInput'); });
+function toggleSubtask(listId, itemId) {
+  const list = db.lists.find(x => x.id === listId);
+  if (!list) return false;
+  const it = list.items.find(x => x.id === itemId);
+  if (!it) return false;
+  it.done = !it.done;
+  save(); renderLists();
+  return it.done;
+}
+function delSubtask(listId, itemId) {
+  const list = db.lists.find(x => x.id === listId);
+  if (!list) return false;
+  list.items = list.items.filter(x => x.id !== itemId);
+  save(); renderLists();
+  return true;
+}
+// «Выполнить список»: после подтверждения удаляет весь блок вместе с подзадачами.
+function completeList(listId) {
+  const list = db.lists.find(x => x.id === listId);
+  if (!list) return false;
+  if (!confirm('Выполнить список «' + list.name + '»? Он будет удалён вместе с подзадачами.')) return false;
+  db.lists = db.lists.filter(x => x.id !== listId);
+  save(); renderLists();
+  return true;
+}
+$('#listCreateBtn').addEventListener('click', () => createList($('#listNameInput').value));
+$('#listNameInput').addEventListener('keydown', e => { if (e.key === 'Enter') createList($('#listNameInput').value); });
 
 /* ===== Хотелки (общие, но разделены по людям: у каждого свой список) ===== */
 let wishPhotoData = null;
@@ -1946,6 +2484,15 @@ function saveWishFromModal() {
 }
 $('#wishSave').addEventListener('click', saveWishFromModal);
 
+// Отметить свидание «прошло» / снять отметку (кнопка есть на главной и в календаре).
+function toggleDateDone(id) {
+  const d = db.dates.find(x => x.id === id);
+  if (!d) return false;
+  d.done = !d.done;
+  save(); renderHome(); renderCalendar();
+  return d.done;
+}
+
 /* ===== Глобальные клики ===== */
 function closeOverlay(id) {
   $('#' + id).hidden = true;
@@ -1967,6 +2514,9 @@ document.addEventListener('click', e => {
   const photoEv = e.target.closest('[data-photo-event]');
   if (photoEv) { addEventPhotoQuick(photoEv.dataset.photoEvent); return; }
 
+  const photoDate = e.target.closest('[data-photo-date]');
+  if (photoDate) { addDatePhotoQuick(photoDate.dataset.photoDate); return; }
+
   const answerDate = e.target.closest('[data-answer-date]');
   if (answerDate) {
     const d = db.dates.find(x => x.id === answerDate.dataset.answerDate);
@@ -1981,11 +2531,7 @@ document.addEventListener('click', e => {
     return;
   }
   const doneDate = e.target.closest('[data-done-date]');
-  if (doneDate) {
-    const d = db.dates.find(x => x.id === doneDate.dataset.doneDate);
-    if (d) { d.done = !d.done; save(); renderHome(); renderCalendar(); }
-    return;
-  }
+  if (doneDate) { toggleDateDone(doneDate.dataset.doneDate); return; }
   const delDate = e.target.closest('[data-del-date]');
   if (delDate) { db.dates = db.dates.filter(x => x.id !== delDate.dataset.delDate); save(); renderHome(); renderCalendar(); return; }
 
@@ -2000,10 +2546,14 @@ document.addEventListener('click', e => {
   const cancelNoteBtn = e.target.closest('[data-cancel-note]');
   if (cancelNoteBtn) { cancelNoteEdit(); return; }
 
-  const tog = e.target.closest('[data-toggle]');
-  if (tog) { const it = db[tog.dataset.list].find(x => x.id === tog.dataset.id); if (it) it.done = !it.done; save(); renderLists(); return; }
-  const delIt = e.target.closest('[data-del]');
-  if (delIt) { db[delIt.dataset.list] = db[delIt.dataset.list].filter(x => x.id !== delIt.dataset.id); save(); renderLists(); return; }
+  const togItem = e.target.closest('[data-toggle-item]');
+  if (togItem) { toggleSubtask(togItem.dataset.toggleItem, togItem.dataset.id); return; }
+  const delItem = e.target.closest('[data-del-item]');
+  if (delItem) { delSubtask(delItem.dataset.delItem, delItem.dataset.id); return; }
+  const listAdd = e.target.closest('[data-list-add]');
+  if (listAdd) { addListSubtask(listAdd.dataset.listAdd, 'listInput-' + listAdd.dataset.listAdd); return; }
+  const listDone = e.target.closest('[data-list-complete]');
+  if (listDone) { completeList(listDone.dataset.listComplete); return; }
 
   const delPhoto = e.target.closest('[data-del-photo]');
   if (delPhoto) { deletePhoto(delPhoto.dataset.delPhoto); return; }
@@ -2068,6 +2618,12 @@ document.addEventListener('keydown', e => {
     if (open) closeOverlay(open.id);
     return;
   }
+  // Списки: Enter в поле подзадачи добавляет её
+  if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('listInput-') === 0) {
+    e.preventDefault();
+    addListSubtask(e.target.id.slice('listInput-'.length), e.target.id);
+    return;
+  }
   // Календарь: Enter / пробел на дне — как клик по ячейке
   if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.closest) {
     const day = e.target.closest('[data-day]');
@@ -2107,7 +2663,11 @@ $('#photoInput').addEventListener('change', async e => {
   for (const f of files) {
     try {
       const data = await readFile(f);
-      const ph = { id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0 };
+      // Дата съёмки из EXIF (если камера её записала). Нужна для «В этот день»:
+      // фото показывается только по EXIF-дате или по дате события, НЕ по дате загрузки.
+      let takenAt = null;
+      try { takenAt = await extractExifDate(f); } catch (e) {}
+      const ph = { id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0, takenAt };
       db.photos.unshift(ph);
       setThumbUrl(ph.id, data); // мгновенный показ из кэша миниатюр
       // Сразу кладём в photoStore — дальше фото живёт в IndexedDB (зашифровано).
@@ -2117,7 +2677,7 @@ $('#photoInput').addEventListener('change', async e => {
         if (blob && photoStore) {
           let thumb = null, thumbType = null;
           try { thumb = await makeThumbBlob(data, 256); thumbType = (thumb && thumb.type) || 'image/webp'; } catch (e) {}
-          const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size };
+          const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size, takenAt };
           await photoStore.put(ph.id, blob, thumb, meta);
           delete ph.data;            // блоб в сторе — из памяти убираем base64
         }
@@ -2131,27 +2691,36 @@ function renderLabels() {
   const bar = $('#labelBar');
   if (!bar) return;
   const evCount = db.photos.filter(p => (p.labels || []).includes(EVENT_LABEL)).length;
+  const dtCount = db.photos.filter(p => (p.labels || []).includes(DATE_LABEL)).length;
+  const sysLabels = [EVENT_LABEL, DATE_LABEL];
   bar.innerHTML =
     `<button class="album-chip${currentLabel === '' ? ' active' : ''}" data-label="">🖼 Все фото (${db.photos.length})</button>` +
     (evCount ? `<button class="album-chip${currentLabel === EVENT_LABEL ? ' active' : ''}" data-label="${esc(EVENT_LABEL)}">📅 События (${evCount})</button>` : '') +
-    db.labels.filter(l => l !== EVENT_LABEL).map(l => `<button class="album-chip${currentLabel === l ? ' active' : ''}" data-label="${esc(l)}" draggable="true" title="Перетащи на фото, чтобы навесить лейбл"># ${esc(l)}<span class="label-del" data-label-del="${esc(l)}" title="Удалить лейбл">✕</span></button>`).join('') +
+    (dtCount ? `<button class="album-chip${currentLabel === DATE_LABEL ? ' active' : ''}" data-label="${esc(DATE_LABEL)}">💞 Свидания (${dtCount})</button>` : '') +
+    db.labels.filter(l => !sysLabels.includes(l)).map(l => `<button class="album-chip${currentLabel === l ? ' active' : ''}" data-label="${esc(l)}" draggable="true" title="Перетащи на фото, чтобы навесить лейбл"># ${esc(l)}<span class="label-del" data-label-del="${esc(l)}" title="Удалить лейбл">✕</span></button>`).join('') +
     `<button class="btn album-add-btn" data-label-new title="Создать лейбл">＋ Лейбл</button>`;
 }
 function deletePhoto(id) {
   const ph = db.photos.find(x => x.id === id);
   if (ph) {
-    // фото удаляется и из событий, чтобы в календаре не оставалось «мёртвых» миниатюр
+    // фото удаляется и из событий, и из свиданий, чтобы в календаре не оставалось «мёртвых» миниатюр
     db.events.forEach(ev => {
       if (!Array.isArray(ev.photos)) return;
       ev.photos = ev.photos.filter(d => d !== ph.id);
       if (!ev.photos.length) delete ev.photos;
     });
+    db.dates.forEach(dt => {
+      if (!Array.isArray(dt.photos)) return;
+      dt.photos = dt.photos.filter(d => d !== ph.id);
+      if (!dt.photos.length) delete dt.photos;
+    });
     if (photoStore && ph.id) photoStore.delete(ph.id); // убираем блоб из IndexedDB
   }
   db.photos = db.photos.filter(x => x.id !== id);
   selectedPhotos.delete(id);
-  clearThumbCache();
-  save(); renderPhotos(); renderCalendar();
+  // Удаляем из кэша только удалённое фото — остальные миниатюры остаются
+  if (id) thumbCache.delete(id);
+  save(); renderPhotos(); renderCalendar(); renderHome();
 }
 // К каким событиям привязано фото — для фильтра «год → месяц → событие».
 // ev.photos хранит id фото (v6+).
@@ -2225,7 +2794,7 @@ function renderPhotosNow() {
       <button class="pin-photo${p.pinned ? ' active' : ''}" data-pin-photo="${p.id}" title="${p.pinned ? 'Открепить' : 'Закрепить'}">${p.pinned ? '⭐' : '☆'}</button>
       <button class="del-photo" data-del-photo="${p.id}" title="Удалить">✕</button>
       ${(p.labels || []).length ? `<div class="photo-labels">${p.labels.map(l =>
-        `<span class="photo-label">${esc(l)}${l === EVENT_LABEL ? '' : `<span class="photo-label-del" data-label-off="${esc(l)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</span>`}</span>`
+        `<span class="photo-label">${esc(l)}${l === EVENT_LABEL || l === DATE_LABEL ? '' : `<span class="photo-label-del" data-label-off="${esc(l)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</span>`}</span>`
       ).join('')}</div>` : ''}
       ${currentLabel === EVENT_LABEL && p.title ? `<span class="photo-caption">${esc(eventFilter.title || p.title)}</span>` : ''}
     </div>`).join('')
@@ -2286,7 +2855,7 @@ function renderEventBar() {
 }
 // Лейблы: удаление (фото не трогаем), добавление выбранным, создание
 function deleteLabel(name) {
-  if (name === EVENT_LABEL) return; // служебный лейбл витрины «📅 События» защищён от удаления
+  if (name === EVENT_LABEL || name === DATE_LABEL) return; // служебные лейблы защищены от удаления
   db.labels = db.labels.filter(l => l !== name);
   db.photos.forEach(p => { if (p.labels) p.labels = p.labels.filter(l => l !== name); });
   if (currentLabel === name) currentLabel = '';
@@ -2316,7 +2885,7 @@ function removeLabelFromPhoto(photoId, name) {
 function openLabelOverlay() {
   $('#labelNewName').value = '';
   const pick = $('#labelPick');
-  const manualLabels = db.labels.filter(l => l !== EVENT_LABEL);
+  const manualLabels = db.labels.filter(l => l !== EVENT_LABEL && l !== DATE_LABEL);
   pick.innerHTML = manualLabels.length
     ? '<option value="">— выбери лейбл —</option>' + manualLabels.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('')
     : '<option value="">Сначала создай новый лейбл выше</option>';
@@ -2412,20 +2981,20 @@ $('#photosGrid').addEventListener('dragend', () => { dragPhotoId = null; });
 // Перетаскивание фото на кнопку лейбла: лейбл получает и перетаскиваемое фото, и все отмеченные (если есть)
 $('#labelBar').addEventListener('dragover', e => {
   const chip = e.target.closest('.album-chip[data-label]');
-  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL) return;
+  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL || chip.dataset.label === DATE_LABEL) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'copy';
 });
 $('#labelBar').addEventListener('dragenter', e => {
   e.preventDefault();
   const chip = e.target.closest('.album-chip[data-label]');
-  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL) return;
+  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL || chip.dataset.label === DATE_LABEL) return;
   chip.classList.add('drag-over');
 });
 // Обратное направление: чип лейбла можно перетащить прямо на фото
 $('#labelBar').addEventListener('dragstart', e => {
   const chip = e.target.closest('.album-chip[data-label]');
-  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL) { e.preventDefault(); return; }
+  if (!chip || e.target.closest('[data-label-del]') || !chip.dataset.label || chip.dataset.label === EVENT_LABEL || chip.dataset.label === DATE_LABEL) { e.preventDefault(); return; }
   dragLabel = chip.dataset.label;
   e.dataTransfer.effectAllowed = 'copyMove';
   e.dataTransfer.setData('text/plain', dragLabel);
@@ -2443,7 +3012,7 @@ $('#labelBar').addEventListener('drop', e => {
   if (chip) chip.classList.remove('drag-over');
   if (!dragPhotoId) return;
   const name = chip && chip.dataset.label;
-  if (!name || name === EVENT_LABEL || e.target.closest('[data-label-del]')) return;
+  if (!name || name === EVENT_LABEL || name === DATE_LABEL || e.target.closest('[data-label-del]')) return;
   const targets = new Set(selectedPhotos); // массовое назначение: всем отмеченным…
   targets.add(dragPhotoId);                // …и перетаскиваемому фото
   applyLabelToPhotos(name, targets);
@@ -2495,7 +3064,10 @@ function renderSettings() {
     `<span><b>Гоша:</b> ${hasPass('gosha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>` +
     `<span><b>Даша:</b> ${hasPass('dasha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>`;
   const addBtn = $('#addPassBtn');
-  if (addBtn) addBtn.style.display = (hasPass('gosha') && hasPass('dasha')) ? 'none' : '';
+  if (addBtn) {
+    addBtn.style.display = '';
+    addBtn.textContent = (hasPass('gosha') && hasPass('dasha')) ? '🔑 Сменить пароль партнёра' : '🔑 Добавить пароль для партнёра';
+  }
 }
 // Экспорт — зашифрованный сейф: без пароля файл не прочитать.
 // Фото-блобы лежат в IndexedDB (не в localStorage), поэтому их зашифрованные
@@ -2685,7 +3257,7 @@ setInterval(() => {
   if (!$('#view-home') || !$('#view-home').classList.contains('active')) return;
   spawnHeart();
 }, 3800);
-setInterval(() => { if (!isHidden()) renderFloatingPhotos(); }, 7000);
+// Коллаж «Наша история» стабилен в течение дня — обновлять его не нужно.
 spawnHeart();
 
 
