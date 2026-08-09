@@ -239,6 +239,12 @@ h3{font-weight:800}
 .note.dragging{opacity:.45;border-style:dashed;transform:none;box-shadow:none}
 .note.drop-before{box-shadow:0 -4px 0 0 var(--pink2),0 0 0 2px rgba(244,114,182,.18)}
 .note.drop-after{box-shadow:0 4px 0 0 var(--pink2),0 0 0 2px rgba(244,114,182,.18)}
+/* drag&drop перестановка карточек списков */
+.list-card{cursor:grab}
+.list-card:active{cursor:grabbing}
+.list-card.dragging{opacity:.45;border-style:dashed;transform:none;box-shadow:none}
+.list-card.drop-before{box-shadow:0 -4px 0 0 var(--pink2),0 0 0 2px rgba(244,114,182,.18)}
+.list-card.drop-after{box-shadow:0 4px 0 0 var(--pink2),0 0 0 2px rgba(244,114,182,.18)}
 .note-editor{width:100%;min-height:80px;padding:10px;border-radius:12px;border:1px solid var(--border);font-family:inherit;font-size:15px;resize:vertical}
 .note-edit-btns{display:flex;align-items:center;gap:8px;margin-top:8px}
 .btn-sm{padding:6px 12px;font-size:13px;border-radius:10px}

@@ -2,7 +2,8 @@
 //  1) заметки переставляются (в т.ч. бросок на фон ниже последней карточки);
 //  2) фото → чип лейбла: лейбл навешивается;
 //  3) чип лейбла → фото: лейбл навешивается;
-//  4) фото → фото: порядок меняется.
+//  4) фото → фото: порядок меняется;
+//  5) карточки списков переставляются (порядок db.lists сохраняется).
 // Запуск: node tests/uni-dnd.js app.js
 'use strict';
 const fs = require('fs');
@@ -11,7 +12,7 @@ let src = fs.readFileSync(file, 'utf8');
 
 /* ================= мини-DOM ================= */
 const registry = {};
-const STRUCTURED = new Set(['notesGrid', 'photosGrid', 'labelBar']);
+const STRUCTURED = new Set(['notesGrid', 'photosGrid', 'labelBar', 'listsWrap']);
 
 function toCamel(s) { return s.replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase()); }
 
@@ -156,7 +157,7 @@ const PREIDS = ['notesGrid', 'photosGrid', 'labelBar', 'calendar', 'dayPanel', '
   'authOverlay', 'evModal', 'evTitle', 'evDate', 'evEnd', 'evRepeat', 'evSave', 'evModalTitle', 'evHeadSub',
   'datePop', 'dpDays', 'dpMonth', 'countdownTick', 'labelOverlay', 'labelNewName', 'labelNewBtn',
   'eventYears', 'eventMonths', 'eventTitles', 'eventReset', 'view-home', 'view-calendar', 'view-notes',
-  'view-lists', 'view-wishlist', 'view-photos', 'view-song', 'view-settings'];
+  'view-lists', 'view-wishlist', 'view-photos', 'view-song', 'view-settings', 'listsWrap'];
 for (const id of PREIDS) { const el = makeEl('div'); el.id = id; registry['#' + id] = el; body.appendChild(el); }
 
 const sandbox = {
@@ -181,6 +182,7 @@ function __TEST__(s){
   Object.defineProperty(s, 'dragNoteId', { get: () => dragNoteId, set: v => { dragNoteId = v; }, configurable: true });
   Object.defineProperty(s, 'dragPhotoId', { get: () => dragPhotoId, set: v => { dragPhotoId = v; }, configurable: true });
   Object.defineProperty(s, 'dragLabel', { get: () => dragLabel, set: v => { dragLabel = v; }, configurable: true });
+  Object.defineProperty(s, 'dragListId', { get: () => dragListId, set: v => { dragListId = v; }, configurable: true });
   s.renderNotes = renderNotes; s.renderPhotos = renderPhotos; s.renderLabels = renderLabels;
   s.go = go; s.migrateDB = migrateDB; s.reorderNoteIds = reorderNoteIds;
   s.selectedPhotos = selectedPhotos;
@@ -288,6 +290,33 @@ p2.dispatchEvent('dragover', { bubbles: true });
 p2.dispatchEvent('drop', { bubbles: true });
 assert(sandbox.db.photos.find(x => x.id === 'p1').order === 1 && sandbox.db.photos.find(x => x.id === 'p2').order === 0,
   'перетаскивание фото меняет порядок (p2 выше p1)');
+
+// 5) Списки: перестановка карточек drag&drop (порядок — сам массив db.lists)
+sandbox.db = sandbox.migrateDB({ events: [], notes: [], shopping: [], todos: [], photos: [], dates: [], wishlist: [], labels: [],
+  lists: [
+    { id: 'l1', name: 'Подарки', items: [] },
+    { id: 'l2', name: 'Дела', items: [] },
+    { id: 'l3', name: 'Идеи', items: [] }
+  ] });
+sandbox.go('lists');
+const lWrap = sandbox.document.querySelector('#listsWrap');
+const listCard = id => lWrap.children.find(x => x.dataset.id === id);
+const listOrder = () => lWrap.children.filter(x => x.classList.contains('list-card')).map(c => c.dataset.id);
+assert(JSON.stringify(listOrder()) === '["l1","l2","l3"]', 'карточки списков отрисованы в порядке l1,l2,l3');
+assert(listCard('l1').attrs.draggable === 'true', 'карточка списка перетаскиваемая (draggable=true)');
+listCard('l1')._rect = { top: 0, left: 0, right: 200, bottom: 100, width: 200, height: 100, x: 0, y: 0 };
+listCard('l2')._rect = { top: 120, left: 0, right: 200, bottom: 220, width: 200, height: 100, x: 0, y: 120 };
+listCard('l3')._rect = { top: 240, left: 0, right: 200, bottom: 340, width: 200, height: 100, x: 0, y: 240 };
+listCard('l1').dispatchEvent('dragstart', { bubbles: true });
+assert(sandbox.dragListId === 'l1', 'dragstart карточки списка ставит dragListId');
+listCard('l3').dispatchEvent('dragover', { bubbles: true, clientY: 300 });
+assert(listCard('l3').classList.contains('drop-after'), 'dragover подсвечивает нижнюю половину цели');
+listCard('l3').dispatchEvent('drop', { bubbles: true, clientY: 300 });
+assert(JSON.stringify(sandbox.db.lists.map(l => l.id)) === '["l2","l3","l1"]',
+  'перетаскивание карточки меняет порядок списков в db');
+assert(JSON.stringify(listOrder()) === '["l2","l3","l1"]', 'после дропа карточки перерисованы в новом порядке');
+lWrap.dispatchEvent('dragend', { bubbles: true });
+assert(sandbox.dragListId === null, 'после dragend dragListId сброшен');
 
 console.log('OK: ' + checks + ' dnd checks passed');
 

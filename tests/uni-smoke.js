@@ -557,6 +557,7 @@ assert(registry['#listsWrap'].innerHTML.includes('Пока нет ни одно�
 // создание списка
 const newList = w('(s)=>s.createList("План на выходные")');
 assert(newList !== null && w('(s)=>s.db.lists.some(l=>l.name==="План на выходные")'), 'createList добавляет список с произвольным названием');
+assert(w('(s)=>s.db.lists[0].name') === 'План на выходные', 'новый список появляется сверху');
 assert(w('(s)=>s.createList("   ")') === null, 'пустое название списка отклоняется');
 // подзадачи: добавить, выполнить/снять, удалить (L1 вернули после проверки пустого состояния)
 w('(s)=>{s.db.lists.unshift({id:"L1",name:"Подарки",items:[]},{id:"L2",name:"Дела",items:[]}); return 1;}');
@@ -569,6 +570,12 @@ assert(w(`(s)=>s.toggleSubtask("L1","${subId}")`) === true, 'подзадача 
 assert(w(`(s)=>s.toggleSubtask("L1","${subId}")`) === false, 'выполнение подзадачи снимается');
 w(`(s)=>{const l=s.db.lists.find(x=>x.id==="L1");l.items=[{id:"i1",text:"х",done:false},{id:"i2",text:"y",done:false}];s.delSubtask("L1","i1");return 1;}`);
 assert(w('(s)=>s.db.lists.find(l=>l.id==="L1").items.length') === 1, 'подзадача удаляется из списка');
+// выполненные подзадачи улетают вниз списка (порядок в db и в рендере)
+w('(s)=>{const l=s.db.lists.find(x=>x.id==="L1"); l.items=[{id:"a1",text:"Первая",done:false},{id:"b1",text:"Вторая",done:false}]; s.toggleSubtask("L1","b1"); return 1;}');
+assert(w('(s)=>{const l=s.db.lists.find(x=>x.id==="L1"); return l.items.map(i=>i.id).join(",");}') === 'a1,b1', 'выполненная подзадача переезжает в конец списка');
+w('(s)=>{const l=s.db.lists.find(x=>x.id==="L1"); l.items=[{id:"c1",text:"Сделано",done:true},{id:"d1",text:"Активно",done:false}]; s.renderLists(); return 1;}');
+const subSortedHtml = registry['#listsWrap'].innerHTML;
+assert(subSortedHtml.indexOf('Активно') < subSortedHtml.indexOf('class="done"'), 'в рендере выполненные подзадачи ниже невыполненных');
 // «выполнить список» — подтверждение (confirm=true в песочнице) и удаление блока
 assert(w('(s)=>s.completeList("L2")') === true, '«выполнить список» возвращает true');
 assert(w('(s)=>!s.db.lists.some(l=>l.id==="L2")'), '«выполнить список» удаляет весь блок');
@@ -900,6 +907,10 @@ assert(!mbDeleted.some(d => d.dates && d.dates.length > 0), 'память: по�
 // --- Фаза C: нижняя навигация «5 + Ещё» ---
 assert(w('(s)=>s.BOTTOM_PRIMARY.length') === 5, 'навигация: 5 главных вкладок');
 assert(w('(s)=>s.BOTTOM_MORE.length') === 4, 'навигация: 4 вкладки в «Ещё»');
+assert(JSON.stringify(w('(s)=>s.BOTTOM_PRIMARY')) === '["home","calendar","memory","lists","photos"]',
+  'навигация: главные вкладки — Главная, Календарь, Память, Списки, Фото');
+assert(JSON.stringify(w('(s)=>s.BOTTOM_MORE')) === '["notes","wishlist","song","settings"]',
+  'навигация: в «Ещё» — Заметки, Хотелки, Песня, Настройки');
 const navAll = [...w('(s)=>s.BOTTOM_PRIMARY'), ...w('(s)=>s.BOTTOM_MORE')];
 assert(navAll.length === new Set(navAll).size && navAll.length === 9, 'навигация: все 9 вкладок, без повторов');
 w('(s)=>{s.buildBottomNav(); return 1;}');
@@ -912,10 +923,10 @@ assert(registry['#navSheet'].hidden === true && registry['#navSheetOverlay'].hid
 w('(s)=>{const ev = { target: { closest(sel) { return sel === "#navMoreBtn" ? { dataset: {} } : null; } } }; s.onNavDocClick(ev); return 1;}');
 assert(registry['#navSheet'].hidden === false, 'клик по «⋯ Ещё» открывает шторку');
 assert(w('(s)=>{const b = s.document.querySelector("#navMoreBtn"); return b.getAttribute ? b.getAttribute("aria-expanded") : null;}') === 'true', 'у «⋯ Ещё» выставляется aria-expanded=true');
-// Клик по вкладке внутри шторки закрывает её и переходит
-w('(s)=>{const ev = { target: { closest(sel) { return sel === "#bottomNav .nav-btn, #navSheet .nav-btn" ? { dataset: { view: "memory" } } : null; } } }; s.onNavDocClick(ev); return 1;}');
+// Клик по вкладке внутри шторки закрывает её и переходит (Заметки теперь в «Ещё»)
+w('(s)=>{const ev = { target: { closest(sel) { return sel === "#bottomNav .nav-btn, #navSheet .nav-btn" ? { dataset: { view: "notes" } } : null; } } }; s.onNavDocClick(ev); return 1;}');
 assert(registry['#navSheet'].hidden === true, 'клик по вкладке в шторке закрывает шторку');
-assert(w('(s)=>s.activeView') === 'memory', 'клик по вкладке в шторке переходит на вкладку');
+assert(w('(s)=>s.activeView') === 'notes', 'клик по вкладке в шторке переходит на вкладку');
 
 // --- Фаза C: светбокс 2.0 (стрелки, зум, счётчик) ---
 w('(s)=>{s.openLightbox(["phA","phB","phC"], 1); return 1;}');

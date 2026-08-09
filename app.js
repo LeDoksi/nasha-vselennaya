@@ -909,8 +909,10 @@ let activeView = 'home'; // текущая вкладка — для hash-роу
 // Наборы вкладок нижней навигации «5 + Ещё». Объявлены ДО showView: он смотрит
 // BOTTOM_MORE, когда вкладка открывается по прямой ссылке (#/wishlist) — если бы
 // const стоял ниже, в этот момент была бы TDZ-ошибка.
-const BOTTOM_PRIMARY = ['home', 'calendar', 'notes', 'lists', 'photos'];
-const BOTTOM_MORE = ['wishlist', 'memory', 'song', 'settings'];
+// Состав «5 + Ещё»: главные вкладки — Главная, Календарь, Память, Списки, Фото;
+// в «Ещё» — Заметки, Хотелки, Песня, Настройки.
+const BOTTOM_PRIMARY = ['home', 'calendar', 'memory', 'lists', 'photos'];
+const BOTTOM_MORE = ['notes', 'wishlist', 'song', 'settings'];
 function showView(view) {
   if (!$('#view-' + view)) return; // неизвестная вкладка — не трогаем экран
   activeView = view;
@@ -954,7 +956,8 @@ $$('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)
 
 /* ===== Нижняя навигация на мобильных: 5 главных + «Ещё» =====
    Решение (утв.): на узких экранах вместо пилюль в шапке — закреплённая нижняя
-   панель с 5 частыми вкладками и кнопкой «Ещё» (шторка с остальными). Кнопки
+   панель «Главная, Календарь, Память, Списки, Фото» и кнопкой «Ещё» (шторка:
+   Заметки, Хотелки, Песня, Настройки). Кнопки
    клонируются из шапки, поэтому active-подсветка и клики работают как у оригинала. */
 
 function buildBottomNav() {
@@ -2394,6 +2397,11 @@ function listItemHTML(listId, it) {
     <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>
   </li>`;
 }
+// Выполненные подзадачи всегда внизу списка: устойчивая сортировка —
+// внутри групп (невыполненные/выполненные) относительный порядок сохраняется.
+function sortListItems(items) {
+  return [...items].sort((a, b) => Number(!!a.done) - Number(!!b.done));
+}
 function renderLists() {
   const wrap = $('#listsWrap');
   if (!wrap) return;
@@ -2404,9 +2412,9 @@ function renderLists() {
   wrap.innerHTML = db.lists.map(list => {
     const active = list.items.filter(i => !i.done).length;
     const items = list.items.length
-      ? list.items.map(it => listItemHTML(list.id, it)).join('')
+      ? sortListItems(list.items).map(it => listItemHTML(list.id, it)).join('')
       : '<li class="empty-li">Пока пусто 🫧</li>';
-    return `<div class="list-card">
+    return `<div class="list-card" data-id="${list.id}" draggable="true">
       <h3>${esc(list.name)} <small>${active} в работе</small></h3>
       <div class="list-add">
         <input type="text" id="listInput-${list.id}" placeholder="Добавить подзадачу…">
@@ -2424,7 +2432,7 @@ function createList(rawName) {
   const name = String(rawName || '').trim();
   if (!name) return null;
   const list = { id: uid(), name, items: [] };
-  db.lists.push(list);
+  db.lists.unshift(list); // новый список — сверху
   save(); renderLists();
   const inp = $('#listNameInput');
   if (inp) inp.value = '';
@@ -2446,6 +2454,7 @@ function toggleSubtask(listId, itemId) {
   const it = list.items.find(x => x.id === itemId);
   if (!it) return false;
   it.done = !it.done;
+  list.items = sortListItems(list.items); // выполненные — вниз
   save(); renderLists();
   return it.done;
 }
@@ -2465,6 +2474,67 @@ function completeList(listId) {
   save(); renderLists();
   return true;
 }
+
+// drag&drop перестановка списков: порядок — сам массив db.lists (сохраняется в storage).
+let dragListId = null; // id карточки, которую сейчас перетаскиваем
+// Чистая функция — легко проверить тестами: переносим dragId к targetId (над/под).
+function reorderListIds(ids, dragId, targetId, after) {
+  const from = ids.indexOf(dragId);
+  if (from < 0) return ids.slice();
+  const out = ids.slice();
+  out.splice(from, 1);
+  const to = out.indexOf(targetId);
+  if (to < 0) return out;
+  out.splice(after ? to + 1 : to, 0, dragId);
+  return out;
+}
+// Куда ляжет карточка: над/под целью, а если курсор на фоне контейнера —
+// по краю (выше первой / ниже последней).
+function listDropPosition(e) {
+  const card = e.target.closest('.list-card');
+  if (card) {
+    const r = card.getBoundingClientRect();
+    return { id: card.dataset.id, after: e.clientY > r.top + r.height / 2 };
+  }
+  const cards = $$('.list-card');
+  if (!cards.length) return null;
+  const first = cards[0].getBoundingClientRect();
+  const last = cards[cards.length - 1].getBoundingClientRect();
+  if (e.clientY < first.top + first.height / 2) return { id: cards[0].dataset.id, after: false };
+  return { id: cards[cards.length - 1].dataset.id, after: true };
+}
+const listsWrapEl = $('#listsWrap');
+listsWrapEl.addEventListener('dragstart', e => {
+  const card = e.target.closest('.list-card');
+  if (!card || e.target.closest('button, textarea, input, a')) { e.preventDefault(); return; }
+  dragListId = card.dataset.id;
+  card.classList.add('dragging');
+  if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragListId); }
+});
+listsWrapEl.addEventListener('dragenter', e => e.preventDefault());
+listsWrapEl.addEventListener('dragover', e => {
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; // без этого Chrome отменяет drop
+  const pos = listDropPosition(e);
+  $$('.list-card').forEach(c => c.classList.remove('drop-before', 'drop-after'));
+  if (!pos || pos.id === dragListId) return;
+  const card = $$('.list-card').find(c => c.dataset.id === pos.id);
+  if (card) card.classList.add(pos.after ? 'drop-after' : 'drop-before');
+});
+listsWrapEl.addEventListener('drop', e => {
+  e.preventDefault();
+  if (!dragListId) return;
+  const pos = listDropPosition(e);
+  if (!pos || pos.id === dragListId) { renderLists(); return; }
+  const ids = reorderListIds($$('.list-card').map(c => c.dataset.id), dragListId, pos.id, pos.after);
+  db.lists = ids.map(id => db.lists.find(l => l.id === id)).filter(Boolean);
+  save(); renderLists();
+});
+listsWrapEl.addEventListener('dragend', () => {
+  $$('.list-card').forEach(c => c.classList.remove('dragging', 'drop-before', 'drop-after'));
+  dragListId = null;
+});
+
 $('#listCreateBtn').addEventListener('click', () => createList($('#listNameInput').value));
 $('#listNameInput').addEventListener('keydown', e => { if (e.key === 'Enter') createList($('#listNameInput').value); });
 

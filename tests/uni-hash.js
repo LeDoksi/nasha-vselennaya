@@ -39,7 +39,7 @@ try {
   vm.runInContext('showView("wishlist")', ctx);
   const av = vm.runInContext('activeView', ctx);
   const more = vm.runInContext('BOTTOM_MORE.indexOf("wishlist")', ctx);
-  if (av !== 'wishlist' || more !== 0) { console.log('FAIL: активная вкладка не «wishlist», BOTTOM_MORE не на месте'); process.exit(1); }
+  if (av !== 'wishlist' || more < 0) { console.log('FAIL: активная вкладка не «wishlist», BOTTOM_MORE не на месте'); process.exit(1); }
   console.log('OK: старт по ссылке #/wishlist без TDZ-ошибки; activeView = ' + av + '; BOTTOM_MORE.indexOf(wishlist) = ' + more);
 } catch (e) {
   console.log('FAIL: ' + e.message);

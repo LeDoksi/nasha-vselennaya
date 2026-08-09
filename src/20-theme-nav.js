@@ -25,8 +25,10 @@ let activeView = 'home'; // текущая вкладка — для hash-роу
 // Наборы вкладок нижней навигации «5 + Ещё». Объявлены ДО showView: он смотрит
 // BOTTOM_MORE, когда вкладка открывается по прямой ссылке (#/wishlist) — если бы
 // const стоял ниже, в этот момент была бы TDZ-ошибка.
-const BOTTOM_PRIMARY = ['home', 'calendar', 'notes', 'lists', 'photos'];
-const BOTTOM_MORE = ['wishlist', 'memory', 'song', 'settings'];
+// Состав «5 + Ещё»: главные вкладки — Главная, Календарь, Память, Списки, Фото;
+// в «Ещё» — Заметки, Хотелки, Песня, Настройки.
+const BOTTOM_PRIMARY = ['home', 'calendar', 'memory', 'lists', 'photos'];
+const BOTTOM_MORE = ['notes', 'wishlist', 'song', 'settings'];
 function showView(view) {
   if (!$('#view-' + view)) return; // неизвестная вкладка — не трогаем экран
   activeView = view;
@@ -70,7 +72,8 @@ $$('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)
 
 /* ===== Нижняя навигация на мобильных: 5 главных + «Ещё» =====
    Решение (утв.): на узких экранах вместо пилюль в шапке — закреплённая нижняя
-   панель с 5 частыми вкладками и кнопкой «Ещё» (шторка с остальными). Кнопки
+   панель «Главная, Календарь, Память, Списки, Фото» и кнопкой «Ещё» (шторка:
+   Заметки, Хотелки, Песня, Настройки). Кнопки
    клонируются из шапки, поэтому active-подсветка и клики работают как у оригинала. */
 
 function buildBottomNav() {
