@@ -10,13 +10,20 @@ function getTheme() {
   return 'light';
 }
 function setTheme(t) {
-  try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
-  const root = document.documentElement;
-  if (root) root.dataset.theme = t;
-  const btn = $('#themeToggle');
-  if (btn) { btn.textContent = t === 'dark' ? '☀️' : '🌙'; btn.setAttribute('aria-pressed', String(t === 'dark')); }
-  const sbtn = $('#settingsThemeBtn');
-  if (sbtn) sbtn.textContent = t === 'dark' ? '☀️ Включить светлую тему' : '🌙 Включить тёмную тему';
+  const apply = () => {
+    try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
+    const root = document.documentElement;
+    if (root) root.dataset.theme = t;
+    const btn = $('#themeToggle');
+    if (btn) { btn.textContent = t === 'dark' ? '☀️' : '🌙'; btn.setAttribute('aria-pressed', String(t === 'dark')); }
+    const sbtn = $('#settingsThemeBtn');
+    if (sbtn) sbtn.textContent = t === 'dark' ? '☀️ Включить светлую тему' : '🌙 Включить тёмную тему';
+  };
+  // Фаза D: смена темы — тоже плавным переходом (если браузер умеет и анимации не выключены)
+  if (typeof document !== 'undefined' && typeof document.startViewTransition === 'function' && !motionReduced()) {
+    try { document.startViewTransition(apply); return; } catch (e) {}
+  }
+  apply();
 }
 function toggleTheme() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
 
@@ -32,18 +39,26 @@ const BOTTOM_MORE = ['notes', 'wishlist', 'song', 'settings'];
 function showView(view) {
   if (!$('#view-' + view)) return; // неизвестная вкладка — не трогаем экран
   activeView = view;
-  $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
-  $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-  const moreBtn = $('#navMoreBtn');
-  if (moreBtn) moreBtn.classList.toggle('active', BOTTOM_MORE.indexOf(view) >= 0); // вкладка из «Ещё» — подсвечиваем кнопку
-  if (view === 'home') renderHome();
-  if (view === 'calendar') { calY = new Date().getFullYear(); calM = new Date().getMonth(); selectedDate = null; renderCalendar(); }
-  if (view === 'notes') renderNotes();
-  if (view === 'lists') renderLists();
-  if (view === 'wishlist') renderWishlist();
-  if (view === 'photos') renderPhotos();
-  if (view === 'memory') renderMemory();
-  if (view === 'settings') renderSettings();
+  const apply = () => {
+    $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
+    $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+    const moreBtn = $('#navMoreBtn');
+    if (moreBtn) moreBtn.classList.toggle('active', BOTTOM_MORE.indexOf(view) >= 0); // вкладка из «Ещё» — подсвечиваем кнопку
+    if (view === 'home') renderHome();
+    if (view === 'calendar') { calY = new Date().getFullYear(); calM = new Date().getMonth(); selectedDate = null; renderCalendar(); }
+    if (view === 'notes') renderNotes();
+    if (view === 'lists') renderLists();
+    if (view === 'wishlist') renderWishlist();
+    if (view === 'photos') renderPhotos();
+    if (view === 'memory') renderMemory();
+    if (view === 'settings') renderSettings();
+  };
+  // Фаза D: View Transitions API — плавная смена вкладок (crossfade всего экрана).
+  // Без поддержки или при «уменьшенном движении» — переключение мгновенное.
+  if (typeof document !== 'undefined' && typeof document.startViewTransition === 'function' && !motionReduced()) {
+    try { document.startViewTransition(apply); return; } catch (e) {}
+  }
+  apply();
 }
 function go(view) {
   showView(view);

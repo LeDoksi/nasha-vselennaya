@@ -208,7 +208,7 @@ function renderMemory() {
   if (!feed) return;
   const days = memoryByDay();
   if (!days.length) {
-    feed.innerHTML = '<div class="rem-empty">Пока пусто 💜<br>Добавляйте события и фото — здесь сложится история вашей вселенной.</div>';
+    feed.innerHTML = '<div class="empty-state rem-empty">Пока пусто 💜<br>Добавляйте события и фото — здесь сложится история вашей вселенной.</div>';
     return;
   }
   let html = '<div class="tl"><div class="tl-stem"></div>';

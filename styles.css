@@ -1,4 +1,22 @@
 /* ===== Наша вселенная — styles.css ===== */
+/* Фаза D: локальный вариативный шрифт Nunito (woff2 в репозитории).
+   Кириллица и латиница — двумя файлами; весь диапазон весов (100–900) в одном файле. */
+@font-face{
+  font-family:'Nunito';
+  font-style:normal;
+  font-weight:100 900;
+  font-display:swap;
+  src:url(fonts/nunito-cyrillic.woff2) format('woff2');
+  unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;
+}
+@font-face{
+  font-family:'Nunito';
+  font-style:normal;
+  font-weight:100 900;
+  font-display:swap;
+  src:url(fonts/nunito-latin.woff2) format('woff2');
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   --bg1:#f5eaff;
@@ -17,29 +35,57 @@
   --radius:22px;
   --border:#e9d9ff;
   --heart-opacity:.55;
+  /* Фаза D — стеклянные карточки */
+  --glass-bg:rgba(255,255,255,.66);
+  --glass-brd:rgba(255,255,255,.62);
+  --glass-strong:rgba(255,255,255,.82);
+  --blur:16px;
+  color-scheme:light;
 }
 [data-theme="dark"]{
-  --bg1:#1a1025;
-  --bg2:#2d1f3d;
-  --card:#2a1f3a;
+  --bg1:#120b1f;
+  --bg2:#1d1330;
+  --card:#241a38;
   --ink:#f3e8ff;
-  --muted:#c4b5e0;
+  --muted:#b9a7d6;
   --violet:#a78bfa;
   --violet2:#8b5cf6;
   --pink:#f472b6;
   --pink2:#ec4899;
   --pink-ink:#f9a8d4;
-  --violet-ink:#a78bfa;
-  --border:#4c3d6a;
-  --heart-opacity:.35;
+  --violet-ink:#c4b5fd;
+  --grad:linear-gradient(135deg,#7c3aed,#d6336c);
+  --shadow:0 18px 48px rgba(0,0,0,.42);
+  --border:#44336b;
+  --heart-opacity:.3;
+  --glass-bg:rgba(30,19,45,.55);
+  --glass-brd:rgba(196,181,253,.14);
+  --glass-strong:rgba(36,26,56,.8);
+  --blur:18px;
+  color-scheme:dark;
 }
 html{scroll-behavior:smooth}
 body{
-  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  font-family:'Nunito',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
   background:linear-gradient(160deg,var(--bg1),var(--bg2)) fixed;
   color:var(--ink);line-height:1.6;min-height:100vh;
 }
 .container{max-width:1100px;margin:0 auto;padding:0 20px}
+
+/* ===== Фаза D: aurora-фон — мягкие пятна света за «стеклом» ===== */
+.aurora{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+.aurora-blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.6;will-change:transform}
+.ab-1{width:56vw;height:56vw;left:-14vw;top:-16vh;background:radial-gradient(circle at 30% 30%,#d8b4fe,#7c3aed 72%);animation:aurora1 24s ease-in-out infinite alternate}
+.ab-2{width:50vw;height:50vw;right:-12vw;top:20vh;background:radial-gradient(circle at 60% 40%,#f9a8d4,#ec4899 72%);animation:aurora2 28s ease-in-out infinite alternate}
+.ab-3{width:48vw;height:48vw;left:16vw;bottom:-20vh;background:radial-gradient(circle at 50% 50%,#a5b4fc,#6366f1 72%);animation:aurora3 32s ease-in-out infinite alternate}
+@keyframes aurora1{to{transform:translate(16vw,12vh) scale(1.15)}}
+@keyframes aurora2{to{transform:translate(-14vw,16vh) scale(1.1)}}
+@keyframes aurora3{to{transform:translate(12vw,-14vh) scale(1.18)}}
+/* Тёмная тема: aurora приглушена, тона глубже */
+[data-theme="dark"] .aurora-blob{opacity:.3}
+[data-theme="dark"] .ab-1{background:radial-gradient(circle at 30% 30%,#5b21b6,#4c1d95 72%)}
+[data-theme="dark"] .ab-2{background:radial-gradient(circle at 60% 40%,#9d174d,#831843 72%)}
+[data-theme="dark"] .ab-3{background:radial-gradient(circle at 50% 50%,#3730a3,#1e1b4b 72%)}
 
 /* ===== Шапка ===== */
 .header{
@@ -809,6 +855,60 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
   .tl-stem{left:16px}
   .tl-left,.tl-right{width:100%;margin-left:0!important;padding-left:42px!important;padding-right:0!important}
   .tl-left .tl-dot,.tl-right .tl-dot{left:9px;right:auto}
+}
+
+/* ===== Фаза D: Glass-карточки — полупрозрачные + размытие фона =====
+   Блок в конце файла: перекрывает сплошные фоны выше (и светлые, и тёмные),
+   чтобы aurora мягко просвечивала сквозь карточки. */
+.hero-card,.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.song-card,.wish,.photo,.progress-ring,.dates-empty,.rem-empty,.tl-card,.modal,.date-pop,.auth-card,.nav-sheet,
+[data-theme="dark"] .hero-card,[data-theme="dark"] .date-card,[data-theme="dark"] .note,[data-theme="dark"] .list-card,[data-theme="dark"] .calendar,[data-theme="dark"] .day-panel,[data-theme="dark"] .settings-card,[data-theme="dark"] .song-card,[data-theme="dark"] .wish,[data-theme="dark"] .photo,[data-theme="dark"] .progress-ring,[data-theme="dark"] .dates-empty,[data-theme="dark"] .rem-empty,[data-theme="dark"] .tl-card,[data-theme="dark"] .modal,[data-theme="dark"] .date-pop,[data-theme="dark"] .auth-card,[data-theme="dark"] .nav-sheet{
+  background:var(--glass-bg);
+  -webkit-backdrop-filter:blur(var(--blur));
+  backdrop-filter:blur(var(--blur));
+}
+/* Градиентные карточки — полупрозрачные версии стекла */
+.hero-card{background:linear-gradient(160deg,rgba(255,255,255,.7),rgba(248,242,255,.54))}
+.compliment-card{background:linear-gradient(160deg,rgba(255,245,251,.74),rgba(243,232,255,.62));-webkit-backdrop-filter:blur(var(--blur));backdrop-filter:blur(var(--blur))}
+.note.pinned{background:linear-gradient(160deg,rgba(255,245,251,.82),rgba(243,232,255,.7))}
+.auth-card{background:var(--glass-strong)}
+[data-theme="dark"] .hero-card{background:linear-gradient(160deg,rgba(38,25,54,.68),rgba(56,39,76,.52))}
+[data-theme="dark"] .compliment-card{background:linear-gradient(160deg,rgba(56,39,76,.68),rgba(38,25,54,.62))}
+[data-theme="dark"] .note.pinned{background:linear-gradient(160deg,rgba(61,42,80,.76),rgba(42,31,58,.76))}
+[data-theme="dark"] .auth-card{background:var(--glass-strong)}
+/* Тонкая светлая кромка — как блик на стекле */
+.hero-card,.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.song-card,.wish,.photo,.progress-ring,.tl-card,.modal,.date-pop,.auth-card{
+  border-color:var(--glass-brd);
+}
+.note.pinned{border-color:var(--pink2)}
+.photo.pinned{border-color:var(--pink);box-shadow:0 0 0 3px var(--pink2)}
+/* Тёмная 2.0: шапка и нижняя панель чуть плотнее */
+[data-theme="dark"] .header{background:rgba(22,14,36,.82)}
+[data-theme="dark"] .bottom-nav{background:rgba(22,14,36,.86)}
+
+/* ===== Фаза D: единый стиль пустых состояний ===== */
+.empty-state,.dates-empty,.rem-empty{
+  text-align:center;padding:36px 22px;border-radius:20px;color:var(--muted);
+  font-size:15px;font-weight:700;line-height:1.8;
+  background:var(--glass-bg);border:1.5px dashed var(--violet2);
+  -webkit-backdrop-filter:blur(var(--blur));backdrop-filter:blur(var(--blur));
+}
+[data-theme="dark"] .empty-state,[data-theme="dark"] .dates-empty,[data-theme="dark"] .rem-empty{
+  background:var(--glass-bg);border-color:var(--violet2)
+}
+.empty-state .es-emoji{display:block;font-size:34px;margin-bottom:6px}
+
+/* ===== Фаза D: микро-анимации ===== */
+@keyframes cardIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
+.view.active .note,.view.active .list-card,.view.active .wish{animation:cardIn .38s ease both}
+.note,.list-card,.wish{transition:transform .22s ease,box-shadow .22s ease,border-color .22s ease}
+.note.dragging,.list-card.dragging{transition:none !important}
+.btn:active,.nav-btn:active,.user-chip:active,.cal-nav:active,.dp-nav:active{transform:scale(.95)}
+.items li.done span{transition:color .25s}
+
+/* ===== Фаза D: View Transitions API — плавная смена вкладок и темы ===== */
+::view-transition-old(root),::view-transition-new(root){animation-duration:.32s;animation-timing-function:ease}
+@media (prefers-reduced-motion: reduce){
+  ::view-transition-old(root),::view-transition-new(root){animation:none}
 }
 
 

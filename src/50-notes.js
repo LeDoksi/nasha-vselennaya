@@ -26,7 +26,7 @@ function renderNotes() {
            </div>`
         : `<p>${esc(n.text)}</p>`}
     </div>`).join('')
-    : '<p class="cal-tip">Пока пусто. Напиши первую записку! 💌</p>';
+    : '<div class="empty-state">Пока пусто. Напиши первую записку! 💌</div>';
 }
 function addNote() {
   const t = $('#noteText').value.trim();

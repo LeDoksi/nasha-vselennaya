@@ -928,6 +928,16 @@ w('(s)=>{const ev = { target: { closest(sel) { return sel === "#bottomNav .nav-b
 assert(registry['#navSheet'].hidden === true, 'клик по вкладке в шторке закрывает шторку');
 assert(w('(s)=>s.activeView') === 'notes', 'клик по вкладке в шторке переходит на вкладку');
 
+// --- Фаза D: View Transitions API — переключение вкладок и темы через startViewTransition ---
+w('(s)=>{s.document.startViewTransition = cb => { cb(); return { finished: Promise.resolve() }; }; return 1;}');
+w('(s)=>{s.go("lists"); return 1;}');
+assert(w('(s)=>s.activeView') === 'lists', 'смена вкладки работает через startViewTransition');
+w('(s)=>{s.setTheme("dark"); return 1;}');
+assert(w('(s)=>s.document.documentElement.dataset.theme') === 'dark', 'смена темы работает через startViewTransition');
+w('(s)=>{delete s.document.startViewTransition; return 1;}');
+w('(s)=>{s.go("notes"); return 1;}');
+assert(w('(s)=>s.activeView') === 'notes', 'без startViewTransition — мгновенное переключение');
+
 // --- Фаза C: светбокс 2.0 (стрелки, зум, счётчик) ---
 w('(s)=>{s.openLightbox(["phA","phB","phC"], 1); return 1;}');
 assert(registry['#lightbox'].hidden === false, 'светбокс открывается');

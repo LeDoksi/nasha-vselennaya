@@ -170,7 +170,7 @@ function fmtResp(r) {
 function renderDates() {
   const box = $('#dates');
   if (!db.dates.length) {
-    box.innerHTML = '<div class="dates-empty">💘 Свиданий пока нет.<br>Нажми «Назначить свидание» — и пусть оно обязательно случится!</div>';
+    box.innerHTML = '<div class="empty-state dates-empty">💘 Свиданий пока нет.<br>Нажми «Назначить свидание» — и пусть оно обязательно случится!</div>';
     return;
   }
   const now0 = new Date();

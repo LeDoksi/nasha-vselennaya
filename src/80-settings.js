@@ -64,7 +64,12 @@ async function exportData() {
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'nasha-vselennaya-backup-encrypted.json';
+  // Фаза D: имя бэкапа с датой — сразу видно, когда сделана копия
+  const d = new Date();
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  a.download = `nasha-vselennaya-backup-${y}-${mo}-${da}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
   renderSettings();

@@ -15,7 +15,7 @@ function renderLists() {
   const wrap = $('#listsWrap');
   if (!wrap) return;
   if (!db.lists.length) {
-    wrap.innerHTML = '<div class="rem-empty">Пока нет ни одного списка 🫧<br>Создайте первый — например, «Подарки на 8 марта».</div>';
+    wrap.innerHTML = '<div class="empty-state rem-empty">Пока нет ни одного списка 🫧<br>Создайте первый — например, «Подарки на 8 марта».</div>';
     return;
   }
   wrap.innerHTML = db.lists.map(list => {
