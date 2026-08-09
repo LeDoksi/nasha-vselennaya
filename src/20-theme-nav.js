@@ -93,6 +93,8 @@ function buildBottomNav() {
   moreBtn.id = 'navMoreBtn';
   moreBtn.textContent = '⋯ Ещё';
   moreBtn.setAttribute('aria-haspopup', 'dialog');
+  moreBtn.setAttribute('aria-expanded', 'false');
+  moreBtn.addEventListener('click', () => openNavSheet()); // «Ещё» не имеет data-view — открываем шторку напрямую
   bar.appendChild(moreBtn);
   grid.innerHTML = '';
   BOTTOM_MORE.forEach(view => {
@@ -104,18 +106,22 @@ function buildBottomNav() {
     grid.appendChild(clone);
   });
 }
-function openNavSheet() { const s = $('#navSheet'); if (s) s.hidden = false; const o = $('#navSheetOverlay'); if (o) o.hidden = false; }
-function closeNavSheet() { const s = $('#navSheet'); if (s) s.hidden = true; const o = $('#navSheetOverlay'); if (o) o.hidden = true; }
+function openNavSheet() { const s = $('#navSheet'); if (s) s.hidden = false; const o = $('#navSheetOverlay'); if (o) o.hidden = false; const b = $('#navMoreBtn'); if (b) b.setAttribute('aria-expanded', 'true'); }
+function closeNavSheet() { const s = $('#navSheet'); if (s) s.hidden = true; const o = $('#navSheetOverlay'); if (o) o.hidden = true; const b = $('#navMoreBtn'); if (b) b.setAttribute('aria-expanded', 'false'); }
 
-// Клики по нижней панели и шторке (кнопки созданы клонированием — делегируем на document)
+// Клики по нижней панели и шторке (кнопки созданы клонированием — делегируем на document).
+// Вынесено в именованную функцию: «Ещё» без data-view открывает шторку своей веткой.
+function onNavDocClick(e) {
+  const nb = e.target && e.target.closest && e.target.closest('#bottomNav .nav-btn, #navSheet .nav-btn');
+  if (nb && nb.dataset && nb.dataset.view) { closeNavSheet(); go(nb.dataset.view); return; }
+  const moreBtn = e.target && e.target.closest && e.target.closest('#navMoreBtn');
+  if (moreBtn) { openNavSheet(); return; }
+  const sheetX = e.target && e.target.closest && e.target.closest('[data-close-sheet]');
+  if (sheetX) { closeNavSheet(); return; }
+  if (e.target && e.target.classList && e.target.classList.contains('sheet-overlay')) closeNavSheet();
+}
 if (typeof document !== 'undefined' && document.addEventListener) {
-  document.addEventListener('click', e => {
-    const nb = e.target && e.target.closest && e.target.closest('#bottomNav .nav-btn, #navSheet .nav-btn');
-    if (nb && nb.dataset && nb.dataset.view) { closeNavSheet(); go(nb.dataset.view); return; }
-    const sheetX = e.target && e.target.closest && e.target.closest('[data-close-sheet]');
-    if (sheetX) { closeNavSheet(); return; }
-    if (e.target && e.target.classList && e.target.classList.contains('sheet-overlay')) closeNavSheet();
-  });
+  document.addEventListener('click', onNavDocClick);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeNavSheet(); });
 }
 buildBottomNav();

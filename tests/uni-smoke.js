@@ -4,9 +4,11 @@ let src = fs.readFileSync(file, 'utf8');
 const registry = {};
 function makeEl() {
   return { id: '', dataset: {}, children: [], hidden: false, innerHTML: '', textContent: '',
-    style: {}, value: '', options: [], _handlers: {}, classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+    style: {}, value: '', options: [], _handlers: {}, _attrs: {},
+    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
     addEventListener(type, fn) { (this._handlers[type] = this._handlers[type] || []).push(fn); }, querySelectorAll() { return []; },
-    appendChild() {}, remove() {}, focus() {}, click() {}, setAttribute() {}, removeAttribute() {} };
+    appendChild() {}, remove() {}, focus() {}, click() {},
+    setAttribute(k, v) { this._attrs[k] = String(v); }, getAttribute(k) { return this._attrs[k] ?? null; }, removeAttribute(k) { delete this._attrs[k]; } };
 }
 const sandbox = {
   document: {
@@ -117,8 +119,9 @@ function __TEST__(s){
   s.shuffleHistoryPhotos = shuffleHistoryPhotos; s.historyPhotosHtml = historyPhotosHtml;
   Object.defineProperty(s, 'historyCollage', { get: () => historyCollage, set: v => { historyCollage = v; }, configurable: true });
   s.closeOverlay = closeOverlay;
-  s.buildBottomNav = buildBottomNav; s.openNavSheet = openNavSheet; s.closeNavSheet = closeNavSheet;
+  s.buildBottomNav = buildBottomNav; s.openNavSheet = openNavSheet; s.closeNavSheet = closeNavSheet; s.onNavDocClick = onNavDocClick;
   s.BOTTOM_PRIMARY = BOTTOM_PRIMARY; s.BOTTOM_MORE = BOTTOM_MORE;
+  Object.defineProperty(s, 'activeView', { get: () => activeView, set: v => { activeView = v; }, configurable: true });
   Object.defineProperty(s, 'lightboxList', { get: () => lightboxList, set: v => { lightboxList = v; }, configurable: true });
   Object.defineProperty(s, 'lightboxIdx', { get: () => lightboxIdx, set: v => { lightboxIdx = v; }, configurable: true });
   Object.defineProperty(s, 'lightboxZoom', { get: () => lightboxZoom, set: v => { lightboxZoom = v; }, configurable: true });
@@ -905,6 +908,14 @@ w('(s)=>{s.openNavSheet(); return 1;}');
 assert(registry['#navSheet'].hidden === false && registry['#navSheetOverlay'].hidden === false, '«Ещё»-шторка открывается');
 w('(s)=>{s.closeNavSheet(); return 1;}');
 assert(registry['#navSheet'].hidden === true && registry['#navSheetOverlay'].hidden === true, '«Ещё»-шторка закрывается');
+// Регрессия: клик по «⋯ Ещё» (у кнопки нет data-view) должен открывать шторку
+w('(s)=>{const ev = { target: { closest(sel) { return sel === "#navMoreBtn" ? { dataset: {} } : null; } } }; s.onNavDocClick(ev); return 1;}');
+assert(registry['#navSheet'].hidden === false, 'клик по «⋯ Ещё» открывает шторку');
+assert(w('(s)=>{const b = s.document.querySelector("#navMoreBtn"); return b.getAttribute ? b.getAttribute("aria-expanded") : null;}') === 'true', 'у «⋯ Ещё» выставляется aria-expanded=true');
+// Клик по вкладке внутри шторки закрывает её и переходит
+w('(s)=>{const ev = { target: { closest(sel) { return sel === "#bottomNav .nav-btn, #navSheet .nav-btn" ? { dataset: { view: "memory" } } : null; } } }; s.onNavDocClick(ev); return 1;}');
+assert(registry['#navSheet'].hidden === true, 'клик по вкладке в шторке закрывает шторку');
+assert(w('(s)=>s.activeView') === 'memory', 'клик по вкладке в шторке переходит на вкладку');
 
 // --- Фаза C: светбокс 2.0 (стрелки, зум, счётчик) ---
 w('(s)=>{s.openLightbox(["phA","phB","phC"], 1); return 1;}');
