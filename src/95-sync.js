@@ -460,13 +460,13 @@ async function listCloudPhotos() {
 
 // Выгрузка недостающих частей фото в облако (шифртекст как есть).
 async function uploadCloudPhoto(id, cloud, local) {
-  const meta = (await photoStore.getMeta(id).catch(() => null)) || {};
-  const jobs = [];
-  for (const part of PHOTO_PARTS) {
-    const has = cloud[id] && cloud[id][part];
-    if (has || !local['has' + part[0].toUpperCase() + part.slice(1)]) continue;
-    jobs.push((async () => {
-      try {
+  try {
+    const meta = (await photoStore.getMeta(id).catch(() => null)) || {};
+    const jobs = [];
+    for (const part of PHOTO_PARTS) {
+      const has = cloud[id] && cloud[id][part];
+      if (has || !local['has' + part[0].toUpperCase() + part.slice(1)]) continue;
+      jobs.push((async () => {
         const getter = part === 'orig' ? 'getEncryptedOrig' : (part === 'full' ? 'getEncryptedFull' : 'getEncryptedThumb');
         const enc = await photoStore[getter](id);
         if (!enc) return;
@@ -474,23 +474,27 @@ async function uploadCloudPhoto(id, cloud, local) {
         // в метаданных Storage), чтобы на другом устройстве восстановить тип файла.
         const payload = { e: enc, m: { t: meta.origType || meta.type || '', ft: meta.type || '', st: meta.thumbType || '', s: meta.size || 0 } };
         await photoRef(part, id).put(new Blob([JSON.stringify(payload)], { type: 'application/json' }));
-      } catch (e) { console.warn('[sync] не удалось выгрузить фото ' + id + '/' + part, e); }
-    })());
+      })());
+    }
+    await Promise.all(jobs);
+    return { ok: true };
+  } catch (e) {
+    console.warn('[sync] не удалось выгрузить фото ' + id, e);
+    return { ok: false, err: e };
   }
-  await Promise.all(jobs);
 }
 
 
 // Скачивание недостающих частей фото из облака (без повторного шифрования).
 async function downloadCloudPhoto(id, cloud, local) {
-  const meta = (local && (await photoStore.getMeta(id).catch(() => null))) || {};
-  const got = {};
-  let gotMeta = null;
-  for (const part of PHOTO_PARTS) {
-    const hasCloud = cloud[id] && cloud[id][part];
-    const hasLocal = local && local['has' + part[0].toUpperCase() + part.slice(1)];
-    if (!hasCloud || hasLocal) continue;
-    try {
+  try {
+    const meta = (local && (await photoStore.getMeta(id).catch(() => null))) || {};
+    const got = {};
+    let gotMeta = null;
+    for (const part of PHOTO_PARTS) {
+      const hasCloud = cloud[id] && cloud[id][part];
+      const hasLocal = local && local['has' + part[0].toUpperCase() + part.slice(1)];
+      if (!hasCloud || hasLocal) continue;
       const data = await photoRef(part, id).getBlob();
       const txt = (typeof data === 'string') ? data : await data.text();
       const parsed = JSON.parse(txt);
@@ -500,38 +504,45 @@ async function downloadCloudPhoto(id, cloud, local) {
       if (!enc) continue;
       got[part] = enc;
       if (parsed && parsed.m && !gotMeta) gotMeta = parsed.m;
-    } catch (e) { console.warn('[sync] не удалось скачать фото ' + id + '/' + part, e); }
+    }
+    if (!got.orig && !got.full && !got.thumb) return { ok: false, err: new Error('в облаке нет частей для скачивания') };
+    // Сохраняем всё разом, чтобы не потерять уже имеющиеся локальные части
+    const exOrig = (local && local.hasOrig) ? await photoStore.getEncryptedOrig(id) : null;
+    const exFull = (local && local.hasFull) ? await photoStore.getEncryptedFull(id) : null;
+    const exThumb = (local && local.hasThumb) ? await photoStore.getEncryptedThumb(id) : null;
+    const meta2 = { ...meta };
+    if (gotMeta) {
+      if (gotMeta.t) meta2.origType = gotMeta.t;
+      if (gotMeta.ft) meta2.type = gotMeta.ft;
+      if (gotMeta.st) meta2.thumbType = gotMeta.st;
+      if (gotMeta.s) meta2.size = gotMeta.s;
+    }
+    await photoStore.putEncrypted(id, got.full || exFull, got.thumb || exThumb, meta2, got.orig || exOrig);
+    // Приехала миниатюра — прогреваем кэш, фото сразу показывается в галерее
+    try {
+      const t = await photoStore.getThumb(id);
+      if (t) setThumbUrl(id, await blobToDataUrl(t));
+    } catch (e) {}
+    return { ok: true };
+  } catch (e) {
+    console.warn('[sync] не удалось скачать фото ' + id, e);
+    return { ok: false, err: e };
   }
-  if (!got.orig && !got.full && !got.thumb) return;
-  // Сохраняем всё разом, чтобы не потерять уже имеющиеся локальные части
-  const exOrig = (local && local.hasOrig) ? await photoStore.getEncryptedOrig(id) : null;
-  const exFull = (local && local.hasFull) ? await photoStore.getEncryptedFull(id) : null;
-  const exThumb = (local && local.hasThumb) ? await photoStore.getEncryptedThumb(id) : null;
-  const meta2 = { ...meta };
-  if (gotMeta) {
-    if (gotMeta.t) meta2.origType = gotMeta.t;
-    if (gotMeta.ft) meta2.type = gotMeta.ft;
-    if (gotMeta.st) meta2.thumbType = gotMeta.st;
-    if (gotMeta.s) meta2.size = gotMeta.s;
-  }
-  await photoStore.putEncrypted(id, got.full || exFull, got.thumb || exThumb, meta2, got.orig || exOrig);
-  // Приехала миниатюра — прогреваем кэш, фото сразу показывается в галерее
-  try {
-    const t = await photoStore.getThumb(id);
-    if (t) setThumbUrl(id, await blobToDataUrl(t));
-  } catch (e) {}
 }
 
-// Проверка, что облачные фото зашифрованы ТЕКУЩИМ ключом. Скачиваем по одной
-// самой «лёгкой» части каждого фото (миниатюра < показ-версия < оригинал) и
-// пробуем расшифровать. Если хоть одно фото не расшифровывается — в облаке есть
-// фото ДРУГОГО сейфа (например, свежий браузер создал свой ключ): удалять их
-// нельзя, это не «мусор», а чужие данные. Возвращает true, если облако пусто
-// или целиком «наше». Проверяем все фото, а не одно: смесь «наших» и «чужих»
-// (свой сейф + фото старого) тоже обязана прервать сверку.
-async function cloudPhotosDecryptable(cloud) {
+// Проверяет облачные фото по одному: расшифровываются ли они текущим ключом.
+// Берём самую «лёгкую» часть (миниатюра < показ-версия < оригинал) и пробуем
+// расшифровать. Возвращает { foreign, unknown }:
+//  - foreign: Map<id, part> — фото реально зашифровано ДРУГИМ ключом. Его не
+//    трогаем никогда: ни скачивать, ни удалять.
+//  - unknown: Map<id, err> — временный сбой (сеть/JSON/незнакомый формат). Фото
+//    не трогаем в этом проходе, синхронизация повторится позже.
+// Важно: фото чужого ключа НЕ блокируют синхронизацию остальных — иначе один
+// «чужой» файл навсегда заморозил бы и скачивание наших фото, и их выгрузку.
+async function probeCloudKeys(cloud) {
+  const foreign = new Map();
+  const unknown = new Map();
   for (const id of Object.keys(cloud)) {
-    // Берём самую маленькую присутствующую часть — хватает для проверки ключа
     const part = ['thumb', 'full', 'orig'].find(p => cloud[id] && cloud[id][p]);
     if (!part) continue;
     try {
@@ -540,56 +551,80 @@ async function cloudPhotosDecryptable(cloud) {
       const parsed = JSON.parse(txt);
       const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
                 : (parsed && typeof parsed.d === 'string') ? parsed : null;
-      if (!enc) return false;
+      if (!enc) throw new Error('незнакомый формат облачного файла');
       await aesDec(masterKey, enc);
     } catch (e) {
-      console.warn('[sync] облачное фото не расшифровывается текущим ключом', id, part);
-      return false;
+      // Криптографический сбой (неверный ключ/IV/шифртекст) — фото «чужое».
+      // Любая другая ошибка (сеть, JSON) — временная, помечаем unknown.
+      const emsg = String(e && e.message || e);
+      if (e && (e.name === 'OperationError' || /decrypt/i.test(emsg))) {
+        console.warn('[sync] облачное фото не расшифровывается текущим ключом', id, part);
+        foreign.set(id, part);
+      } else {
+        unknown.set(id, e);
+      }
     }
   }
-  return true; // облако пусто или целиком расшифровывается — можно сверять
+  return { foreign, unknown };
 }
 
 // Полная сверка фото: локальный store ↔ облако ↔ db.photos.
 async function syncPhotos() {
   if (!syncStorage || !photoStore || !masterKey || photoSyncing) return;
   photoSyncing = true;
+  const stats = { downloaded: 0, uploaded: 0, failed: 0, retry: false };
   try {
     const localList = await photoStore.listIds();
     const localMap = new Map(localList.map(l => [l.id, l]));
     const cloud = await listCloudPhotos();
-    // Защита от потери данных: если облачные фото зашифрованы ДРУГИМ ключом
-    // (свежий браузер создал второй сейф, а в облаке лежат фото первого), шаги
-    // 2–4 делать нельзя — «облачный мусор» оказался бы чужими фото. Прерываем.
-    if (Object.keys(cloud).length && !(await cloudPhotosDecryptable(cloud))) {
-      console.warn('[sync] облачные фото зашифрованы другим ключом — сверка фото пропущена, ничего не удалено');
-      notify('Облачные фото зашифрованы другим паролем — я их не трогаю 💜', true);
-      return;
+    // Проверяем каждое облачное фото отдельно. Чужое (другой ключ) НЕ блокирует
+    // синхронизацию остальных: свои фото скачиваем и выгружаем, а чужие просто
+    // не трогаем. Раньше одно «чужое» фото прерывало всю сверку — и свои фото
+    // навсегда оставались невыгруженными и нескачанными (deadlock на телефоне).
+    const probe = Object.keys(cloud).length ? await probeCloudKeys(cloud) : { foreign: new Map(), unknown: new Map() };
+    const isSkipped = id => probe.foreign.has(id) || probe.unknown.has(id);
+    if (probe.foreign.size) {
+      console.warn('[sync] в облаке фото с другим ключом (' + probe.foreign.size + ' шт) — их не трогаю, свои фото синхронизирую');
+      notify('В облаке есть фото с другим паролем — я их не трогаю, но свои фото выгружаю 💜', true);
     }
+    if (probe.unknown.size) stats.retry = true; // сеть/формат — повторим позже
     const want = new Set((db.photos || []).map(p => p && p.id).filter(Boolean));
     // 1. Локальный мусор: блоб без фото в db (фото удалено) — чистим store
     for (const id of localMap.keys()) {
       if (want.has(id)) continue;
       try { await photoStore.delete(id); thumbCache.delete(id); } catch (e) {}
     }
-    // 2. Облачный мусор: файлы без фото в db — удаляем (удаление разъезжается)
-    for (const id of Object.keys(cloud)) {
-      if (want.has(id)) continue;
-      for (const part of PHOTO_PARTS) {
-        if (cloud[id][part]) { try { await photoRef(part, id).delete(); } catch (e) {} }
+    // 2. Облачный мусор: удаляем ТОЛЬКО если облако целиком «наше». Если есть
+    //    хоть одно чужое/непроверенное фото — удаление отменяется: «мусором»
+    //    могут оказаться чужие данные, их не трогаем.
+    if (!probe.foreign.size && !probe.unknown.size) {
+      for (const id of Object.keys(cloud)) {
+        if (want.has(id)) continue;
+        for (const part of PHOTO_PARTS) {
+          if (cloud[id][part]) { try { await photoRef(part, id).delete(); } catch (e) {} }
+        }
       }
     }
-    // 3. Скачиваем недостающее с облака
+    // 3. Скачиваем недостающее с облака (кроме чужих и временно недоступных)
     for (const id of want) {
+      if (isSkipped(id)) continue;
       const l = localMap.get(id);
       const need = PHOTO_PARTS.some(part => cloud[id] && cloud[id][part] && (!l || !l['has' + part[0].toUpperCase() + part.slice(1)]));
-      if (need) await downloadCloudPhoto(id, cloud, l);
+      if (!need) continue;
+      const res = await downloadCloudPhoto(id, cloud, l);
+      if (res && res.ok) stats.downloaded++;
+      else { stats.failed++; stats.retry = true; }
     }
     // 4. Выгружаем недостающее в облако (новые фото + бэкфилл старых)
     for (const id of want) {
       const l = localMap.get(id);
       if (!l || !l.hasFull) continue; // полного блоба нет — выгружать нечего
-      await uploadCloudPhoto(id, cloud, l);
+      const res = await uploadCloudPhoto(id, cloud, l);
+      if (res && res.ok) stats.uploaded++;
+      else { stats.failed++; stats.retry = true; }
+    }
+    if (stats.failed) {
+      notify('Часть фото не синхронизировалась — проверь интернет, повторю через минуту 💜', true);
     }
   } catch (e) {
     console.warn('[sync] сверка фото не удалась', e);
@@ -598,6 +633,11 @@ async function syncPhotos() {
     // Докачали блобы из облака — прогреваем кэш миниатюр и перерисовываем вьюхи,
     // иначе миниатюры, приехавшие после первого рендера, не появятся в галерее.
     if (typeof warmThumbCache === 'function') warmThumbCache();
+    // Были временные сбои — попробуем ещё раз через 20 секунд.
+    if (stats.retry) {
+      clearTimeout(photoSyncTimer);
+      photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 20000);
+    }
   }
 }
 
@@ -630,10 +670,72 @@ async function syncNow() {
   if (syncPushBlocked) { await forcePushVault(); return; }
   await pullVault(false);
   await pushVault();
+  schedulePhotoSync(); // фото-сверка тоже по требованию
 }
 const syncNowBtnEl = $('#syncNowBtn');
 if (syncNowBtnEl) syncNowBtnEl.addEventListener('click', syncNow);
 
+/* ===== Диагностика облака (кнопка в настройках) =====
+   Показывает, что сейчас в локальном фото-сторе, что в облаке и расшифровываются
+   ли облачные фото текущим ключом. Помогает найти, где именно рвётся синхронизация. */
+async function getCloudSyncTs() {
+  if (!syncDb) return '—';
+  try {
+    const snap = await syncDb.ref(SYNC_PATH).once('value');
+    const v = snap && snap.val ? snap.val() : null;
+    return v ? (v.syncTs || 0) : 0;
+  } catch (e) { return 'ошибка: ' + String(e && e.message || e); }
+}
+async function runCloudDiagnostics() {
+  const out = $('#cloudDiagOut');
+  if (!out) return;
+  out.hidden = false;
+  const lines = [];
+  const add = s => lines.push(s);
+  try {
+    add('syncReady: ' + syncReady);
+    add('syncStorage: ' + (syncStorage ? 'яндекс.диск' : 'нет'));
+    add('masterKey: ' + (masterKey ? 'есть' : 'НЕТ'));
+    add('photos в db: ' + ((db.photos || []).length));
+    add('syncTs: локально=' + syncTs + ', в облаке=' + (await getCloudSyncTs()));
+    try {
+      const localList = await photoStore.listIds();
+      add('локальный store: ' + localList.length + ' фото');
+      for (const l of localList) add('  ' + l.id + ' full=' + l.hasFull + ' thumb=' + l.hasThumb + ' orig=' + l.hasOrig);
+    } catch (e) { add('ошибка listIds: ' + String(e && e.message || e)); }
+    let cloud = {};
+    try { cloud = await listCloudPhotos(); } catch (e) { add('ошибка listCloudPhotos: ' + String(e && e.message || e)); }
+    add('облако: ' + Object.keys(cloud).length + ' фото');
+    for (const id of Object.keys(cloud)) add('  ' + id + ': ' + (PHOTO_PARTS.filter(p => cloud[id][p]).join(',') || '?'));
+    if (Object.keys(cloud).length) {
+      add('— расшифровка облачных фото текущим ключом —');
+      for (const id of Object.keys(cloud)) {
+        const part = ['thumb', 'full', 'orig'].find(p => cloud[id] && cloud[id][p]);
+        if (!part) { add('  ' + id + ': нет частей'); continue; }
+        try {
+          const data = await photoRef(part, id).getBlob();
+          const txt = (typeof data === 'string') ? data : await data.text();
+          const parsed = JSON.parse(txt);
+          const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
+                    : (parsed && typeof parsed.d === 'string') ? parsed : null;
+          if (!enc) { add('  ' + id + ' (' + part + '): НЕЗНАКОМЫЙ ФОРМАТ'); continue; }
+          const u8 = await aesDec(masterKey, enc);
+          const head = Array.from(u8.subarray(0, 4)).map(b => String.fromCharCode(b)).join('');
+          add('  ' + id + ' (' + part + '): расшифровано ✅ ' + u8.length + ' б «' + head.replace(/[^ -~]/g, '?') + '»');
+        } catch (e) {
+          const msg = String(e && e.name || '') + ': ' + String(e && e.message || e);
+          const isKey = /OperationError|decrypt/i.test(msg);
+          add('  ' + id + ' (' + part + '): ' + (isKey ? 'ДРУГОЙ КЛЮЧ ❌' : 'ОШИБКА ⚠') + ' — ' + msg.slice(0, 140));
+        }
+      }
+    }
+  } catch (e) {
+    add('неожиданная ошибка: ' + String(e && e.message || e));
+  }
+  out.textContent = lines.join(String.fromCharCode(10));
+}
+const cloudDiagBtnEl = $('#cloudDiagBtn');
+if (cloudDiagBtnEl) cloudDiagBtnEl.addEventListener('click', runCloudDiagnostics);
 /* ===== Старт приложения =====
    initAuth() из 90-effects-init.js вызывается здесь — последним в сборке:
    он читает FIREBASE_CONFIG (let из этого модуля), который ещё в «мёртвой зоне»

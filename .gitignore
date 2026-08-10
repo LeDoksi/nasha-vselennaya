@@ -15,3 +15,7 @@ tools/browser-check.js
 tools/browser-check-results.txt
 tools/patch-dnd.js
 tools/serve.js
+
+
+# Temporary debug scripts (not for the repo)
+tmp-*.js

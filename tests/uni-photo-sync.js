@@ -110,7 +110,7 @@ function __TEST__(s){
   s.createVault = createVault; s.lock = lock; s.save = save; s.loadVault = loadVault;
   s.initSync = initSync; s.stopSync = stopSync;
   s.syncPhotos = syncPhotos; s.schedulePhotoSync = schedulePhotoSync; s.listCloudPhotos = listCloudPhotos;
-  s.cloudPhotosDecryptable = cloudPhotosDecryptable;
+  s.probeCloudKeys = probeCloudKeys;
   s.makeYdStorage = makeYdStorage;
   // Сброс токена: первая initSync() должна использовать Firebase Storage (mock),
   // Яндекс.Диск подключается позже с mock-токеном (раздел 8).
@@ -280,7 +280,7 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   assert(!!ydStore['app:/photos/full/pZ'] && !!ydStore['app:/photos/thumb/pZ'],
     'фото чужого ключа не удаляются из облака (это не мусор)');
   assert(!!ydStore['app:/photos/full/pB'] && !!ydStore['app:/photos/full/pOld'],
-    'смесь «наших» и «чужих»: сверка прервана, наши фото тоже не тронуты');
+    'смесь «наших» и «чужих»: чужие не удаляются, наши не затираются (want пуст — синхронизировать нечего)');
   assert(await w('(s)=>s.photoStore.getMeta("pZ")') === null,
     'фото чужого ключа не скачиваются в локальный стор');
   assert(w('(s)=>s.photoSyncing') === false, 'syncPhotos завершился штатно (флаг сброшен)');
@@ -296,6 +296,22 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   assert(await w('(s)=>s.photoStore.getMeta("pZ")') === null,
     'свежий браузер: чужое облако не скачивается');
   assert(w('(s)=>s.photoSyncing') === false, 'свежий браузер: syncPhotos завершился штатно');
+
+  // 11. ГЛАВНЫЙ СЦЕНАРИЙ ФИКСА (B5): локальные свои фото + чужое фото в облаке.
+  // Раньше cloudPhotosDecryptable() прерывала всю сверку — своё фото так и не
+  // выгружалось (deadlock: на телефоне свои фото не уходят в облако, а на ПК
+  // вместо них приходил «битый файл»). Теперь probeCloudKeys() помечает чужое,
+  // но свои фото синхронизируются: выгружаются в облако, чужое не трогается.
+  await w('(s)=>s.photoStore.put("pN", new Blob(["FULL-N"]), new Blob(["THUMB-N"]), {type:"image/jpeg",thumbType:"image/webp",title:"N"}, new Blob(["ORIG-N"]))');
+  w('(s)=>{s.db.photos = [{id:"pN",title:"N",labels:[],pinned:false,ts:5,order:1}]; return 1;}');
+  await w('(s)=>s.syncPhotos()');
+  assert(!!ydStore['app:/photos/orig/pN'] && !!ydStore['app:/photos/full/pN'] && !!ydStore['app:/photos/thumb/pN'],
+    'фикс: своё фото выгружается, даже когда в облаке есть чужое (раньше — deadlock)');
+  assert(!!ydStore['app:/photos/full/pZ'] && !!ydStore['app:/photos/thumb/pZ'],
+    'фикс: чужое фото остаётся нетронутым при выгрузке своих');
+  assert(await w('(s)=>s.photoStore.getMeta("pN")') !== null,
+    'фикс: своё фото осталось в локальном сторе');
+  assert(w('(s)=>s.photoSyncing') === false, 'фикс: syncPhotos завершился штатно');
 
   console.log('OK: ' + results.length + ' photo-sync checks passed');
 })().catch(e => { process.stdout.write('FAIL: photo-sync: ' + (e && (e.stack || e.message) || e) + '\n'); process.exit(1); });

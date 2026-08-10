@@ -1,0 +1,22 @@
+name: CI — сборка и тесты
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v4
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Установить зависимости
+        run: npm install
+      - name: Сборка app.js + все тесты (npm run check)
+        run: npm run check
