@@ -115,8 +115,10 @@
 открываешь ссылку — всё подтянется из облака.
 
 1. Заведи аккаунт на https://github.com (бесплатно, без карты).
-2. Нажми **New repository** → имя, например `nasha-vselennaya` → **Public** →
+2. Нажми **New repository** → имя, например `nasha-vselennaya` → **Private** →
    **Create repository**. Оставь его пустым (не создавай файлы).
+   GitHub Pages работает и на приватных репозиториях: код остаётся только у тебя,
+   а сайт по ссылке будет доступен тем, кому ты её дашь.
 3. В папке проекта (PowerShell) один раз подключи и отправь репозиторий:
    ```powershell
    git remote add origin https://github.com/ТВОЙ_ЛОГИН/nasha-vselennaya.git
