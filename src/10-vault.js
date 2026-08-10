@@ -173,10 +173,18 @@ function renderAuthWho() {
 }
 async function tryUnlock() {
   const err = $('#authErr');
-  const local = loadVault();
-  const cloud = pendingCloudVault;
+  let local = loadVault();
+  let cloud = pendingCloudVault;
+  if (!local && !cloud && typeof fetchCloudVault === 'function') {
+    // Облако могли ещё не успеть проверить (медленная сеть на телефоне) —
+    // пробуем ещё раз до того, как сказать «сейф не найден».
+    if (err) err.textContent = 'Проверяем облако ещё раз…';
+    const fresh = await fetchCloudVault();
+    cloud = fresh ? fresh.vault : null;
+    if (cloud) { pendingCloudVault = cloud; const hint = $('#cloudHint'); if (hint) hint.hidden = false; }
+  }
   if (!local && !cloud) {
-    if (err) err.textContent = 'Сейф не найден ни на устройстве, ни в облаке. Создай пароль или проверь интернет.';
+    if (err) err.textContent = 'Сейф не найден ни на устройстве, ни в облаке. Проверь интернет и нажми «Войти» ещё раз, либо создай новый пароль.';
     return;
   }
   const hasPass = !!((local && (local.keys || []).some(k => k.who === pendingAuthWho)) ||
@@ -264,6 +272,49 @@ if (setupToLockEl) setupToLockEl.addEventListener('click', async () => {
   const hint = $('#cloudHint');
   if (hint) hint.hidden = !cloud;
   if (cloud) $('#authPass').focus();
+});
+// «Повторить проверку облака» — когда первый запрос не нашёл сейф (сеть могла
+// моргнуть, анонимный вход не успел).
+const cloudRetryBtnEl = $('#cloudRetryBtn');
+if (cloudRetryBtnEl) cloudRetryBtnEl.addEventListener('click', async () => {
+  const btn = $('#cloudRetryBtn');
+  if (btn) btn.disabled = true;
+  $('#authErr').textContent = 'Проверяем облако…';
+  const cloud = typeof fetchCloudVault === 'function' ? await fetchCloudVault() : null;
+  if (btn) btn.disabled = false;
+  if (cloud && cloud.vault) {
+    pendingCloudVault = cloud.vault;
+    $('#cloudHint').hidden = false;
+    $('#cloudRetryBtn').hidden = true;
+    $('#toSetupBtn').hidden = true;
+    $('#authErr').textContent = '';
+    $('#authPass').focus();
+  } else {
+    $('#authErr').textContent = 'Всё ещё не можем связаться с облаком. Проверь интернет и попробуй ещё раз, либо создай новый сейф.';
+  }
+});
+// «Создать новый сейф» — осознанный выбор для настоящего первого запуска.
+const toSetupBtnEl = $('#toSetupBtn');
+if (toSetupBtnEl) toSetupBtnEl.addEventListener('click', () => showAuth('setup'));
+// «Забыть сейф на этом устройстве» — восстановление после случайного второго
+// сейфа (телефон «создал свой пароль» вместо входа): стираем локальный сейф и
+// фото этого устройства, и при следующем открытии приложение снова найдёт общий
+// сейф пары в облаке. Облачные данные при этом не трогаются.
+const forgetVaultBtnEl = $('#forgetVaultBtn');
+if (forgetVaultBtnEl) forgetVaultBtnEl.addEventListener('click', async () => {
+  const msg = pendingCloudVault
+    ? 'Забыть сейф и фото на ЭТОМ устройстве? Облачные данные пары не пострадают — при следующем входе они восстановятся.'
+    : 'Сбросить это устройство к «первому запуску»? Локальный сейф и фото будут удалены с ЭТОГО устройства.';
+  if (!confirm(msg)) return;
+  try { localStorage.removeItem(VAULT_KEY); } catch (e) {}
+  try { localStorage.removeItem(VAULT_KEY_PREV); } catch (e) {}
+  try { localStorage.removeItem(SYNC_KEY); } catch (e) {}
+  try { localStorage.removeItem(KEY); } catch (e) {}
+  if (photoStore && typeof photoStore.clear === 'function') {
+    try { await photoStore.clear(); } catch (e) {}
+  }
+  clearThumbCache();
+  location.reload();
 });
 document.addEventListener('click', e => {
   const au = e.target.closest('[data-auth-who]');

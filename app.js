@@ -1165,8 +1165,12 @@ async function hydratePhotoImgs(scope) {
     const id = im.dataset.photoSrc;
     const p = db.photos.find(x => x.id === id);
     const url = p ? await photoUrl(p, true) : '';
-    if (url) im.src = url;
-    im.removeAttribute('data-photo-src');
+    if (url) {
+      im.src = url;
+      im.removeAttribute('data-photo-src'); // URL найден — больше не перечитываем
+    }
+    // URL не нашёлся (фото ещё качается из облака) — data-photo-src остаётся,
+    // следующий hydratePhotoImgs после докачки подхватит его сам.
   }
 }
 /* ===== Хранилище ===== */
@@ -1344,10 +1348,18 @@ function renderAuthWho() {
 }
 async function tryUnlock() {
   const err = $('#authErr');
-  const local = loadVault();
-  const cloud = pendingCloudVault;
+  let local = loadVault();
+  let cloud = pendingCloudVault;
+  if (!local && !cloud && typeof fetchCloudVault === 'function') {
+    // Облако могли ещё не успеть проверить (медленная сеть на телефоне) —
+    // пробуем ещё раз до того, как сказать «сейф не найден».
+    if (err) err.textContent = 'Проверяем облако ещё раз…';
+    const fresh = await fetchCloudVault();
+    cloud = fresh ? fresh.vault : null;
+    if (cloud) { pendingCloudVault = cloud; const hint = $('#cloudHint'); if (hint) hint.hidden = false; }
+  }
   if (!local && !cloud) {
-    if (err) err.textContent = 'Сейф не найден ни на устройстве, ни в облаке. Создай пароль или проверь интернет.';
+    if (err) err.textContent = 'Сейф не найден ни на устройстве, ни в облаке. Проверь интернет и нажми «Войти» ещё раз, либо создай новый пароль.';
     return;
   }
   const hasPass = !!((local && (local.keys || []).some(k => k.who === pendingAuthWho)) ||
@@ -1435,6 +1447,49 @@ if (setupToLockEl) setupToLockEl.addEventListener('click', async () => {
   const hint = $('#cloudHint');
   if (hint) hint.hidden = !cloud;
   if (cloud) $('#authPass').focus();
+});
+// «Повторить проверку облака» — когда первый запрос не нашёл сейф (сеть могла
+// моргнуть, анонимный вход не успел).
+const cloudRetryBtnEl = $('#cloudRetryBtn');
+if (cloudRetryBtnEl) cloudRetryBtnEl.addEventListener('click', async () => {
+  const btn = $('#cloudRetryBtn');
+  if (btn) btn.disabled = true;
+  $('#authErr').textContent = 'Проверяем облако…';
+  const cloud = typeof fetchCloudVault === 'function' ? await fetchCloudVault() : null;
+  if (btn) btn.disabled = false;
+  if (cloud && cloud.vault) {
+    pendingCloudVault = cloud.vault;
+    $('#cloudHint').hidden = false;
+    $('#cloudRetryBtn').hidden = true;
+    $('#toSetupBtn').hidden = true;
+    $('#authErr').textContent = '';
+    $('#authPass').focus();
+  } else {
+    $('#authErr').textContent = 'Всё ещё не можем связаться с облаком. Проверь интернет и попробуй ещё раз, либо создай новый сейф.';
+  }
+});
+// «Создать новый сейф» — осознанный выбор для настоящего первого запуска.
+const toSetupBtnEl = $('#toSetupBtn');
+if (toSetupBtnEl) toSetupBtnEl.addEventListener('click', () => showAuth('setup'));
+// «Забыть сейф на этом устройстве» — восстановление после случайного второго
+// сейфа (телефон «создал свой пароль» вместо входа): стираем локальный сейф и
+// фото этого устройства, и при следующем открытии приложение снова найдёт общий
+// сейф пары в облаке. Облачные данные при этом не трогаются.
+const forgetVaultBtnEl = $('#forgetVaultBtn');
+if (forgetVaultBtnEl) forgetVaultBtnEl.addEventListener('click', async () => {
+  const msg = pendingCloudVault
+    ? 'Забыть сейф и фото на ЭТОМ устройстве? Облачные данные пары не пострадают — при следующем входе они восстановятся.'
+    : 'Сбросить это устройство к «первому запуску»? Локальный сейф и фото будут удалены с ЭТОГО устройства.';
+  if (!confirm(msg)) return;
+  try { localStorage.removeItem(VAULT_KEY); } catch (e) {}
+  try { localStorage.removeItem(VAULT_KEY_PREV); } catch (e) {}
+  try { localStorage.removeItem(SYNC_KEY); } catch (e) {}
+  try { localStorage.removeItem(KEY); } catch (e) {}
+  if (photoStore && typeof photoStore.clear === 'function') {
+    try { await photoStore.clear(); } catch (e) {}
+  }
+  clearThumbCache();
+  location.reload();
 });
 document.addEventListener('click', e => {
   const au = e.target.closest('[data-auth-who]');
@@ -4141,24 +4196,22 @@ async function initAuth() {
   lastActivity = Date.now();
   startAutoLock();
   document.body.classList.add('auth');
-  if (loadVault()) {
-    showAuth('lock'); // сейф есть → вход
-  } else {
-    // Первый запуск: сначала проверяем, нет ли сейфа пары в облаке (например,
-    // на этом же устройстве очистили localStorage, или новый браузер). Если есть —
-    // показываем вход с подсказкой, а не экран «создать пароль»: иначе создание
-    // второго сейфа затёрло бы облачный.
-    showAuth('setup');
-  }
-  // Сейф пары в облаке ищем ВСЕГДА (и когда локальный уже есть): если в облаке
-  // лежит ДРУГОЙ сейф, пароль облачного сейфа должен восстановить облачные
-  // данные, а не открыть устаревший локальный. pendingCloudVault даёт входу
-  // второй вариант, hint объясняет пользователю, что происходит.
-  const cloud = await fetchCloudVault();
+  pendingAuthWho = 'gosha';
+  renderAuthWho();
+  const hasLocal = !!loadVault();
+  // Всегда открываем ЗАМОК (вход), а не экран «создать пароль». Экран создания —
+  // только по явной кнопке или когда облако проверено и сейфа там точно нет.
+  // Раньше «создать пароль» показывался сразу на свежем устройстве, и если облако
+  // отвечало медленно (мобильный интернет), телефон предлагал завести ВТОРОЙ сейф
+  // вместо входа в существующий — так появились «фото, зашифрованные другим паролем».
+  showAuth('lock');
+  $('#authErr').textContent = 'Ищем сейф пары в облаке…';
+  let cloud = null;
+  try { cloud = await fetchCloudVault(); } catch (e) { console.warn('initAuth: облако недоступно', e); }
   if (cloud && cloud.vault) {
     pendingCloudVault = cloud.vault;
-    showAuth('lock');
-    if (loadVault()) {
+    $('#authErr').textContent = '';
+    if (hasLocal) {
       // Локальный сейф есть + облачный отдельный: вход паролем облачного сейфа
       // вернёт облачные данные (см. cloudHint2 в index.html).
       $('#cloudHint2').hidden = false;
@@ -4166,9 +4219,16 @@ async function initAuth() {
       $('#cloudHint').hidden = false;
     }
     $('#authPass').focus();
+  } else if (!hasLocal) {
+    // Свежее устройство и облако не ответило (или сейфа там нет): объясняем и
+    // даём выбор — повторить проверку или действительно создать новый сейф.
+    $('#authErr').textContent = 'Не удалось найти сейф в облаке. Проверь интернет и нажми «Повторить проверку», или создай новый сейф на этом устройстве.';
+    $('#cloudRetryBtn').hidden = false;
+    $('#toSetupBtn').hidden = false;
+  } else {
+    // Локальный сейф есть, а облако не ответило — обычный вход локальным паролем.
+    $('#authErr').textContent = '';
   }
-  pendingAuthWho = 'gosha';
-  renderAuthWho();
   // Если JS по какой-то причине не выполнится — контент так и останется скрытым
   // (body.auth прячет шапку и main), никто ничего не увидит.
 }
@@ -4290,18 +4350,41 @@ let syncPushBlocked = false;
 // Быстрый опрос облака ДО первого входа (экран замка/создания): есть ли уже
 // зашифрованный сейф пары? Ничего не пишет, слушатели не вешает. Возвращает
 // { vault, ts } или null, если сейфа нет / нет сети / config пустой.
+// Таймаут для сетевых вызовов: не держим пользователя на «проверяем облако…»
+// бесконечно, если Firebase отвечает медленно (мобильный интернет).
+function withTimeout(promise, ms) {
+  let timer = null;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), ms); })
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+}
 let probeApp = null;
+let probeUser = null; // анонимный пользователь probe-приложения — переиспользуем между проверками
 async function fetchCloudVault() {
   if (!FIREBASE_CONFIG || typeof firebase === 'undefined' || typeof firebase.initializeApp !== 'function' ||
       typeof firebase.auth !== 'function' || typeof firebase.database !== 'function') return null;
   try {
-    probeApp = probeApp || firebase.initializeApp(FIREBASE_CONFIG, 'nasha_probe');
-    const cred = await firebase.auth(probeApp).signInAnonymously();
-    if (!cred || !cred.user) return null;
-    const snap = await firebase.database(probeApp).ref(SYNC_PATH).once('value');
-    const data = snap && snap.val ? snap.val() : null;
-    if (!data || !data.vault || !data.vault.db || typeof data.vault.db.d !== 'string') return null;
-    return { vault: data.vault, ts: data.syncTs || 0 };
+    // Несколько попыток: на мобильном интернете анонимный вход или чтение могут
+    // не успеть с первого раза. «Пустое облако» — не ошибка, повторяться не нужно.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        probeApp = probeApp || firebase.initializeApp(FIREBASE_CONFIG, 'nasha_probe');
+        if (!probeUser) {
+          const cred = await withTimeout(firebase.auth(probeApp).signInAnonymously(), 10000);
+          if (!cred || !cred.user) return null;
+          probeUser = cred.user;
+        }
+        const snap = await withTimeout(firebase.database(probeApp).ref(SYNC_PATH).once('value'), 10000);
+        const data = snap && snap.val ? snap.val() : null;
+        if (!data || !data.vault || !data.vault.db || typeof data.vault.db.d !== 'string') return null;
+        return { vault: data.vault, ts: data.syncTs || 0 };
+      } catch (e) {
+        console.warn('[sync] нет доступа к облаку при старте (попытка ' + (attempt + 1) + ')', e);
+        if (attempt < 2) await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
+      }
+    }
+    return null;
   } catch (e) {
     console.warn('[sync] нет доступа к облаку при старте', e);
     return null;

@@ -97,18 +97,41 @@ let syncPushBlocked = false;
 // Быстрый опрос облака ДО первого входа (экран замка/создания): есть ли уже
 // зашифрованный сейф пары? Ничего не пишет, слушатели не вешает. Возвращает
 // { vault, ts } или null, если сейфа нет / нет сети / config пустой.
+// Таймаут для сетевых вызовов: не держим пользователя на «проверяем облако…»
+// бесконечно, если Firebase отвечает медленно (мобильный интернет).
+function withTimeout(promise, ms) {
+  let timer = null;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), ms); })
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+}
 let probeApp = null;
+let probeUser = null; // анонимный пользователь probe-приложения — переиспользуем между проверками
 async function fetchCloudVault() {
   if (!FIREBASE_CONFIG || typeof firebase === 'undefined' || typeof firebase.initializeApp !== 'function' ||
       typeof firebase.auth !== 'function' || typeof firebase.database !== 'function') return null;
   try {
-    probeApp = probeApp || firebase.initializeApp(FIREBASE_CONFIG, 'nasha_probe');
-    const cred = await firebase.auth(probeApp).signInAnonymously();
-    if (!cred || !cred.user) return null;
-    const snap = await firebase.database(probeApp).ref(SYNC_PATH).once('value');
-    const data = snap && snap.val ? snap.val() : null;
-    if (!data || !data.vault || !data.vault.db || typeof data.vault.db.d !== 'string') return null;
-    return { vault: data.vault, ts: data.syncTs || 0 };
+    // Несколько попыток: на мобильном интернете анонимный вход или чтение могут
+    // не успеть с первого раза. «Пустое облако» — не ошибка, повторяться не нужно.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        probeApp = probeApp || firebase.initializeApp(FIREBASE_CONFIG, 'nasha_probe');
+        if (!probeUser) {
+          const cred = await withTimeout(firebase.auth(probeApp).signInAnonymously(), 10000);
+          if (!cred || !cred.user) return null;
+          probeUser = cred.user;
+        }
+        const snap = await withTimeout(firebase.database(probeApp).ref(SYNC_PATH).once('value'), 10000);
+        const data = snap && snap.val ? snap.val() : null;
+        if (!data || !data.vault || !data.vault.db || typeof data.vault.db.d !== 'string') return null;
+        return { vault: data.vault, ts: data.syncTs || 0 };
+      } catch (e) {
+        console.warn('[sync] нет доступа к облаку при старте (попытка ' + (attempt + 1) + ')', e);
+        if (attempt < 2) await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
+      }
+    }
+    return null;
   } catch (e) {
     console.warn('[sync] нет доступа к облаку при старте', e);
     return null;

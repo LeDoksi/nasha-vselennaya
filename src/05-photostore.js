@@ -572,7 +572,11 @@ async function hydratePhotoImgs(scope) {
     const id = im.dataset.photoSrc;
     const p = db.photos.find(x => x.id === id);
     const url = p ? await photoUrl(p, true) : '';
-    if (url) im.src = url;
-    im.removeAttribute('data-photo-src');
+    if (url) {
+      im.src = url;
+      im.removeAttribute('data-photo-src'); // URL найден — больше не перечитываем
+    }
+    // URL не нашёлся (фото ещё качается из облака) — data-photo-src остаётся,
+    // следующий hydratePhotoImgs после докачки подхватит его сам.
   }
 }
