@@ -76,7 +76,7 @@ function __TEST__(s){
   s.createList = createList; s.addListSubtask = addListSubtask;
   s.toggleSubtask = toggleSubtask; s.delSubtask = delSubtask; s.completeList = completeList;
   s.renderWishlist = renderWishlist; s.renderCountdown = renderCountdown; s.tickCountdown = tickCountdown; s.renderSettings = renderSettings;
-  s.renderCompliment = renderCompliment; s.renderMobilePhotos = renderMobilePhotos;
+  s.renderCompliment = renderCompliment;
   s.go = go; s.daysTogether = daysTogether; s.iso = iso;
   s.jumpCalendar = jumpCalendar; s.eventsOn = eventsOn; s.fmtShort = fmtShort; s.saveEventFromModal = saveEventFromModal;
   s.setUser = setUser; s.getUser = getUser;
@@ -497,7 +497,7 @@ w('(s)=>{s.db.notes.length=0;s.db.notes.push({id:"n1",text:"Заметка Го�
 const notesHtml = registry['#notesGrid'].innerHTML;
 assert(notesHtml.includes('👦 Гоша') && notesHtml.includes('👧 Даша'), 'в заметке виден автор');
 assert(notesHtml.includes('data-edit-note'), 'у заметки есть кнопка ✏️ редактирования');
-assert(notesHtml.includes('draggable="true"'), 'заметки перетаскиваемые (drag&drop)');
+assert(notesHtml.includes('data-note-drag'), 'у заметки есть драг-ручка ⠿ (Pointer Events drag)');
 assert(notesHtml.indexOf('Заметка Даши') < notesHtml.indexOf('Заметка Гоши'), 'закреплённая заметка выше');
 w('(s)=>{const a=s.db.notes.find(x=>x.id==="n1");const b=s.db.notes.find(x=>x.id==="n2");a.pinned=false;b.pinned=false;a.order=0;b.order=1;s.renderNotes();}');
 assert(registry['#notesGrid'].innerHTML.indexOf('Заметка Гоши') < registry['#notesGrid'].innerHTML.indexOf('Заметка Даши'), 'drag&drop-порядок (order) применяется');
@@ -516,9 +516,13 @@ assert(!w('(s)=>s.db.notes.some(x=>x.id==="n2")'), 'удалить заметк�
 
 
 // --- Таймер до события ---
-w('(s)=>{const d=new Date();d.setDate(d.getDate()+2);s.renderCountdown();}');
+w('(s)=>{s.renderCountdown();}');
 assert(registry['#countdown'].hidden === false, 'таймер показывается при будущем событии');
-assert(/\d+\s*дн\./.test(registry['#countdownTick'].textContent || ''), 'таймер тикает (не заглушка «…»)');
+// Смысл проверки — тик реально заполнен, а не остался заглушкой «…».
+// Формат не важен: если ближайшая цель ближе суток, будет «чч:мм:сс», иначе «N дн. чч:мм:сс»
+// (зависит от текущей даты — фиксированных дат в тесте много).
+const countdownTickText = registry['#countdownTick'].textContent || '';
+assert(countdownTickText !== '' && countdownTickText !== '…' && /\d/.test(countdownTickText), 'таймер тикает (не заглушка «…»)');
 
 // --- Хотелки ---
 w('(s)=>{s.db.wishlist.push({id:"w1",type:"want",text:"Плед",link:"https://x",data:"",owner:"gosha",done:false,ts:1});s.db.wishlist.push({id:"w2",type:"give",text:"Билеты в театр",data:"",owner:"dasha",done:false,ts:2});s.renderWishlist();}');
@@ -588,7 +592,7 @@ assert(w('(s)=>s.migrateDB({events:[],notes:[],shopping:[{id:"s1",text:"Хлеб
 // --- Фото: лейблы вместо альбомов, выбор нескольких ---
 w('(s)=>{s.db.photos.push({id:"p2",data:"data:image/jpeg;base64,AA==",title:"море",labels:["Поездка","Семья"],pinned:false,ts:2,order:1});s.db.photos.push({id:"p3",data:"data:image/jpeg;base64,AA==",title:"кафе",labels:["Свидание"],pinned:false,ts:3,order:2});s.db.labels=["Поездка","Семья","Свидание"];s.renderPhotos();}');
 let phHtml = registry['#photosGrid'].innerHTML;
-assert(phHtml.includes('data-drag-photo'), 'фото перетаскиваемые');
+assert(phHtml.includes('data-photo-drag'), 'у фото есть драг-ручка ⠿ (Pointer Events drag)');
 assert(phHtml.includes('data-sel-photo'), 'у фото есть кнопка выбора');
 assert(phHtml.includes('Поездка') && phHtml.includes('Свидание'), 'у фото несколько лейблов');
 assert(!phHtml.includes('data-ren-photo'), 'переименование убрано');

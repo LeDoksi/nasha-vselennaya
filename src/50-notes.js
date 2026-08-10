@@ -8,8 +8,9 @@ function renderNotes() {
   const list = [...db.notes].sort((a, b) =>
     (b.pinned - a.pinned) || ((a.order ?? 1e9) - (b.order ?? 1e9)) || (b.ts - a.ts));
   $('#notesGrid').innerHTML = list.length ? list.map(n => `
-    <div class="note${n.pinned ? ' pinned' : ''}" data-id="${n.id}" draggable="true">
+    <div class="note${n.pinned ? ' pinned' : ''}" data-id="${n.id}">
       <div class="note-top">
+        <button class="drag-handle note-drag" data-note-drag="${n.id}" title="Перетащить">⠿</button>
         <button class="mini-x" data-pin-note="${n.id}" title="${n.pinned ? 'Открепить' : 'Закрепить'}">${n.pinned ? '📌' : '📍'}</button>
         <span class="note-author">${noteAuthorName(n)}</span>
         <span class="note-date">${new Date(n.ts).toLocaleDateString('ru-RU')}</span>
@@ -62,12 +63,13 @@ function saveNoteEdit(id, text) {
 }
 $('#notesGrid').addEventListener('dblclick', e => {
   const card = e.target.closest('.note');
-  if (!card) return;
+  if (!card || e.target.closest('.drag-handle')) return; // ручка — не повод редактировать
   startEditNote(card.dataset.id);
 });
 
-// drag&drop перестановка: переносим id, на drop пересчитываем order всем заметкам.
-// Чистая функция — её легко проверить тестами.
+// Перетаскивание заметок — универсальный Pointer Events-движок (05-dnd.js).
+// Порядок меняется «вживую»: соседние заметки FLIP-анимацией разъезжаются,
+// на дропе пересчитываем order всем заметкам.
 function reorderNoteIds(ids, dragId, targetId, after) {
   const from = ids.indexOf(dragId);
   if (from < 0) return ids.slice();
@@ -78,49 +80,22 @@ function reorderNoteIds(ids, dragId, targetId, after) {
   out.splice(after ? to + 1 : to, 0, dragId);
   return out;
 }
-// Куда ляжет заметка: над/под карточкой, а если курсор на фоне списка —
-// по краю (выше первой / ниже последней).
-function noteDropPosition(e) {
-  const card = e.target.closest('.note');
-  if (card) {
-    const r = card.getBoundingClientRect();
-    return { id: card.dataset.id, after: e.clientY > r.top + r.height / 2 };
-  }
-  const cards = $$('.note');
-  if (!cards.length) return null;
-  const first = cards[0].getBoundingClientRect();
-  const last = cards[cards.length - 1].getBoundingClientRect();
-  if (e.clientY < first.top + first.height / 2) return { id: cards[0].dataset.id, after: false };
-  return { id: cards[cards.length - 1].dataset.id, after: true };
-}
-$('#notesGrid').addEventListener('dragstart', e => {
-  const card = e.target.closest('.note');
-  if (!card || e.target.closest('button, textarea, input, a')) { e.preventDefault(); return; }
-  dragNoteId = card.dataset.id;
-  card.classList.add('dragging');
-  if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragNoteId); }
+uniDragSetup({
+  container: $('#notesGrid'),
+  itemSel: '.note',
+  handleSel: '.note-drag',
+  idOf: c => c.dataset.id,
+  onStart(st) { dragNoteId = st.id; },
+  onDrop(st) {
+    // renderNotes() всегда ставит закреплённые сверху — стабильно отсортируем ids
+    // по pin до записи order, чтобы DOM после дропа не «перепрыгивал».
+    const pinOf = id => { const n = db.notes.find(x => x.id === id); return n && n.pinned ? 0 : 1; };
+    const ids = st.ids.slice().sort((a, b) => pinOf(a) - pinOf(b));
+    ids.forEach((id, i) => { const n = db.notes.find(x => x.id === id); if (n) n.order = i; });
+    save(); renderNotes();
+    dragNoteId = null;
+  },
+  onCancel() { dragNoteId = null; }
 });
-$('#notesGrid').addEventListener('dragenter', e => e.preventDefault());
-$('#notesGrid').addEventListener('dragover', e => {
-  e.preventDefault();
-  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; // без этого Chrome отменяет drop
-  const pos = noteDropPosition(e);
-  $$('.note').forEach(c => c.classList.remove('drop-before', 'drop-after'));
-  if (!pos || pos.id === dragNoteId) return;
-  const card = $$('.note').find(c => c.dataset.id === pos.id);
-  if (card) card.classList.add(pos.after ? 'drop-after' : 'drop-before');
-});
-$('#notesGrid').addEventListener('drop', e => {
-  e.preventDefault();
-  if (!dragNoteId) return;
-  const pos = noteDropPosition(e);
-  if (!pos || pos.id === dragNoteId) { renderNotes(); return; }
-  const ids = reorderNoteIds($$('.note').map(c => c.dataset.id), dragNoteId, pos.id, pos.after);
-  ids.forEach((id, i) => { const n = db.notes.find(x => x.id === id); if (n) n.order = i; });
-  save(); renderNotes();
-});
-$('#notesGrid').addEventListener('dragend', () => {
-  $$('.note').forEach(c => c.classList.remove('dragging', 'drop-before', 'drop-after'));
-  dragNoteId = null;
-});
+
 

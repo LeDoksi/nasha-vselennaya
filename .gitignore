@@ -8,3 +8,10 @@ Desktop.ini
 
 # Скриншоты ручных проверок из браузера
 browser_*.png
+
+# Dev-инструменты (не нужны в репозитории)
+tools/*.png
+tools/browser-check.js
+tools/browser-check-results.txt
+tools/patch-dnd.js
+tools/serve.js

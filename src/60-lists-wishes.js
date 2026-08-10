@@ -1,6 +1,6 @@
 /* ===== Списки ===== */
 function listItemHTML(listId, it) {
-  return `<li class="${it.done ? 'done' : ''}">
+  return `<li class="${it.done ? 'done' : ''}" data-item="${esc(it.id)}">
     <button class="check" data-toggle-item="${listId}" data-id="${it.id}" title="Готово">${it.done ? '✅' : '○'}</button>
     <span>${esc(it.text)}</span>
     <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>
@@ -23,19 +23,98 @@ function renderLists() {
     const items = list.items.length
       ? sortListItems(list.items).map(it => listItemHTML(list.id, it)).join('')
       : '<li class="empty-li">Пока пусто 🫧</li>';
-    return `<div class="list-card" data-id="${list.id}" draggable="true">
-      <h3>${esc(list.name)} <small>${active} в работе</small></h3>
+    return `<div class="list-card" data-id="${list.id}">
+      <div class="list-head">
+        <h3>${esc(list.name)} <small class="list-count">${active} в работе</small></h3>
+        <button class="drag-handle list-drag" data-list-drag="${list.id}" title="Перетащить">⠿</button>
+      </div>
       <div class="list-add">
         <input type="text" id="listInput-${list.id}" placeholder="Добавить подзадачу…">
         <button class="btn" data-list-add="${list.id}" title="Добавить">＋</button>
       </div>
-      <ul class="items">${items}</ul>
+      <ul class="items" id="listItems-${list.id}">${items}</ul>
       <div class="list-actions">
         <button class="btn btn-danger btn-small" data-list-complete="${list.id}" title="Выполнить все подзадачи и удалить список">✔ Выполнить список</button>
       </div>
     </div>`;
   }).join('');
 }
+// Точечное обновление подзадач ОДНОГО списка (без перерисовки всех карточек): в DOM
+// переезжают только существующие <li> — FLIP-анимация плавно показывает, как
+// выполненная подзадача уезжает вниз. Полный renderLists остаётся для структурных
+// изменений (создание/удаление списка).
+function refreshListCard(listId) {
+  const card = [...document.querySelectorAll('.list-card')].find(c => c.dataset.id === listId);
+  if (card) {
+    const list = db.lists.find(l => l.id === listId);
+    if (list) {
+      const small = card.querySelector && card.querySelector('h3 small');
+      if (small) small.textContent = list.items.filter(i => !i.done).length + ' в работе';
+    }
+  }
+  renderListItems(listId);
+}
+function renderListItems(listId) {
+  const list = db.lists.find(x => x.id === listId);
+  const ul = $('#listItems-' + listId);
+  if (!list || !ul || !ul.querySelectorAll || typeof document.createElement !== 'function') { renderLists(); return; }
+  const before = new Map();
+  const oldItems = new Map();
+  [...ul.querySelectorAll('li')].forEach(li => {
+    if (li.dataset && li.dataset.item) {
+      before.set(li, li.getBoundingClientRect());
+      oldItems.set(li.dataset.item, li);
+    }
+  });
+  const sorted = sortListItems(list.items);
+  const keep = [];
+  if (sorted.length) {
+    for (const it of sorted) {
+      let li = oldItems.get(it.id);
+      if (li) {
+        li.classList.toggle('done', !!it.done);
+        const check = li.querySelector && li.querySelector('.check');
+        if (check) check.textContent = it.done ? '✅' : '○';
+      } else {
+        li = document.createElement('li');
+        li.innerHTML = listItemHTML(list.id, it);
+        if (li.dataset) li.dataset.item = it.id; // для мини-DOM без парсинга innerHTML
+      }
+      keep.push(li);
+    }
+  }
+  // убираем узлы, которых больше нет (удалённые подзадачи / пустое состояние)
+  [...ul.querySelectorAll('li')].forEach(li => { if (keep.indexOf(li) < 0) li.remove(); });
+  // выстраиваем в правильном порядке (appendChild перемещает существующий узел)
+  keep.forEach(li => { if (li.remove) li.remove(); ul.appendChild(li); });
+  if (!sorted.length) {
+    const empty = document.createElement('li');
+    empty.classList.add('empty-li');
+    empty.textContent = 'Пока пусто 🫧';
+    ul.appendChild(empty);
+  }
+  listFlipAnimate(ul, before);
+}
+// FLIP: элементы, чьи координаты изменились, «переезжают» через transform (CSS transition)
+function listFlipAnimate(scope, before) {
+  if (typeof requestAnimationFrame === 'undefined' || !scope || !before || !scope.children) return;
+  const moving = [];
+  [...scope.children].forEach(el => {
+    if (!before.has(el)) return;
+    const r1 = before.get(el);
+    const r2 = el.getBoundingClientRect();
+    const dx = r1.left - r2.left, dy = r1.top - r2.top;
+    if (!dx && !dy) return;
+    if (!el.style) el.style = {};
+    el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    moving.push(el);
+  });
+  if (!moving.length) return;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    moving.forEach(el => { el.style.transform = ''; });
+  }));
+}
+
 // Создать список с произвольным названием; возвращает список или null.
 function createList(rawName) {
   const name = String(rawName || '').trim();
@@ -54,7 +133,8 @@ function addListSubtask(listId, inputId) {
   const text = (inp && inp.value ? String(inp.value) : '').trim();
   if (!text) return false;
   list.items.unshift({ id: uid(), text, done: false });
-  save(); if (inp) inp.value = ''; renderLists();
+  save(); if (inp) inp.value = '';
+  refreshListCard(listId);
   return true;
 }
 function toggleSubtask(listId, itemId) {
@@ -64,14 +144,21 @@ function toggleSubtask(listId, itemId) {
   if (!it) return false;
   it.done = !it.done;
   list.items = sortListItems(list.items); // выполненные — вниз
-  save(); renderLists();
+  save(); refreshListCard(listId);
+  // мини-«поп» галочки у переключённой подзадачи (анимация в CSS)
+  const ul = $('#listItems-' + listId);
+  const li = ul && ul.querySelector ? ul.querySelector('[data-item="' + itemId + '"]') : null;
+  if (li) {
+    li.classList.add('just-toggled');
+    setTimeout(() => { if (li.classList.remove) li.classList.remove('just-toggled'); }, 400);
+  }
   return it.done;
 }
 function delSubtask(listId, itemId) {
   const list = db.lists.find(x => x.id === listId);
   if (!list) return false;
   list.items = list.items.filter(x => x.id !== itemId);
-  save(); renderLists();
+  save(); refreshListCard(listId);
   return true;
 }
 // «Выполнить список»: после подтверждения удаляет весь блок вместе с подзадачами.
@@ -84,64 +171,23 @@ function completeList(listId) {
   return true;
 }
 
-// drag&drop перестановка списков: порядок — сам массив db.lists (сохраняется в storage).
+// Перетаскивание списков — универсальный Pointer Events-движок (05-dnd.js).
+// Порядок — сам массив db.lists. Во время перетаскивания карточки «разъезжаются»
+// по-живому (FLIP): видно, куда встанет перетаскиваемая. Отмена (Esc/пропуск
+// броска) возвращает исходный порядок.
 let dragListId = null; // id карточки, которую сейчас перетаскиваем
-// Чистая функция — легко проверить тестами: переносим dragId к targetId (над/под).
-function reorderListIds(ids, dragId, targetId, after) {
-  const from = ids.indexOf(dragId);
-  if (from < 0) return ids.slice();
-  const out = ids.slice();
-  out.splice(from, 1);
-  const to = out.indexOf(targetId);
-  if (to < 0) return out;
-  out.splice(after ? to + 1 : to, 0, dragId);
-  return out;
-}
-// Куда ляжет карточка: над/под целью, а если курсор на фоне контейнера —
-// по краю (выше первой / ниже последней).
-function listDropPosition(e) {
-  const card = e.target.closest('.list-card');
-  if (card) {
-    const r = card.getBoundingClientRect();
-    return { id: card.dataset.id, after: e.clientY > r.top + r.height / 2 };
-  }
-  const cards = $$('.list-card');
-  if (!cards.length) return null;
-  const first = cards[0].getBoundingClientRect();
-  const last = cards[cards.length - 1].getBoundingClientRect();
-  if (e.clientY < first.top + first.height / 2) return { id: cards[0].dataset.id, after: false };
-  return { id: cards[cards.length - 1].dataset.id, after: true };
-}
-const listsWrapEl = $('#listsWrap');
-listsWrapEl.addEventListener('dragstart', e => {
-  const card = e.target.closest('.list-card');
-  if (!card || e.target.closest('button, textarea, input, a')) { e.preventDefault(); return; }
-  dragListId = card.dataset.id;
-  card.classList.add('dragging');
-  if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragListId); }
-});
-listsWrapEl.addEventListener('dragenter', e => e.preventDefault());
-listsWrapEl.addEventListener('dragover', e => {
-  e.preventDefault();
-  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; // без этого Chrome отменяет drop
-  const pos = listDropPosition(e);
-  $$('.list-card').forEach(c => c.classList.remove('drop-before', 'drop-after'));
-  if (!pos || pos.id === dragListId) return;
-  const card = $$('.list-card').find(c => c.dataset.id === pos.id);
-  if (card) card.classList.add(pos.after ? 'drop-after' : 'drop-before');
-});
-listsWrapEl.addEventListener('drop', e => {
-  e.preventDefault();
-  if (!dragListId) return;
-  const pos = listDropPosition(e);
-  if (!pos || pos.id === dragListId) { renderLists(); return; }
-  const ids = reorderListIds($$('.list-card').map(c => c.dataset.id), dragListId, pos.id, pos.after);
-  db.lists = ids.map(id => db.lists.find(l => l.id === id)).filter(Boolean);
-  save(); renderLists();
-});
-listsWrapEl.addEventListener('dragend', () => {
-  $$('.list-card').forEach(c => c.classList.remove('dragging', 'drop-before', 'drop-after'));
-  dragListId = null;
+uniDragSetup({
+  container: $('#listsWrap'),
+  itemSel: '.list-card',
+  handleSel: '.list-drag',
+  idOf: c => c.dataset.id,
+  onStart(st) { dragListId = st.id; },
+  onDrop(st) {
+    db.lists = st.ids.map(id => db.lists.find(l => l.id === id)).filter(Boolean);
+    save();
+    dragListId = null;
+  },
+  onCancel() { dragListId = null; }
 });
 
 $('#listCreateBtn').addEventListener('click', () => createList($('#listNameInput').value));

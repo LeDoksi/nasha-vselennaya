@@ -32,11 +32,9 @@ function renderHome() {
   renderDates();
   renderCompliment();
   renderCountdown();
-  renderMobilePhotos();
   // Фаза B: кольцо прогресса (в блоке — коллаж фото, события «в этот день», статистика)
   renderProgressRing();
   // Фото с data-photo-src (кэш миниатюр не прогрет) — заполняем src асинхронно
-  hydratePhotoImgs($('#mobilePhotosGrid'));
   hydratePhotoImgs($('#progressRing'));
   maybeCelebrateAnniversary(rem);
 }
@@ -141,18 +139,6 @@ function maybeCelebrateAnniversary(rem) {
     sessionStorage.setItem('uni_celebrated:' + day, '1');
     celebrate(); // сегодня важный день — салют!
   } catch (e) {}
-}
-
-/* ===== Фото на телефоне (горизонтальная лента) ===== */
-function renderMobilePhotos() {
-  const grid = $('#mobilePhotosGrid');
-  if (!grid) return;
-  grid.innerHTML = [...db.photos].sort(photoSort).slice(0, 12).map(p => {
-    const url = photoSrc(p);
-    return url
-      ? `<img src="${esc(url)}" alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">`
-      : `<img data-photo-src="${esc(p.id)}" alt="${esc(p.title)}" loading="lazy">`;
-  }).join('');
 }
 
 /* ===== Свидания ===== */

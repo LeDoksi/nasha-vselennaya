@@ -16,12 +16,19 @@ let saveChain = Promise.resolve();
 function save() {
   if (!masterKey) return Promise.resolve();
   const snap = JSON.stringify(db);
+  // Цепочка никогда не «падает»: один сбой шифрования отравил бы saveChain, и каждый
+  // следующий save() без await давал бы unhandledrejection с ложным тостом при входе.
   saveChain = saveChain.then(async () => {
-    const vault = loadVault();
-    if (!vault) return;
-    vault.db = await aesEnc(masterKey, enc.encode(snap));
-    try { localStorage.setItem(VAULT_KEY, JSON.stringify(vault)); }
-    catch (e) { alert('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜'); }
+    try {
+      const vault = loadVault();
+      if (!vault) return;
+      vault.db = await aesEnc(masterKey, enc.encode(snap));
+      try { localStorage.setItem(VAULT_KEY, JSON.stringify(vault)); }
+      catch (e) { notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true); }
+    } catch (e) {
+      console.warn('Не удалось сохранить сейф', e);
+      notify('Не удалось сохранить — попробуй ещё раз 💜', true);
+    }
   });
   return saveChain;
 }
@@ -148,8 +155,15 @@ async function doSetup() {
   const p2 = $('#setupPass2').value;
   if (p1.length < 6) { if (err) err.textContent = 'Пароль должен быть не короче 6 символов.'; return; }
   if (p1 !== p2) { if (err) err.textContent = 'Пароли не совпадают — проверь ещё раз.'; return; }
-  await createVault(who, p1);
-  unlockApp();
+  try {
+    await createVault(who, p1);
+    unlockApp();
+  } catch (e) {
+    // createVault может упасть (нет WebCrypto/IndexedDB) — понятная ошибка на экране,
+    // а не «unhandledrejection» с тостом «Не удалось сохранить» при создании сейфа.
+    console.warn('Не удалось создать сейф', e);
+    if (err) err.textContent = 'Не удалось создать сейф. Обнови страницу и попробуй ещё раз 💜';
+  }
 }
 
 /* ===== Автозамок ===== */

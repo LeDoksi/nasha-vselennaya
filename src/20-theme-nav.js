@@ -9,6 +9,25 @@ function getTheme() {
   } catch (e) {}
   return 'light';
 }
+
+// Общая обёртка View Transitions: если переход уже идёт или не поддержан (или включено
+// «уменьшенное движение») — сразу применяем изменения. Ошибки рендера и отменённые
+// переходы гасим здесь же, чтобы они не превращались в unhandledrejection с ложным
+// тостом «Не удалось сохранить», а быстрый повторный клик переключал вкладку мгновенно.
+function runViewTransition(apply) {
+  if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function' || motionReduced()) return false;
+  try {
+    const t = document.startViewTransition(() => {
+      try { apply(); } catch (e) { console.warn('Ошибка при переключении', e); }
+    });
+    if (t) {
+      if (t.finished && typeof t.finished.catch === 'function') t.finished.catch(() => {});
+      if (t.updateCallbackDone && typeof t.updateCallbackDone.catch === 'function') t.updateCallbackDone.catch(() => {});
+    }
+    return true;
+  } catch (e) { return false; } // переход уже идёт — применяем мгновенно
+}
+
 function setTheme(t) {
   const apply = () => {
     try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
@@ -20,10 +39,7 @@ function setTheme(t) {
     if (sbtn) sbtn.textContent = t === 'dark' ? '☀️ Включить светлую тему' : '🌙 Включить тёмную тему';
   };
   // Фаза D: смена темы — тоже плавным переходом (если браузер умеет и анимации не выключены)
-  if (typeof document !== 'undefined' && typeof document.startViewTransition === 'function' && !motionReduced()) {
-    try { document.startViewTransition(apply); return; } catch (e) {}
-  }
-  apply();
+  if (!runViewTransition(apply)) apply();
 }
 function toggleTheme() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
 
@@ -55,10 +71,9 @@ function showView(view) {
   };
   // Фаза D: View Transitions API — плавная смена вкладок (crossfade всего экрана).
   // Без поддержки или при «уменьшенном движении» — переключение мгновенное.
-  if (typeof document !== 'undefined' && typeof document.startViewTransition === 'function' && !motionReduced()) {
-    try { document.startViewTransition(apply); return; } catch (e) {}
-  }
-  apply();
+  // Повторный клик во время анимации: Chrome отменяет текущий переход, мы ловим
+  // исключение и переключаемся сразу — кнопки не «залипают» (см. runViewTransition).
+  if (!runViewTransition(apply)) apply();
 }
 function go(view) {
   showView(view);

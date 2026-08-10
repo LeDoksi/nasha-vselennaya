@@ -44,7 +44,12 @@ function notify(msg, isError) {
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('error', e => notify('Что-то пошло не так — данные не потеряны, перезагрузи страницу 💜', true));
-  window.addEventListener('unhandledrejection', () => notify('Не удалось сохранить — попробуй ещё раз 💜', true));
+  // Сбои сохранения показывают свой тост (store.set / save), поэтому здесь только
+  // логируем. Раньше любой «безобидный» rejection (например, отменённый View
+  // Transition при входе) пугал ложным «Не удалось сохранить — попробуй ещё раз».
+  window.addEventListener('unhandledrejection', e => {
+    console.warn('[unhandledrejection]', e && e.reason ? e.reason : e);
+  });
 }
 
 /* ===== Крипто-ядро (WebCrypto) =====
