@@ -23,6 +23,8 @@ function renderSettings() {
   }
   const hint = $('#backupHint');
   if (!hint) return;
+  // Статус облачной синхронизации (модуль 95-sync.js)
+  if (typeof renderSyncStatus === 'function') renderSyncStatus(syncUiState, syncUiTs);
   if (!db.backupDate) {
     hint.innerHTML = '<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Резервная копия ещё не делалась. Нажми «Скачать копию» — так ничего не потеряется.</span>';
   } else {

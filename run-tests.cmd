@@ -16,4 +16,7 @@ if errorlevel 1 (
 )
 echo Запуск проверки «Нашей вселенной»...
 node tests\uni-smoke.js app.js
+node tests\uni-dnd.js app.js
+node tests\uni-hash.js app.js
+node tests\uni-sync.js app.js
 pause

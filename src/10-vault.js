@@ -25,6 +25,8 @@ function save() {
       vault.db = await aesEnc(masterKey, enc.encode(snap));
       try { localStorage.setItem(VAULT_KEY, JSON.stringify(vault)); }
       catch (e) { notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true); }
+      // Облачная синхронизация: после каждого успешного сохранения — push (debounce)
+      if (typeof scheduleSyncPush === 'function') scheduleSyncPush();
     } catch (e) {
       console.warn('Не удалось сохранить сейф', e);
       notify('Не удалось сохранить — попробуй ещё раз 💜', true);
@@ -113,6 +115,8 @@ function unlockApp() {
   go('home');
   lastActivity = Date.now();
   startAutoLock();
+  // Облачная синхронизация: после входа пробуем забрать/отдать данные
+  if (typeof initSync === 'function') initSync();
 }
 function lock() {
   if (!masterKey) return; // уже закрыто
@@ -128,6 +132,8 @@ function lock() {
   renderAuthWho();
   $('#authPass').value = '';
   $('#authErr').textContent = '';
+  // Облачная синхронизация: при блокировке отключаем слушатели и вход
+  if (typeof stopSync === 'function') stopSync();
 }
 function isLocked() { return authLocked; }
 

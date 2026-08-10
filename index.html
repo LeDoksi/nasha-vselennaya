@@ -193,7 +193,10 @@
       </div>
       <div class="settings-card">
         <h3>🌐 Синхронизация</h3>
-        <p>Скоро подключим облако — тогда заметки и списки будут открываться и с телефона. Пока всё живёт локально.</p>
+        <p id="syncStatus" style="font-size:13px;color:var(--muted)">Синхронизация отключена — работает только на этом устройстве.</p>
+        <div class="settings-btns">
+          <button class="btn" id="syncNowBtn">🔄 Синхронизировать сейчас</button>
+        </div>
       </div>
     </section>
   </main>
@@ -394,6 +397,10 @@
 
   <div id="appToast" class="app-toast" hidden role="status" aria-live="polite"></div>
 
+  <!-- Firebase SDK (фаза B1): без интернета/на file:// не загрузятся — сайт останется локальным -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -106,6 +106,9 @@ function __TEST__(s){
   s.createVault = createVault; s.unlockWith = unlockWith; s.savePassFor = savePassFor; s.changePass = changePass;
   s.lock = lock; s.isLocked = isLocked; s.loadVault = loadVault; s.legacyDB = legacyDB; s.save = save;
   s.exportData = exportData; s.importData = importData; s.showAuth = showAuth; s.unlockApp = unlockApp;
+  s.initSync = initSync; s.scheduleSyncPush = scheduleSyncPush; s.stopSync = stopSync; s.syncNow = syncNow;
+  Object.defineProperty(s, 'syncReady', { get: () => syncReady, set: v => { syncReady = v; }, configurable: true });
+  Object.defineProperty(s, 'syncTs', { get: () => syncTs, set: v => { syncTs = v; }, configurable: true });
   Object.defineProperty(s, 'photoStore', { get: () => photoStore, configurable: true });
   s.migratePhotosToStore = migratePhotosToStore; s.dataUrlToBlob = dataUrlToBlob;
   s.photoUrl = photoUrl; s.photoSrc = photoSrc; s.warmThumbCache = warmThumbCache; s.clearPhotoStore = clearPhotoStore;
@@ -971,6 +974,12 @@ assert(registry['#lightboxImg'].src === 'data:image/jpeg;base64,GAL=', 'фото
 w('(s)=>{s.closeOverlay("lightbox"); return 1;}');
 assert(registry['#lightbox'].hidden === true, 'светбокс закрывается');
 assert(w('(s)=>s.lightboxList.length') === 0, 'при закрытии список фото очищается');
+
+// --- Синхронизация: без Firebase config (или SDK) приложение не ломается ---
+w('(s)=>{s.lock(); s.initSync(); s.scheduleSyncPush(); s.stopSync(); return 1;}');
+assert(w('(s)=>s.syncReady') === false, 'syncReady=false без Firebase config');
+assert(w('(s)=>s.isLocked()') === true, 'блокировка работает вместе с sync-модулем');
+assert(registry['#syncStatus'] && registry['#syncStatus'].textContent.length > 5, 'статус синхронизации показывает подсказку');
 
 console.log('OK: ' + results.length + ' checks passed\n' + results.join('\n'));
 
