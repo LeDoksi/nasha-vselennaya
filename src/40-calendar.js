@@ -216,7 +216,10 @@ function addEventPhotosToGallery(photos, title) {
   if (!photos.length) return [];
   if (!db.labels.includes(EVENT_LABEL)) db.labels.push(EVENT_LABEL);
   const ids = [];
-  for (const photoRef of photos) {
+  for (const item of photos) {
+    // Элемент — либо data-URL (строка, как раньше), либо { data: dataURL, file: оригинал }
+    const photoRef = (item && typeof item === 'object') ? item.data : item;
+    const origFile = (item && typeof item === 'object') ? item.file : null;
     const existing = db.photos.find(p => p.id === photoRef);
     if (existing) {
       if (!Array.isArray(existing.labels)) existing.labels = [];
@@ -233,9 +236,10 @@ function addEventPhotosToGallery(photos, title) {
         const blob = dataUrlToBlob(photoRef);
         if (blob && photoStore) {
           makeThumbBlob(photoRef, 256).then(async thumb => {
-            const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size };
-            await photoStore.put(ph.id, blob, thumb, meta);
+            const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size, origType: origFile ? (origFile.type || '') : '' };
+            await photoStore.put(ph.id, blob, thumb, meta, origFile); // origFile — сырой файл, если есть
             if (ph.data === photoRef) delete ph.data; // блоб в сторе — base64 из памяти убираем
+            if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
           }).catch(e => console.warn('Не удалось сохранить фото события в хранилище', e));
         }
       } catch (e) { console.warn('Не удалось сохранить фото события в хранилище', e); }
@@ -255,12 +259,13 @@ function addEventPhotoQuick(evId) {
   inp.addEventListener('change', async () => {
     const ok = [];
     for (const f of [...inp.files].slice(0, 5)) {
-      try { ok.push(await readFile(f)); } catch (err) { console.warn('Не удалось прочитать фото события', err); }
+      try { ok.push({ data: await readFile(f), file: f }); } catch (err) { console.warn('Не удалось прочитать фото события', err); }
     }
     inp.remove();
     if (!ok.length) return;
     const ids = addEventPhotosToGallery(ok, ev.title);
-    ev.photos = Array.isArray(ev.photos) ? ev.photos.concat(ids.length ? ids : ok) : (ids.length ? ids : ok);
+    const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object') ? x.data : x);
+    ev.photos = Array.isArray(ev.photos) ? ev.photos.concat(refs) : refs;
     save(); renderCalendar(); renderHome();
   }, { once: true });
   inp.click();
@@ -272,7 +277,10 @@ function addDatePhotosToGallery(photos, title) {
   if (!photos.length) return [];
   if (!db.labels.includes(DATE_LABEL)) db.labels.push(DATE_LABEL);
   const ids = [];
-  for (const photoRef of photos) {
+  for (const item of photos) {
+    // Элемент — либо data-URL (строка, как раньше), либо { data: dataURL, file: оригинал }
+    const photoRef = (item && typeof item === 'object') ? item.data : item;
+    const origFile = (item && typeof item === 'object') ? item.file : null;
     const existing = db.photos.find(p => p.id === photoRef);
     if (existing) {
       if (!Array.isArray(existing.labels)) existing.labels = [];
@@ -287,9 +295,10 @@ function addDatePhotosToGallery(photos, title) {
         const blob = dataUrlToBlob(photoRef);
         if (blob && photoStore) {
           makeThumbBlob(photoRef, 256).then(async thumb => {
-            const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size };
-            await photoStore.put(ph.id, blob, thumb, meta);
+            const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size, origType: origFile ? (origFile.type || '') : '' };
+            await photoStore.put(ph.id, blob, thumb, meta, origFile); // origFile — сырой файл, если есть
             if (ph.data === photoRef) delete ph.data;
+            if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
           }).catch(e => console.warn('Не удалось сохранить фото свидания в хранилище', e));
         }
       } catch (e) { console.warn('Не удалось сохранить фото свидания в хранилище', e); }
@@ -309,13 +318,14 @@ function addDatePhotoQuick(dtId) {
   inp.addEventListener('change', async () => {
     const ok = [];
     for (const f of [...inp.files].slice(0, 5)) {
-      try { ok.push(await readFile(f)); } catch (err) { console.warn('Не удалось прочитать фото свидания', err); }
+      try { ok.push({ data: await readFile(f), file: f }); } catch (err) { console.warn('Не удалось прочитать фото свидания', err); }
     }
     inp.remove();
     if (!ok.length) return;
     const title = dt.place || dt.note || 'Свидание';
     const ids = addDatePhotosToGallery(ok, title);
-    dt.photos = Array.isArray(dt.photos) ? dt.photos.concat(ids.length ? ids : ok) : (ids.length ? ids : ok);
+    const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object') ? x.data : x);
+    dt.photos = Array.isArray(dt.photos) ? dt.photos.concat(refs) : refs;
     save(); renderCalendar(); renderHome();
   }, { once: true });
   inp.click();
@@ -569,7 +579,7 @@ function openEventModal(id) {
 $('#evPhoto').addEventListener('change', async e => {
   const files = [...e.target.files].slice(0, 5);
   for (const f of files) {
-    try { evPhotoData.push(await readFile(f)); } catch (err) { console.warn('Не удалось прочитать фото события', err); }
+    try { evPhotoData.push({ data: await readFile(f), file: f }); } catch (err) { console.warn('Не удалось прочитать фото события', err); }
   }
   e.target.value = '';
   setEvPhotoCount();
@@ -586,7 +596,7 @@ function saveEventFromModal() {
   // Фото события: кладём в общую галерею и вешаем лейбл = названию события
   if (evPhotoData.length) {
     const ids = addEventPhotosToGallery(evPhotoData, title);
-    data.photos = ids.length ? ids : evPhotoData;
+    data.photos = ids.length ? ids : evPhotoData.map(x => (x && typeof x === 'object') ? x.data : x);
   }
   const ev = editingEventId ? db.events.find(x => x.id === editingEventId) : null;
   if (ev) {

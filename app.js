@@ -61,6 +61,7 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 const VAULT_KEY = 'universe_vault';      // зашифрованный сейф
+const VAULT_KEY_PREV = 'universe_vault_prev'; // резервная копия старого сейфа при усыновлении облачного
 const PBKDF2_ITERS = 150000;             // стойкость обёртки паролем
 const AUTO_LOCK_MS = 30 * 60 * 1000;     // автозамок после 30 минут без действий
 
@@ -746,12 +747,18 @@ const IDBPhotoStore = {
   async init() {
     this.db = await openPhotoDB();
   },
-  async put(id, fullBlob, thumbBlob, meta) {
+  async put(id, fullBlob, thumbBlob, meta, origBlob) {
     const fullU8 = fullBlob instanceof Uint8Array ? fullBlob : await blobToU8(fullBlob);
     const thumbU8 = thumbBlob instanceof Uint8Array ? thumbBlob : (thumbBlob ? await blobToU8(thumbBlob) : null);
+    const origU8 = origBlob instanceof Uint8Array ? origBlob : (origBlob ? await blobToU8(origBlob) : null);
     const encFull = await encryptBlob(fullU8);
     const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
-    await idbPut(this, { id, full: encFull, thumb: encThumb, meta: meta || {} });
+    const encOrig = origU8 ? await encryptBlob(origU8) : null;
+    await idbPut(this, { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} });
+  },
+  // Сохранение уже зашифрованных блобов (пришли из облака) — без повторного шифрования.
+  async putEncrypted(id, encFull, encThumb, meta, encOrig) {
+    await idbPut(this, { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} });
   },
   async getFull(id) {
     const row = await idbGet(this, id);
@@ -765,9 +772,23 @@ const IDBPhotoStore = {
     const u8 = await decryptBlob(row.thumb);
     return u8ToBlob(u8, row.meta?.thumbType || 'image/webp');
   },
+  async getOrig(id) {
+    const row = await idbGet(this, id);
+    if (!row || !row.orig) return null;
+    const u8 = await decryptBlob(row.orig);
+    return u8ToBlob(u8, row.meta?.origType || row.meta?.type || 'image/jpeg');
+  },
+  async getEncryptedFull(id) { const row = await idbGet(this, id); return row?.full || null; },
+  async getEncryptedThumb(id) { const row = await idbGet(this, id); return row?.thumb || null; },
+  async getEncryptedOrig(id) { const row = await idbGet(this, id); return row?.orig || null; },
   async getMeta(id) {
     const row = await idbGet(this, id);
     return row?.meta || null;
+  },
+  // Лёгкий список того, что лежит в сторе (без дешифровки) — для облачной сверки.
+  async listIds() {
+    const rows = await idbGetAll(this);
+    return rows.map(r => ({ id: r.id, hasFull: !!r.full, hasThumb: !!r.thumb, hasOrig: !!r.orig }));
   },
   async delete(id) {
     await idbDelete(this, id);
@@ -776,10 +797,11 @@ const IDBPhotoStore = {
     const rows = await idbGetAll(this);
     const result = [];
     for (const r of rows) {
-      let full = null, thumb = null;
+      let full = null, thumb = null, orig = null;
       try { full = await decryptBlob(r.full); } catch (e) {}
       try { if (r.thumb) thumb = await decryptBlob(r.thumb); } catch (e) {}
-      result.push({ id: r.id, full, thumb, meta: r.meta || {} });
+      try { if (r.orig) orig = await decryptBlob(r.orig); } catch (e) {}
+      result.push({ id: r.id, full, thumb, orig, meta: r.meta || {} });
     }
     return result;
   },
@@ -787,10 +809,11 @@ const IDBPhotoStore = {
     const rows = await idbGetAll(this);
     const out = [];
     for (const r of rows) {
-      let fullB64 = null, thumbB64 = null;
+      let fullB64 = null, thumbB64 = null, origB64 = null;
       try { if (r.full) fullB64 = b64(await decryptBlob(r.full)); } catch (e) {}
       try { if (r.thumb) thumbB64 = b64(await decryptBlob(r.thumb)); } catch (e) {}
-      out.push({ id: r.id, full: fullB64, thumb: thumbB64, meta: r.meta || {} });
+      try { if (r.orig) origB64 = b64(await decryptBlob(r.orig)); } catch (e) {}
+      out.push({ id: r.id, full: fullB64, thumb: thumbB64, orig: origB64, meta: r.meta || {} });
     }
     return out;
   },
@@ -799,9 +822,11 @@ const IDBPhotoStore = {
       if (!item.id || !item.full) continue;
       const fullU8 = unb64(item.full);
       const thumbU8 = item.thumb ? unb64(item.thumb) : null;
+      const origU8 = item.orig ? unb64(item.orig) : null;
       const encFull = await encryptBlob(fullU8);
       const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
-      await idbPut(this, { id: item.id, full: encFull, thumb: encThumb, meta: item.meta || {} });
+      const encOrig = origU8 ? await encryptBlob(origU8) : null;
+      await idbPut(this, { id: item.id, full: encFull, thumb: encThumb, orig: encOrig, meta: item.meta || {} });
         }
   },
   async clear() {
@@ -822,12 +847,18 @@ const IDBPhotoStore = {
 const MemoryPhotoStore = {
   _map: new Map(),
   async init() { this._map.clear(); },
-  async put(id, fullBlob, thumbBlob, meta) {
+  async put(id, fullBlob, thumbBlob, meta, origBlob) {
     const fullU8 = fullBlob instanceof Uint8Array ? fullBlob : await blobToU8(fullBlob);
     const thumbU8 = thumbBlob instanceof Uint8Array ? thumbBlob : (thumbBlob ? await blobToU8(thumbBlob) : null);
+    const origU8 = origBlob instanceof Uint8Array ? origBlob : (origBlob ? await blobToU8(origBlob) : null);
     const encFull = await encryptBlob(fullU8);
     const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
-    this._map.set(id, { id, full: encFull, thumb: encThumb, meta: meta || {} });
+    const encOrig = origU8 ? await encryptBlob(origU8) : null;
+    this._map.set(id, { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} });
+  },
+  // Сохранение уже зашифрованных блобов (пришли из облака) — без повторного шифрования.
+  async putEncrypted(id, encFull, encThumb, meta, encOrig) {
+    this._map.set(id, { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} });
   },
   async getFull(id) {
     const r = this._map.get(id);
@@ -841,9 +872,22 @@ const MemoryPhotoStore = {
     const u8 = await decryptBlob(r.thumb);
     return u8ToBlob(u8, r.meta?.thumbType || 'image/webp');
   },
+  async getOrig(id) {
+    const r = this._map.get(id);
+    if (!r || !r.orig) return null;
+    const u8 = await decryptBlob(r.orig);
+    return u8ToBlob(u8, r.meta?.origType || r.meta?.type || 'image/jpeg');
+  },
+  async getEncryptedFull(id) { const r = this._map.get(id); return r?.full || null; },
+  async getEncryptedThumb(id) { const r = this._map.get(id); return r?.thumb || null; },
+  async getEncryptedOrig(id) { const r = this._map.get(id); return r?.orig || null; },
   async getMeta(id) {
     const r = this._map.get(id);
     return r?.meta || null;
+  },
+  // Лёгкий список того, что лежит в сторе (без дешифровки) — для облачной сверки.
+  async listIds() {
+    return [...this._map.values()].map(r => ({ id: r.id, hasFull: !!r.full, hasThumb: !!r.thumb, hasOrig: !!r.orig }));
   },
     async delete(id) {
     this._map.delete(id);
@@ -851,20 +895,22 @@ const MemoryPhotoStore = {
   async all() {
     const result = [];
     for (const r of this._map.values()) {
-      let full = null, thumb = null;
+      let full = null, thumb = null, orig = null;
       try { full = await decryptBlob(r.full); } catch (e) {}
       try { if (r.thumb) thumb = await decryptBlob(r.thumb); } catch (e) {}
-      result.push({ id: r.id, full, thumb, meta: r.meta || {} });
+      try { if (r.orig) orig = await decryptBlob(r.orig); } catch (e) {}
+      result.push({ id: r.id, full, thumb, orig, meta: r.meta || {} });
     }
     return result;
   },
   async exportBlobs() {
     const out = [];
     for (const r of this._map.values()) {
-      let fullB64 = null, thumbB64 = null;
+      let fullB64 = null, thumbB64 = null, origB64 = null;
       try { if (r.full) fullB64 = b64(await decryptBlob(r.full)); } catch (e) {}
       try { if (r.thumb) thumbB64 = b64(await decryptBlob(r.thumb)); } catch (e) {}
-      out.push({ id: r.id, full: fullB64, thumb: thumbB64, meta: r.meta || {} });
+      try { if (r.orig) origB64 = b64(await decryptBlob(r.orig)); } catch (e) {}
+      out.push({ id: r.id, full: fullB64, thumb: thumbB64, orig: origB64, meta: r.meta || {} });
     }
     return out;
   },
@@ -875,7 +921,9 @@ const MemoryPhotoStore = {
       const thumbU8 = item.thumb ? unb64(item.thumb) : null;
       const encFull = await encryptBlob(fullU8);
       const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
-      this._map.set(item.id, { id: item.id, full: encFull, thumb: encThumb, meta: item.meta || {} });
+      const origU8 = item.orig ? unb64(item.orig) : null;
+      const encOrig = origU8 ? await encryptBlob(origU8) : null;
+      this._map.set(item.id, { id: item.id, full: encFull, thumb: encThumb, orig: encOrig, meta: item.meta || {} });
     }
   },
   async clear() {
@@ -1064,7 +1112,8 @@ async function photoUrl(p, useThumb = true) {
   if (photoStore && p.id) {
     try {
       let blob = null;
-      if (useThumb) blob = await photoStore.getThumb(p.id);
+      // Миниатюра могла не расшифроваться — не бросаем, падаем на полный блоб
+      if (useThumb) { try { blob = await photoStore.getThumb(p.id); } catch (e) {} }
       if (!blob) blob = await photoStore.getFull(p.id);
       if (blob) {
         const url = await blobToDataUrl(blob);
@@ -1091,7 +1140,8 @@ async function warmThumbCache() {
   for (const p of db.photos) {
     if (!p.id || getThumbUrl(p.id)) continue;
     try {
-      let blob = await photoStore.getThumb(p.id);
+      let blob = null;
+      try { blob = await photoStore.getThumb(p.id); } catch (e) {}
       if (!blob) blob = await photoStore.getFull(p.id);
       if (blob) {
         const url = await blobToDataUrl(blob);
@@ -1114,7 +1164,7 @@ async function hydratePhotoImgs(scope) {
   for (const im of imgs) {
     const id = im.dataset.photoSrc;
     const p = db.photos.find(x => x.id === id);
-    const url = p ? await photoUrl(p, false) : '';
+    const url = p ? await photoUrl(p, true) : '';
     if (url) im.src = url;
     im.removeAttribute('data-photo-src');
   }
@@ -1174,15 +1224,25 @@ async function createVault(who, pass, legacyDb) {
   currentUser = who;
   return true;
 }
-async function unlockWith(who, pass) {
-  const vault = loadVault();
-  if (!vault) return false;
-  const wrap = (vault.keys || []).find(k => k.who === who);
-  if (!wrap) return false;
+// Пробует вытащить мастер-ключ сейфа паролем БЕЗ побочных эффектов: не трогает
+// masterKey, db и VAULT_KEY. Возвращает CryptoKey или null (нет записи для who,
+// неверный пароль, повреждённая обёртка).
+async function tryUnwrapKey(who, pass, vault) {
+  const wrap = (vault && (vault.keys || [])).find(k => k.who === who);
+  if (!wrap) return null;
   try {
     const pwdKey = await pbkdf2Key(pass, unb64(wrap.s), vault.a || PBKDF2_ITERS);
     const kraw = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(wrap.i) }, pwdKey, unb64(wrap.d)));
-        masterKey = await crypto.subtle.importKey('raw', kraw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+    return await crypto.subtle.importKey('raw', kraw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+  } catch (e) { return null; }
+}
+
+async function unlockWith(who, pass, vaultOverride) {
+  const vault = vaultOverride || loadVault();
+  const key = await tryUnwrapKey(who, pass, vault);
+  if (!key) return false;
+  try {
+    masterKey = key;
     currentUser = who;
     const raw = await aesDec(masterKey, vault.db);
     db = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(raw)) });
@@ -1190,6 +1250,19 @@ async function unlockWith(who, pass) {
     await photoStore.migratePhotos(db);
     await photoStore.refreshSizes();
     warmThumbCache(); // миниатюры в кэш — галерея рендерится без ожидания
+    if (vaultOverride) {
+      // Вход по облачному сейфу (новый браузер / восстановление): забираем его
+      // себе — дальше он живёт на устройстве, а фото докачаются из облака.
+      // Если на устройстве оставался ДРУГОЙ сейф — кладём его в резервную
+      // копию (universe_vault_prev), чтобы ничего не пропало безвозвратно.
+      const prevLocal = loadVault();
+      if (prevLocal && JSON.stringify(prevLocal) !== JSON.stringify(vaultOverride)) {
+        try { localStorage.setItem(VAULT_KEY_PREV, JSON.stringify(prevLocal)); } catch (e) { console.warn('Не удалось сохранить бэкап сейфа', e); }
+      }
+      if (!store.set(VAULT_KEY, JSON.stringify(vaultOverride))) return false;
+      pendingCloudVault = null;
+      notify('Сейф восстановлен из облака 💜');
+    }
     try { await save(); } catch (e) { console.warn('Не удалось закрепить миграцию', e); } // p.data убран, ссылки событий на id
     unlockApp();
     return true;
@@ -1259,6 +1332,11 @@ function lock() {
 function isLocked() { return authLocked; }
 
 let pendingAuthWho = 'gosha';
+// Сейф, найденный в облаке до входа. Может быть «вторым» сейфом (на устройстве
+// остался локальный сейф с другим паролем). tryUnlock проверяет пароль и по
+// локальному, и по облачному сейфу: если пароль открывает облачный — он
+// «усыновляется» (см. unlockWith), и облачные данные приходят на устройство.
+let pendingCloudVault = null;
 function renderAuthWho() {
   $$('.auth-user').forEach(b => b.classList.toggle('auth-on', b.dataset.authWho === pendingAuthWho));
   const lbl = $('#authWhoLabel');
@@ -1266,17 +1344,53 @@ function renderAuthWho() {
 }
 async function tryUnlock() {
   const err = $('#authErr');
-  const vault = loadVault();
-  const hasPass = !!(vault && (vault.keys || []).some(k => k.who === pendingAuthWho));
+  const local = loadVault();
+  const cloud = pendingCloudVault;
+  if (!local && !cloud) {
+    if (err) err.textContent = 'Сейф не найден ни на устройстве, ни в облаке. Создай пароль или проверь интернет.';
+    return;
+  }
+  const hasPass = !!((local && (local.keys || []).some(k => k.who === pendingAuthWho)) ||
+                    (cloud && (cloud.keys || []).some(k => k.who === pendingAuthWho)));
   if (!hasPass) {
     if (err) err.textContent = 'Пароль для этого человека ещё не создан. Добавь его в настройках — или войди другим.';
     return;
   }
-  const ok = await unlockWith(pendingAuthWho, $('#authPass').value);
+  const pass = $('#authPass').value;
+  if (!pass) { if (err) err.textContent = 'Введи пароль 💜'; return; }
+  // Проверяем пароль СРАЗУ против обоих сейфов (без побочных эффектов) и решаем,
+  // каким входим:
+  //  • локальный не открылся, а облачный открылся      → облачный (новый браузер)
+  //  • открылись оба, но это РАЗНЫЕ сейфы (облачный не
+  //    расшифровывается ключом локального)             → облачный: введён пароль
+  //                                                     облачного сейфа — нужны
+  //                                                     облачные данные
+  //  • открылись оба, одна линия (тот же мастер-ключ)  → локальный: облачная
+  //                                                     копия — та же линия,
+  //                                                     не теряем свежие правки
+  //  • открылся только локальный                       → локальный (обычный вход)
+  const localKey = local ? await tryUnwrapKey(pendingAuthWho, pass, local) : null;
+  const cloudKey = cloud ? await tryUnwrapKey(pendingAuthWho, pass, cloud) : null;
+  let useCloud = false;
+  if (!localKey && cloudKey) {
+    useCloud = true;
+  } else if (localKey && cloudKey) {
+    let sameLineage = false;
+    try { await aesDec(localKey, cloud.db); sameLineage = true; } catch (e) {}
+    useCloud = !sameLineage;
+  }
+  const ok = await unlockWith(pendingAuthWho, pass, useCloud ? cloud : undefined);
   if (!ok && err) err.textContent = 'Неверный пароль. Попробуй ещё раз 💜';
 }
 async function doSetup() {
   const err = $('#setupErr');
+  // Если в облаке уже есть сейф, а на устройстве его нет — не плодим второй:
+  // ведём на экран входа, там сейф восстановится по паролю.
+  if (pendingCloudVault && !loadVault()) {
+    showAuth('lock');
+    $('#cloudHint').hidden = false;
+    return;
+  }
   const who = $('#setupWho').value;
   const p1 = $('#setupPass').value;
   const p2 = $('#setupPass2').value;
@@ -1310,6 +1424,18 @@ $('#authGo').addEventListener('click', tryUnlock);
 $('#authPass').addEventListener('keydown', e => { if (e.key === 'Enter') tryUnlock(); });
 $('#setupGo').addEventListener('click', doSetup);
 $('#setupPass2').addEventListener('keydown', e => { if (e.key === 'Enter') doSetup(); });
+// «У меня уже есть сейф» на экране первого запуска: переходим на вход и
+// пробуем ещё раз найти сейф в облаке (сетевой запрос мог не успеть).
+const setupToLockEl = $('#setupToLock');
+if (setupToLockEl) setupToLockEl.addEventListener('click', async () => {
+  showAuth('lock');
+  $('#authErr').textContent = '';
+  const cloud = typeof fetchCloudVault === 'function' ? await fetchCloudVault() : null;
+  pendingCloudVault = cloud ? cloud.vault : null;
+  const hint = $('#cloudHint');
+  if (hint) hint.hidden = !cloud;
+  if (cloud) $('#authPass').focus();
+});
 document.addEventListener('click', e => {
   const au = e.target.closest('[data-auth-who]');
   if (au) {
@@ -2330,7 +2456,10 @@ function addEventPhotosToGallery(photos, title) {
   if (!photos.length) return [];
   if (!db.labels.includes(EVENT_LABEL)) db.labels.push(EVENT_LABEL);
   const ids = [];
-  for (const photoRef of photos) {
+  for (const item of photos) {
+    // Элемент — либо data-URL (строка, как раньше), либо { data: dataURL, file: оригинал }
+    const photoRef = (item && typeof item === 'object') ? item.data : item;
+    const origFile = (item && typeof item === 'object') ? item.file : null;
     const existing = db.photos.find(p => p.id === photoRef);
     if (existing) {
       if (!Array.isArray(existing.labels)) existing.labels = [];
@@ -2347,9 +2476,10 @@ function addEventPhotosToGallery(photos, title) {
         const blob = dataUrlToBlob(photoRef);
         if (blob && photoStore) {
           makeThumbBlob(photoRef, 256).then(async thumb => {
-            const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size };
-            await photoStore.put(ph.id, blob, thumb, meta);
+            const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size, origType: origFile ? (origFile.type || '') : '' };
+            await photoStore.put(ph.id, blob, thumb, meta, origFile); // origFile — сырой файл, если есть
             if (ph.data === photoRef) delete ph.data; // блоб в сторе — base64 из памяти убираем
+            if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
           }).catch(e => console.warn('Не удалось сохранить фото события в хранилище', e));
         }
       } catch (e) { console.warn('Не удалось сохранить фото события в хранилище', e); }
@@ -2369,12 +2499,13 @@ function addEventPhotoQuick(evId) {
   inp.addEventListener('change', async () => {
     const ok = [];
     for (const f of [...inp.files].slice(0, 5)) {
-      try { ok.push(await readFile(f)); } catch (err) { console.warn('Не удалось прочитать фото события', err); }
+      try { ok.push({ data: await readFile(f), file: f }); } catch (err) { console.warn('Не удалось прочитать фото события', err); }
     }
     inp.remove();
     if (!ok.length) return;
     const ids = addEventPhotosToGallery(ok, ev.title);
-    ev.photos = Array.isArray(ev.photos) ? ev.photos.concat(ids.length ? ids : ok) : (ids.length ? ids : ok);
+    const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object') ? x.data : x);
+    ev.photos = Array.isArray(ev.photos) ? ev.photos.concat(refs) : refs;
     save(); renderCalendar(); renderHome();
   }, { once: true });
   inp.click();
@@ -2386,7 +2517,10 @@ function addDatePhotosToGallery(photos, title) {
   if (!photos.length) return [];
   if (!db.labels.includes(DATE_LABEL)) db.labels.push(DATE_LABEL);
   const ids = [];
-  for (const photoRef of photos) {
+  for (const item of photos) {
+    // Элемент — либо data-URL (строка, как раньше), либо { data: dataURL, file: оригинал }
+    const photoRef = (item && typeof item === 'object') ? item.data : item;
+    const origFile = (item && typeof item === 'object') ? item.file : null;
     const existing = db.photos.find(p => p.id === photoRef);
     if (existing) {
       if (!Array.isArray(existing.labels)) existing.labels = [];
@@ -2401,9 +2535,10 @@ function addDatePhotosToGallery(photos, title) {
         const blob = dataUrlToBlob(photoRef);
         if (blob && photoStore) {
           makeThumbBlob(photoRef, 256).then(async thumb => {
-            const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size };
-            await photoStore.put(ph.id, blob, thumb, meta);
+            const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size, origType: origFile ? (origFile.type || '') : '' };
+            await photoStore.put(ph.id, blob, thumb, meta, origFile); // origFile — сырой файл, если есть
             if (ph.data === photoRef) delete ph.data;
+            if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
           }).catch(e => console.warn('Не удалось сохранить фото свидания в хранилище', e));
         }
       } catch (e) { console.warn('Не удалось сохранить фото свидания в хранилище', e); }
@@ -2423,13 +2558,14 @@ function addDatePhotoQuick(dtId) {
   inp.addEventListener('change', async () => {
     const ok = [];
     for (const f of [...inp.files].slice(0, 5)) {
-      try { ok.push(await readFile(f)); } catch (err) { console.warn('Не удалось прочитать фото свидания', err); }
+      try { ok.push({ data: await readFile(f), file: f }); } catch (err) { console.warn('Не удалось прочитать фото свидания', err); }
     }
     inp.remove();
     if (!ok.length) return;
     const title = dt.place || dt.note || 'Свидание';
     const ids = addDatePhotosToGallery(ok, title);
-    dt.photos = Array.isArray(dt.photos) ? dt.photos.concat(ids.length ? ids : ok) : (ids.length ? ids : ok);
+    const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object') ? x.data : x);
+    dt.photos = Array.isArray(dt.photos) ? dt.photos.concat(refs) : refs;
     save(); renderCalendar(); renderHome();
   }, { once: true });
   inp.click();
@@ -2683,7 +2819,7 @@ function openEventModal(id) {
 $('#evPhoto').addEventListener('change', async e => {
   const files = [...e.target.files].slice(0, 5);
   for (const f of files) {
-    try { evPhotoData.push(await readFile(f)); } catch (err) { console.warn('Не удалось прочитать фото события', err); }
+    try { evPhotoData.push({ data: await readFile(f), file: f }); } catch (err) { console.warn('Не удалось прочитать фото события', err); }
   }
   e.target.value = '';
   setEvPhotoCount();
@@ -2700,7 +2836,7 @@ function saveEventFromModal() {
   // Фото события: кладём в общую галерею и вешаем лейбл = названию события
   if (evPhotoData.length) {
     const ids = addEventPhotosToGallery(evPhotoData, title);
-    data.photos = ids.length ? ids : evPhotoData;
+    data.photos = ids.length ? ids : evPhotoData.map(x => (x && typeof x === 'object') ? x.data : x);
   }
   const ev = editingEventId ? db.events.find(x => x.id === editingEventId) : null;
   if (ev) {
@@ -3277,9 +3413,10 @@ $('#photoInput').addEventListener('change', async e => {
         if (blob && photoStore) {
           let thumb = null, thumbType = null;
           try { thumb = await makeThumbBlob(data, 256); thumbType = (thumb && thumb.type) || 'image/webp'; } catch (e) {}
-          const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size, takenAt };
-          await photoStore.put(ph.id, blob, thumb, meta);
+          const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size, takenAt, origType: f.type || '' };
+          await photoStore.put(ph.id, blob, thumb, meta, f); // f — оригинал (сырой файл камеры)
           delete ph.data;            // блоб в сторе — из памяти убираем base64
+          if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // выгрузим в облако
         }
       } catch (err) { console.warn('Не удалось сохранить фото в хранилище', err); }
     } catch (err) { console.warn('Не удалось загрузить фото', err); }
@@ -3321,6 +3458,7 @@ function deletePhoto(id) {
   // Удаляем из кэша только удалённое фото — остальные миниатюры остаются
   if (id) thumbCache.delete(id);
   save(); renderPhotos(); renderCalendar(); renderHome();
+  if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // уберём и из облака
 }
 // К каким событиям привязано фото — для фильтра «год → месяц → событие».
 // ev.photos хранит id фото (v6+).
@@ -3387,9 +3525,13 @@ function renderPhotosNow() {
     selBar.style.display = selectedPhotos.size ? 'flex' : 'none';
     if (selectedPhotos.size) { const c = $('#selCount'); if (c) c.textContent = selectedPhotos.size; }
   }
-  grid.innerHTML = list.length ? list.map(p => `
+  grid.innerHTML = list.length ? list.map(p => {
+    // Кэш миниатюр может быть ещё не прогрет — рисуем каркас и заполняем src
+    // асинхронно (как в «Памяти» и на «Главной»), чтобы миниатюры появлялись сами.
+    const url = photoSrc(p);
+    return `
     <div class="photo${p.pinned ? ' pinned' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}">
-      <img src="${esc(photoSrc(p))}" alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">
+      <img${url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"'} alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">
       <button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>
       <button class="pin-photo${p.pinned ? ' active' : ''}" data-pin-photo="${p.id}" title="${p.pinned ? 'Открепить' : 'Закрепить'}">${p.pinned ? '⭐' : '☆'}</button>
       <button class="del-photo" data-del-photo="${p.id}" title="Удалить">✕</button>
@@ -3398,8 +3540,10 @@ function renderPhotosNow() {
         `<span class="photo-label">${esc(l)}${l === EVENT_LABEL || l === DATE_LABEL ? '' : `<span class="photo-label-del" data-label-off="${esc(l)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</span>`}</span>`
       ).join('')}</div>` : ''}
       ${currentLabel === EVENT_LABEL && p.title ? `<span class="photo-caption">${esc(eventFilter.title || p.title)}</span>` : ''}
-    </div>`).join('')
+    </div>`;
+  }).join('')
     : '<p class="cal-tip">📷 Загрузите ваши фото — они будут храниться локально, прямо в браузере.</p>';
+  hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
 }
 // Витрина «📅 События»: кнопки «год → месяц → событие» появляются по мере выбора
 function eventPhotosCount(year, month, title) {
@@ -3817,6 +3961,43 @@ let lightboxList = [];   // источники: id фото из db.photos ИЛ�
 let lightboxIdx = 0;
 let lightboxZoom = 1;
 
+/* ===== Скачивание фото (кнопка «⬇️ Скачать оригинал») ===== */
+function extFromMime(type) {
+  const m = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/heic': 'heic', 'image/heif': 'heif', 'image/avif': 'avif', 'image/svg+xml': 'svg' };
+  return m[type || ''] || '';
+}
+function safeFileName(name) {
+  const clean = String(name || '').replace(/[^\wа-яёА-ЯЁ\s\-()]+/gi, '_').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return clean || 'photo';
+}
+function downloadBlob(blob, name) {
+  if (!blob || typeof URL === 'undefined' || !URL.createObjectURL || typeof document === 'undefined') return;
+  const ext = extFromMime(blob.type);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = safeFileName(name) + (ext ? '.' + ext : '');
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function downloadDataUrl(dataUrl, name) {
+  const blob = dataUrlToBlob(dataUrl);
+  if (blob) downloadBlob(blob, name);
+}
+async function downloadCurrentPhoto() {
+  const src = lightboxList[lightboxIdx];
+  if (!src) return;
+  if (lbIsDataUrl(src)) { downloadDataUrl(src, 'photo'); return; }
+  const p = lbPhoto(src);
+  if (!p || !photoStore || !p.id) return;
+  const name = p.title || 'photo';
+  let blob = null;
+  try { blob = await photoStore.getOrig(p.id); } catch (e) {}
+  if (!blob) { try { blob = await photoStore.getFull(p.id); } catch (e) {} }
+  if (blob) downloadBlob(blob, name);
+}
+
 function lbIsDataUrl(src) { return typeof src === 'string' && src.indexOf('data:') === 0; }
 function lbPhoto(src) { return Array.isArray(db.photos) ? db.photos.find(p => p.id === src) || null : null; }
 
@@ -3886,6 +4067,8 @@ const lbNextBtn = $('#lbNext');
 if (lbNextBtn) lbNextBtn.addEventListener('click', () => lbNav(1));
 const lbZoomBtn = $('#lbZoomBtn');
 if (lbZoomBtn) lbZoomBtn.addEventListener('click', () => lbZoomToggle());
+const lbDlBtn = $('#lbDownload');
+if (lbDlBtn) lbDlBtn.addEventListener('click', () => downloadCurrentPhoto());
 const lbImg = $('#lightboxImg');
 if (lbImg) lbImg.addEventListener('dblclick', () => lbZoomToggle());
 if (typeof document !== 'undefined' && document.addEventListener) {
@@ -3950,7 +4133,7 @@ $('#themeToggle').addEventListener('click', toggleTheme);
 $('#settingsThemeBtn').addEventListener('click', toggleTheme);
 
 /* ===== Запуск: приложение закрыто, пока не вошли ===== */
-function initAuth() {
+async function initAuth() {
   initPhotoStore(); // открываем IndexedDB (или fallback) до первого входа
   renderUserChip();
   setTheme(getTheme());
@@ -3958,13 +4141,40 @@ function initAuth() {
   lastActivity = Date.now();
   startAutoLock();
   document.body.classList.add('auth');
-  showAuth(loadVault() ? 'lock' : 'setup'); // сейф есть → вход; нет → первое создание пароля
+  if (loadVault()) {
+    showAuth('lock'); // сейф есть → вход
+  } else {
+    // Первый запуск: сначала проверяем, нет ли сейфа пары в облаке (например,
+    // на этом же устройстве очистили localStorage, или новый браузер). Если есть —
+    // показываем вход с подсказкой, а не экран «создать пароль»: иначе создание
+    // второго сейфа затёрло бы облачный.
+    showAuth('setup');
+  }
+  // Сейф пары в облаке ищем ВСЕГДА (и когда локальный уже есть): если в облаке
+  // лежит ДРУГОЙ сейф, пароль облачного сейфа должен восстановить облачные
+  // данные, а не открыть устаревший локальный. pendingCloudVault даёт входу
+  // второй вариант, hint объясняет пользователю, что происходит.
+  const cloud = await fetchCloudVault();
+  if (cloud && cloud.vault) {
+    pendingCloudVault = cloud.vault;
+    showAuth('lock');
+    if (loadVault()) {
+      // Локальный сейф есть + облачный отдельный: вход паролем облачного сейфа
+      // вернёт облачные данные (см. cloudHint2 в index.html).
+      $('#cloudHint2').hidden = false;
+    } else {
+      $('#cloudHint').hidden = false;
+    }
+    $('#authPass').focus();
+  }
   pendingAuthWho = 'gosha';
   renderAuthWho();
   // Если JS по какой-то причине не выполнится — контент так и останется скрытым
   // (body.auth прячет шапку и main), никто ничего не увидит.
 }
-initAuth();
+// Вызов initAuth() стоит в конце 95-sync.js (самый последний модуль сборки):
+// initAuth читает FIREBASE_CONFIG (let из 95-sync.js), а он ещё в «мёртвой зоне»
+// во время выполнения 90-effects-init.js.
 // Клик по чипу «Гоша ▾ / Даша ▾» = заблокировать и дать войти другому
 $('#userChip').addEventListener('click', lock);
 
@@ -3992,10 +4202,33 @@ spawnHeart();
    (см. README). Конфликты: «последняя правка выигрывает» по syncTs.
 
    Фаза B1: вставь config из Firebase Console в FIREBASE_CONFIG ниже.
+   Фаза B3 (фото): оригиналы+миниатюры синхронизируются через Яндекс.Диск —
+   вставь токен в YANDEX_DISK_CONFIG ниже (Firebase Storage — только на платном
+   Blaze-плане, из России его не оплатить).
    Без config (или без интернета) приложение работает как раньше — локально.
    Работает на http(s); на file:// SDK может не загрузиться — тоже локально. */
 
-let FIREBASE_CONFIG = null; // ← сюда config из Firebase (см. README, фаза B1). let — чтобы тесты могли подставить мок.
+let FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyDuAkskIpj3bsFOX6aPecFWZGJOlOzGzUk",
+  authDomain:        "nasha-vselennaya.firebaseapp.com",
+  databaseURL:       "https://nasha-vselennaya-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "nasha-vselennaya",
+  storageBucket:     "nasha-vselennaya.firebasestorage.app",
+  messagingSenderId: "222445763153",
+  appId:             "1:222445763153:web:df254e6b681c2e40289670",
+  measurementId:     "G-JZY24EXCX3"
+}; // ← config из Firebase Console (фаза B1). let — чтобы тесты могли подставить мок.
+
+/* Фото-облако (фаза B3): Яндекс.Диск вместо Firebase Storage (Storage — только на
+   платном Blaze-плане, из России оплатить нельзя). Как получить токен — README,
+   шаг 6: oauth.yandex.ru → «Создать приложение» (Callback https://oauth.yandex.ru/verification_code)
+   → доступ «Яндекс.Диск REST API. Доступ к папке приложения» (cloud_api:disk.app_folder)
+   → «Выпустить токен». Токен видит только папку приложения /Приложения/<имя>/,
+   пути ниже идут относительно неё. */
+let YANDEX_DISK_CONFIG = {
+  token: 'y0__wgBEIepmJ0CGJqORyD9n7LOGDDY3uKSCI0YP0CcYDMHfx8QFUB_zk_nyS9i', // OAuth-токен Яндекса (scope: cloud_api:disk.app_folder)
+  basePath: '/photos' // внутри папки приложения: app:/photos/orig/{id}, app:/photos/full/{id}, app:/photos/thumb/{id}
+};
 
 const SYNC_KEY = 'universe_syncTs';  // последний известный syncTs (метаданные, не секрет)
 const SYNC_PATH = 'vaults/shared';   // общий зашифрованный сейф пары
@@ -4019,6 +4252,11 @@ async function initSync() {
   try {
     syncFirebase = firebase.initializeApp(FIREBASE_CONFIG, 'nasha_sync');
     syncDb = firebase.database(syncFirebase);
+    // Хранилище фото (фаза B3): оригиналы + миниатюры в Яндекс.Диске (бесплатно,
+    // из РФ работает). Firebase Storage — только на платном Blaze, оставлен как
+    // запасной вариант. Без токена фото остаются локальными — как раньше.
+    if (YANDEX_DISK_CONFIG && YANDEX_DISK_CONFIG.token) syncStorage = makeYdStorage();
+    else if (typeof firebase.storage === 'function') syncStorage = firebase.storage(syncFirebase);
     // Anonymous Auth: оба устройства — «гости», доступ к общему vaults/shared.
     // UID нигде не храним: правила разрешают любому анониму, данные зашифрованы.
     const cred = await firebase.auth(syncFirebase).signInAnonymously();
@@ -4028,6 +4266,7 @@ async function initSync() {
     listenRemote();      // живые обновления с другого устройства
     pullVault(true);     // при входе пробуем забрать свежие данные
     scheduleSyncPush();  // и отдать свои, если они свежее
+    schedulePhotoSync(); // фото: выгрузить свои / скачать недостающие
   } catch (e) {
     console.warn('[sync] init failed', e);
     syncReady = false;
@@ -4042,19 +4281,83 @@ function scheduleSyncPush() {
   syncPushTimer = setTimeout(pushVault, 1500);
 }
 
+// Защита от затирания чужого сейфа. Облачный сейф не расшифровался текущим
+// ключом — значит, в облаке сейф другого устройства/пароля (например, созданный
+// «вторым» сейфом в свежем браузере). Автоматически его не трогаем: показываем
+// конфликт, дальше решает человек («Синхронизировать сейчас» = forcePushVault).
+let syncPushBlocked = false;
+
+// Быстрый опрос облака ДО первого входа (экран замка/создания): есть ли уже
+// зашифрованный сейф пары? Ничего не пишет, слушатели не вешает. Возвращает
+// { vault, ts } или null, если сейфа нет / нет сети / config пустой.
+let probeApp = null;
+async function fetchCloudVault() {
+  if (!FIREBASE_CONFIG || typeof firebase === 'undefined' || typeof firebase.initializeApp !== 'function' ||
+      typeof firebase.auth !== 'function' || typeof firebase.database !== 'function') return null;
+  try {
+    probeApp = probeApp || firebase.initializeApp(FIREBASE_CONFIG, 'nasha_probe');
+    const cred = await firebase.auth(probeApp).signInAnonymously();
+    if (!cred || !cred.user) return null;
+    const snap = await firebase.database(probeApp).ref(SYNC_PATH).once('value');
+    const data = snap && snap.val ? snap.val() : null;
+    if (!data || !data.vault || !data.vault.db || typeof data.vault.db.d !== 'string') return null;
+    return { vault: data.vault, ts: data.syncTs || 0 };
+  } catch (e) {
+    console.warn('[sync] нет доступа к облаку при старте', e);
+    return null;
+  }
+}
+
+// Запись сейфа в облако (общий путь для push и принудительного восстановления).
+async function writeVault() {
+  const vault = loadVault();
+  if (!vault || !vault.db || typeof vault.db.d !== 'string') return;
+  renderSyncStatus('syncing');
+  const ts = Date.now();
+  await syncDb.ref(SYNC_PATH).set({ syncTs: ts, vault });
+  syncTs = ts;
+  store.set(SYNC_KEY, String(ts));
+  renderSyncStatus('ok', ts);
+}
+
 async function pushVault() {
   if (!syncReady || syncApplying) return;
+  // Смотрим, что сейчас лежит в облаке. Если сейф другой и не расшифровывается
+  // текущим ключом — это чужой сейф: НЕ затираем его автоматически.
   try {
-    const vault = loadVault();
-    if (!vault || !vault.db || typeof vault.db.d !== 'string') return;
-    renderSyncStatus('syncing');
-    const ts = Date.now();
-    await syncDb.ref(SYNC_PATH).set({ syncTs: ts, vault });
-    syncTs = ts;
-    store.set(SYNC_KEY, String(ts));
-    renderSyncStatus('ok', ts);
+    const snap = await syncDb.ref(SYNC_PATH).once('value');
+    const remote = snap && snap.val ? snap.val() : null;
+    if (remote && remote.vault && remote.vault.db && typeof remote.vault.db.d === 'string' && masterKey) {
+      let ok = false;
+      try { await aesDec(masterKey, remote.vault.db); ok = true; } catch (e) {}
+      if (!ok) {
+        syncPushBlocked = true;
+        renderSyncStatus('conflict');
+        notify('В облаке сейф с другим паролем — я его не трогаю. Чтобы открыть данные из облака: нажми чип «Гоша/Даша» (замок) и введи пароль облачного сейфа 💜', true);
+        return;
+      }
+    }
   } catch (e) {
+    console.warn('[sync] не удалось проверить облачный сейф', e);
+    renderSyncStatus('error');
+    return;
+  }
+  syncPushBlocked = false;
+  try { await writeVault(); }
+  catch (e) {
     console.warn('[sync] push failed', e);
+    renderSyncStatus('error');
+  }
+}
+
+// Явное восстановление: затирает облачный сейф сейфом этого устройства.
+// Это осознанное действие человека (кнопка «Синхронизировать сейчас» в конфликте).
+async function forcePushVault() {
+  if (!syncReady) return;
+  syncPushBlocked = false;
+  try { await writeVault(); }
+  catch (e) {
+    console.warn('[sync] force push failed', e);
     renderSyncStatus('error');
   }
 }
@@ -4133,6 +4436,7 @@ async function applyRemoteVault(remoteVault) {
     await save(); // закрепить миграции локально (push не запустится: syncApplying)
     renderUserChip(); renderHome(); renderCalendar(); renderNotes();
     renderLists(); renderWishlist(); renderPhotos(); renderMemory(); renderSettings();
+    schedulePhotoSync(); // пришли новые/удалённые фото — сверимся с облаком
     return true;
   } catch (e) {
     console.warn('[sync] применить облачные данные не удалось', e);
@@ -4145,6 +4449,7 @@ async function applyRemoteVault(remoteVault) {
 /* ===== Остановка: при lock() ===== */
 function stopSync() {
   clearTimeout(syncPushTimer);
+  clearTimeout(photoSyncTimer);
   if (syncLiveOn && syncDb) {
     try { syncDb.ref(SYNC_PATH).off('value'); } catch (e) {}
     syncLiveOn = false;
@@ -4155,7 +4460,315 @@ function stopSync() {
   syncReady = false;
   syncFirebase = null;
   syncDb = null;
+  syncStorage = null;
+  syncPushBlocked = false;
+  photoSyncing = false;
   renderSyncStatus('off');
+}
+
+
+/* ===== Фото в облаке (фаза B3): оригиналы + миниатюры в Яндекс.Диске =====
+   Пути: photos/orig/{id} (исходный файл), photos/full/{id} (показ-версия),
+   photos/thumb/{id} (миниатюра). В облако уезжают САМИ шифртексты из photoStore
+   (AES-GCM мастер-ключом) — сервер видит только шифртекст, прочитать фото без
+   пароля нельзя (zero-knowledge), а на другом устройстве они расшифровываются тем
+   же мастер-ключом. Реализация — адаптер makeYdStorage() ниже: тот же интерфейс
+   { put, getBlob, delete, listAll }, что у Firebase Storage.
+
+   Модель — полная сверка (reconciliation): после каждой операции с фото
+   (добавление, удаление, применение облачного сейфа) с задержкой сравниваем три
+   списка: локальный photoStore, облако Storage и db.photos. Недостающее выгружаем
+   и скачиваем, лишнее (удалённые фото) чистим и в облаке, и в локальном сторе.
+   Так работают и бэкфилл старых фото, и удаление с другого устройства. */
+const PHOTO_PARTS = ['orig', 'full', 'thumb'];
+let syncStorage = null;      // Яндекс.Диск (или firebase.storage() на платном Blaze)
+let photoSyncTimer = null;   // debounce после операций с фото
+let photoSyncing = false;    // защита от параллельных сверок
+
+/* ===== Адаптер Яндекс.Диска к интерфейсу фото-логики =====
+   REST API: cloud-api.yandex.net/v1/disk. Загрузка — GET /resources/upload
+   (в ответе href) → PUT на href; скачивание — GET /resources/download (href) →
+   GET на href; удаление — DELETE /resources; список папки — GET /resources
+   (пагинация limit=1000 по offset). CORS поддержан: cloud-api.yandex.net
+   отвечает Access-Control-Allow-Origin и разрешает Authorization. */
+const YD_API = 'https://cloud-api.yandex.net/v1/disk';
+const YD_LIMIT = 1000;
+let ydFetch = (typeof fetch === 'function') ? fetch : null; // let — чтобы тесты могли подменить
+
+async function ydRequest(url, opts, tries) {
+  const attempt = tries || 0;
+  try {
+    if (!ydFetch) throw new Error('fetch недоступен');
+    const res = await ydFetch(url, opts);
+    if (res.status === 429 || res.status >= 500) {
+      const e = new Error('YD ' + res.status);
+      e.retryable = true;
+      throw e;
+    }
+    if (!res.ok) throw new Error('YD ' + res.status);
+    return res;
+  } catch (e) {
+    // Ретраим только временные сбои (429/5xx/сеть). Ошибки 4xx (403, 404, 409)
+    // детерминированы — повторять бессмысленно, а в тестах setTimeout-заглушка
+    // вообще не вызывает колбэк, так что ретрай «завис» бы навсегда.
+    if (e && e.retryable && attempt < 2) {
+      await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+      return ydRequest(url, opts, attempt + 1);
+    }
+    throw e;
+  }
+}
+function ydHeaders() { return { Authorization: 'OAuth ' + YANDEX_DISK_CONFIG.token }; }
+// Токен имеет scope cloud_api:disk.app_folder — видит ТОЛЬКО папку приложения,
+// поэтому все пути обязаны начинаться с app:/ (иначе API отвечает 403 Forbidden).
+function ydPath(part, id) { return 'app:' + YANDEX_DISK_CONFIG.basePath + '/' + part + '/' + id; }
+function ydUploadUrl(part, id) { return YD_API + '/resources/upload?path=' + encodeURIComponent(ydPath(part, id)) + '&overwrite=true'; }
+function ydDownloadUrl(part, id) { return YD_API + '/resources/download?path=' + encodeURIComponent(ydPath(part, id)); }
+function ydDeleteUrl(part, id) { return YD_API + '/resources?path=' + encodeURIComponent(ydPath(part, id)) + '&permanently=true'; }
+function ydListUrl(folder, offset) { return YD_API + '/resources?path=' + encodeURIComponent(folder) + '&limit=' + YD_LIMIT + '&offset=' + offset; }
+
+// Яндекс не создаёт промежуточные папки сам (409 DiskPathDoesntExistsError), поэтому
+// перед загрузкой гарантируем цепочку app:/photos → app:/photos/{part}.
+async function ydEnsureDir(path) {
+  try {
+    await ydRequest(YD_API + '/resources?path=' + encodeURIComponent(path), { method: 'PUT', headers: ydHeaders() });
+  } catch (e) { /* 409 — папка уже есть (или появится после создания родителя): не ошибка */ }
+}
+async function ydEnsureDirs(part) {
+  await ydEnsureDir('app:' + YANDEX_DISK_CONFIG.basePath);
+  await ydEnsureDir('app:' + YANDEX_DISK_CONFIG.basePath + '/' + part);
+}
+
+async function ydUpload(part, id, blob) {
+  await ydEnsureDirs(part);
+  const r = await ydRequest(ydUploadUrl(part, id), { method: 'GET', headers: ydHeaders() });
+  const j = await r.json();
+  const href = j && j.href;
+  if (!href) throw new Error('YD: нет ссылки для загрузки');
+  const up = await ydFetch(href, { method: j.method || 'PUT', body: blob, headers: { 'Content-Type': 'application/json' } });
+  if (up.status !== 201 && up.status !== 202 && !up.ok) throw new Error('YD upload ' + up.status);
+}
+
+async function ydDownload(part, id) {
+  const r = await ydRequest(ydDownloadUrl(part, id), { method: 'GET', headers: ydHeaders() });
+  const j = await r.json();
+  const href = j && j.href;
+  if (!href) throw new Error('YD: нет ссылки для скачивания');
+  const down = await ydFetch(href, { method: j.method || 'GET' });
+  if (!down.ok) throw new Error('YD download ' + down.status);
+  return down.blob();
+}
+
+async function ydDelete(part, id) {
+  await ydRequest(ydDeleteUrl(part, id), { method: 'DELETE', headers: ydHeaders() });
+}
+
+async function ydList(folder) {
+  const items = [];
+  let offset = 0;
+  for (;;) {
+    let r;
+    try { r = await ydRequest(ydListUrl(folder, offset), { method: 'GET', headers: ydHeaders() }); }
+    catch (e) {
+      // Папки ещё нет (первый запуск до выгрузки) — это пустой список, а не ошибка
+      if (/404|Not Found/i.test(String((e && e.message) || ''))) return { items, prefixes: [] };
+      throw e;
+    }
+    const j = await r.json();
+    const chunk = (j._embedded && j._embedded.items) || [];
+    for (const it of chunk) if (it && it.type === 'file') items.push({ name: it.name });
+    if (chunk.length < YD_LIMIT || offset >= 20000) break;
+    offset += chunk.length;
+  }
+  return { items, prefixes: [] };
+}
+
+// makeYdStorage() — объект в стиле firebase.storage(): ref('photos/thumb/abc') →
+// { put, getBlob, delete }, ref('photos/thumb') → { listAll }. Фото-логика
+// (photoRef, listCloudPhotos, syncPhotos) работает с ним без изменений.
+function makeYdStorage() {
+  return {
+    ref(path) {
+      const seg = String(path || '').split('/').filter(Boolean);
+      if (seg.length >= 3) {
+        const part = seg[1], id = seg.slice(2).join('/');
+        return {
+          name: id,
+          fullPath: seg.join('/'),
+          put(blob) { return ydUpload(part, id, blob); },
+          getBlob() { return ydDownload(part, id); },
+          delete() { return ydDelete(part, id); }
+        };
+      }
+      const folder = 'app:/' + seg.join('/'); // 'app:/photos/thumb' — токен видит только папку приложения
+      return { listAll() { return ydList(folder); } };
+    }
+  };
+}
+
+function photoRef(part, id) { return syncStorage.ref('photos/' + part + '/' + id); }
+
+// Запуск сверки фото (debounce 2.5 с): после добавления/удаления фото и при
+// применении облачного сейфа. Без Storage или до разблокировки — просто ждём.
+function schedulePhotoSync() {
+  if (!syncStorage || !photoStore || !masterKey || photoSyncing) return;
+  clearTimeout(photoSyncTimer);
+  photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 2500);
+}
+
+// Что сейчас лежит в облаке: { id: { orig: true, full: true, thumb: true } }
+async function listCloudPhotos() {
+  const out = {};
+  for (const part of PHOTO_PARTS) {
+    try {
+      const res = await syncStorage.ref('photos/' + part).listAll();
+      for (const it of (res.items || [])) (out[it.name] = out[it.name] || {})[part] = true;
+    } catch (e) { console.warn('[sync] не удалось прочитать облако photos/' + part, e); }
+  }
+  return out;
+}
+
+// Выгрузка недостающих частей фото в облако (шифртекст как есть).
+async function uploadCloudPhoto(id, cloud, local) {
+  const meta = (await photoStore.getMeta(id).catch(() => null)) || {};
+  const jobs = [];
+  for (const part of PHOTO_PARTS) {
+    const has = cloud[id] && cloud[id][part];
+    if (has || !local['has' + part[0].toUpperCase() + part.slice(1)]) continue;
+    jobs.push((async () => {
+      try {
+        const getter = part === 'orig' ? 'getEncryptedOrig' : (part === 'full' ? 'getEncryptedFull' : 'getEncryptedThumb');
+        const enc = await photoStore[getter](id);
+        if (!enc) return;
+        // Обёртка: сам шифртекст + несекретные MIME/размер (размер и так виден
+        // в метаданных Storage), чтобы на другом устройстве восстановить тип файла.
+        const payload = { e: enc, m: { t: meta.origType || meta.type || '', ft: meta.type || '', st: meta.thumbType || '', s: meta.size || 0 } };
+        await photoRef(part, id).put(new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+      } catch (e) { console.warn('[sync] не удалось выгрузить фото ' + id + '/' + part, e); }
+    })());
+  }
+  await Promise.all(jobs);
+}
+
+
+// Скачивание недостающих частей фото из облака (без повторного шифрования).
+async function downloadCloudPhoto(id, cloud, local) {
+  const meta = (local && (await photoStore.getMeta(id).catch(() => null))) || {};
+  const got = {};
+  let gotMeta = null;
+  for (const part of PHOTO_PARTS) {
+    const hasCloud = cloud[id] && cloud[id][part];
+    const hasLocal = local && local['has' + part[0].toUpperCase() + part.slice(1)];
+    if (!hasCloud || hasLocal) continue;
+    try {
+      const data = await photoRef(part, id).getBlob();
+      const txt = (typeof data === 'string') ? data : await data.text();
+      const parsed = JSON.parse(txt);
+      // Новый формат { e: шифртекст, m: {t,ft,st,s} } и старый { i, d } — оба понимаем
+      const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
+                : (parsed && typeof parsed.d === 'string') ? parsed : null;
+      if (!enc) continue;
+      got[part] = enc;
+      if (parsed && parsed.m && !gotMeta) gotMeta = parsed.m;
+    } catch (e) { console.warn('[sync] не удалось скачать фото ' + id + '/' + part, e); }
+  }
+  if (!got.orig && !got.full && !got.thumb) return;
+  // Сохраняем всё разом, чтобы не потерять уже имеющиеся локальные части
+  const exOrig = (local && local.hasOrig) ? await photoStore.getEncryptedOrig(id) : null;
+  const exFull = (local && local.hasFull) ? await photoStore.getEncryptedFull(id) : null;
+  const exThumb = (local && local.hasThumb) ? await photoStore.getEncryptedThumb(id) : null;
+  const meta2 = { ...meta };
+  if (gotMeta) {
+    if (gotMeta.t) meta2.origType = gotMeta.t;
+    if (gotMeta.ft) meta2.type = gotMeta.ft;
+    if (gotMeta.st) meta2.thumbType = gotMeta.st;
+    if (gotMeta.s) meta2.size = gotMeta.s;
+  }
+  await photoStore.putEncrypted(id, got.full || exFull, got.thumb || exThumb, meta2, got.orig || exOrig);
+  // Приехала миниатюра — прогреваем кэш, фото сразу показывается в галерее
+  try {
+    const t = await photoStore.getThumb(id);
+    if (t) setThumbUrl(id, await blobToDataUrl(t));
+  } catch (e) {}
+}
+
+// Проверка, что облачные фото зашифрованы ТЕКУЩИМ ключом. Скачиваем по одной
+// самой «лёгкой» части каждого фото (миниатюра < показ-версия < оригинал) и
+// пробуем расшифровать. Если хоть одно фото не расшифровывается — в облаке есть
+// фото ДРУГОГО сейфа (например, свежий браузер создал свой ключ): удалять их
+// нельзя, это не «мусор», а чужие данные. Возвращает true, если облако пусто
+// или целиком «наше». Проверяем все фото, а не одно: смесь «наших» и «чужих»
+// (свой сейф + фото старого) тоже обязана прервать сверку.
+async function cloudPhotosDecryptable(cloud) {
+  for (const id of Object.keys(cloud)) {
+    // Берём самую маленькую присутствующую часть — хватает для проверки ключа
+    const part = ['thumb', 'full', 'orig'].find(p => cloud[id] && cloud[id][p]);
+    if (!part) continue;
+    try {
+      const data = await photoRef(part, id).getBlob();
+      const txt = (typeof data === 'string') ? data : await data.text();
+      const parsed = JSON.parse(txt);
+      const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
+                : (parsed && typeof parsed.d === 'string') ? parsed : null;
+      if (!enc) return false;
+      await aesDec(masterKey, enc);
+    } catch (e) {
+      console.warn('[sync] облачное фото не расшифровывается текущим ключом', id, part);
+      return false;
+    }
+  }
+  return true; // облако пусто или целиком расшифровывается — можно сверять
+}
+
+// Полная сверка фото: локальный store ↔ облако ↔ db.photos.
+async function syncPhotos() {
+  if (!syncStorage || !photoStore || !masterKey || photoSyncing) return;
+  photoSyncing = true;
+  try {
+    const localList = await photoStore.listIds();
+    const localMap = new Map(localList.map(l => [l.id, l]));
+    const cloud = await listCloudPhotos();
+    // Защита от потери данных: если облачные фото зашифрованы ДРУГИМ ключом
+    // (свежий браузер создал второй сейф, а в облаке лежат фото первого), шаги
+    // 2–4 делать нельзя — «облачный мусор» оказался бы чужими фото. Прерываем.
+    if (Object.keys(cloud).length && !(await cloudPhotosDecryptable(cloud))) {
+      console.warn('[sync] облачные фото зашифрованы другим ключом — сверка фото пропущена, ничего не удалено');
+      notify('Облачные фото зашифрованы другим паролем — я их не трогаю 💜', true);
+      return;
+    }
+    const want = new Set((db.photos || []).map(p => p && p.id).filter(Boolean));
+    // 1. Локальный мусор: блоб без фото в db (фото удалено) — чистим store
+    for (const id of localMap.keys()) {
+      if (want.has(id)) continue;
+      try { await photoStore.delete(id); thumbCache.delete(id); } catch (e) {}
+    }
+    // 2. Облачный мусор: файлы без фото в db — удаляем (удаление разъезжается)
+    for (const id of Object.keys(cloud)) {
+      if (want.has(id)) continue;
+      for (const part of PHOTO_PARTS) {
+        if (cloud[id][part]) { try { await photoRef(part, id).delete(); } catch (e) {} }
+      }
+    }
+    // 3. Скачиваем недостающее с облака
+    for (const id of want) {
+      const l = localMap.get(id);
+      const need = PHOTO_PARTS.some(part => cloud[id] && cloud[id][part] && (!l || !l['has' + part[0].toUpperCase() + part.slice(1)]));
+      if (need) await downloadCloudPhoto(id, cloud, l);
+    }
+    // 4. Выгружаем недостающее в облако (новые фото + бэкфилл старых)
+    for (const id of want) {
+      const l = localMap.get(id);
+      if (!l || !l.hasFull) continue; // полного блоба нет — выгружать нечего
+      await uploadCloudPhoto(id, cloud, l);
+    }
+  } catch (e) {
+    console.warn('[sync] сверка фото не удалась', e);
+  } finally {
+    photoSyncing = false;
+    // Докачали блобы из облака — прогреваем кэш миниатюр и перерисовываем вьюхи,
+    // иначе миниатюры, приехавшие после первого рендера, не появятся в галерее.
+    if (typeof warmThumbCache === 'function') warmThumbCache();
+  }
 }
 
 
@@ -4165,6 +4778,7 @@ const SYNC_STATUS_TEXT = {
   idle:    'Облако подключено — ждём изменений…',
   syncing: 'Синхронизируем…',
   ok:      'Синхронизировано ✅',
+  conflict: '⚠️ В облаке сейф с другим паролем — он не затёрт. Если нужны облачные данные: нажми чип «Гоша/Даша» (замок) и введи пароль облачного сейфа — он усыновится, фото докачаются. «Синхронизировать сейчас» перезапишет облако этим устройством.',
   error:   'Ошибка синхронизации — проверь интернет и попробуй ещё раз 💜'
 };
 let syncUiState = 'off';
@@ -4176,16 +4790,23 @@ function renderSyncStatus(state, ts) {
   if (!el) return;
   const text = SYNC_STATUS_TEXT[state] || SYNC_STATUS_TEXT.off;
   el.textContent = text;
-  el.style.color = state === 'ok' ? '#059669' : (state === 'error' ? '#dc2626' : 'var(--muted)');
+  el.style.color = state === 'ok' ? '#059669' : (state === 'error' ? '#dc2626' : (state === 'conflict' ? '#b45309' : 'var(--muted)'));
   const btn = $('#syncNowBtn');
   if (btn) btn.disabled = (state === 'syncing');
 }
-function syncNow() {
+async function syncNow() {
   if (!FIREBASE_CONFIG) { renderSyncStatus('off'); return; }
   if (!syncReady) { initSync(); return; }
-  pullVault(false);
-  pushVault();
+  if (syncPushBlocked) { await forcePushVault(); return; }
+  await pullVault(false);
+  await pushVault();
 }
 const syncNowBtnEl = $('#syncNowBtn');
 if (syncNowBtnEl) syncNowBtnEl.addEventListener('click', syncNow);
+
+/* ===== Старт приложения =====
+   initAuth() из 90-effects-init.js вызывается здесь — последним в сборке:
+   он читает FIREBASE_CONFIG (let из этого модуля), который ещё в «мёртвой зоне»
+   во время выполнения 90-effects-init.js. Так же инициализируются экраны входа. */
+initAuth();
 

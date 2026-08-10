@@ -6,6 +6,43 @@ let lightboxList = [];   // источники: id фото из db.photos ИЛ�
 let lightboxIdx = 0;
 let lightboxZoom = 1;
 
+/* ===== Скачивание фото (кнопка «⬇️ Скачать оригинал») ===== */
+function extFromMime(type) {
+  const m = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/heic': 'heic', 'image/heif': 'heif', 'image/avif': 'avif', 'image/svg+xml': 'svg' };
+  return m[type || ''] || '';
+}
+function safeFileName(name) {
+  const clean = String(name || '').replace(/[^\wа-яёА-ЯЁ\s\-()]+/gi, '_').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return clean || 'photo';
+}
+function downloadBlob(blob, name) {
+  if (!blob || typeof URL === 'undefined' || !URL.createObjectURL || typeof document === 'undefined') return;
+  const ext = extFromMime(blob.type);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = safeFileName(name) + (ext ? '.' + ext : '');
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function downloadDataUrl(dataUrl, name) {
+  const blob = dataUrlToBlob(dataUrl);
+  if (blob) downloadBlob(blob, name);
+}
+async function downloadCurrentPhoto() {
+  const src = lightboxList[lightboxIdx];
+  if (!src) return;
+  if (lbIsDataUrl(src)) { downloadDataUrl(src, 'photo'); return; }
+  const p = lbPhoto(src);
+  if (!p || !photoStore || !p.id) return;
+  const name = p.title || 'photo';
+  let blob = null;
+  try { blob = await photoStore.getOrig(p.id); } catch (e) {}
+  if (!blob) { try { blob = await photoStore.getFull(p.id); } catch (e) {} }
+  if (blob) downloadBlob(blob, name);
+}
+
 function lbIsDataUrl(src) { return typeof src === 'string' && src.indexOf('data:') === 0; }
 function lbPhoto(src) { return Array.isArray(db.photos) ? db.photos.find(p => p.id === src) || null : null; }
 
@@ -75,6 +112,8 @@ const lbNextBtn = $('#lbNext');
 if (lbNextBtn) lbNextBtn.addEventListener('click', () => lbNav(1));
 const lbZoomBtn = $('#lbZoomBtn');
 if (lbZoomBtn) lbZoomBtn.addEventListener('click', () => lbZoomToggle());
+const lbDlBtn = $('#lbDownload');
+if (lbDlBtn) lbDlBtn.addEventListener('click', () => downloadCurrentPhoto());
 const lbImg = $('#lightboxImg');
 if (lbImg) lbImg.addEventListener('dblclick', () => lbZoomToggle());
 if (typeof document !== 'undefined' && document.addEventListener) {

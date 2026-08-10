@@ -44,9 +44,10 @@ $('#photoInput').addEventListener('change', async e => {
         if (blob && photoStore) {
           let thumb = null, thumbType = null;
           try { thumb = await makeThumbBlob(data, 256); thumbType = (thumb && thumb.type) || 'image/webp'; } catch (e) {}
-          const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size, takenAt };
-          await photoStore.put(ph.id, blob, thumb, meta);
+          const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size, takenAt, origType: f.type || '' };
+          await photoStore.put(ph.id, blob, thumb, meta, f); // f — оригинал (сырой файл камеры)
           delete ph.data;            // блоб в сторе — из памяти убираем base64
+          if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // выгрузим в облако
         }
       } catch (err) { console.warn('Не удалось сохранить фото в хранилище', err); }
     } catch (err) { console.warn('Не удалось загрузить фото', err); }
@@ -88,6 +89,7 @@ function deletePhoto(id) {
   // Удаляем из кэша только удалённое фото — остальные миниатюры остаются
   if (id) thumbCache.delete(id);
   save(); renderPhotos(); renderCalendar(); renderHome();
+  if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // уберём и из облака
 }
 // К каким событиям привязано фото — для фильтра «год → месяц → событие».
 // ev.photos хранит id фото (v6+).
@@ -154,9 +156,13 @@ function renderPhotosNow() {
     selBar.style.display = selectedPhotos.size ? 'flex' : 'none';
     if (selectedPhotos.size) { const c = $('#selCount'); if (c) c.textContent = selectedPhotos.size; }
   }
-  grid.innerHTML = list.length ? list.map(p => `
+  grid.innerHTML = list.length ? list.map(p => {
+    // Кэш миниатюр может быть ещё не прогрет — рисуем каркас и заполняем src
+    // асинхронно (как в «Памяти» и на «Главной»), чтобы миниатюры появлялись сами.
+    const url = photoSrc(p);
+    return `
     <div class="photo${p.pinned ? ' pinned' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}">
-      <img src="${esc(photoSrc(p))}" alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">
+      <img${url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"'} alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">
       <button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>
       <button class="pin-photo${p.pinned ? ' active' : ''}" data-pin-photo="${p.id}" title="${p.pinned ? 'Открепить' : 'Закрепить'}">${p.pinned ? '⭐' : '☆'}</button>
       <button class="del-photo" data-del-photo="${p.id}" title="Удалить">✕</button>
@@ -165,8 +171,10 @@ function renderPhotosNow() {
         `<span class="photo-label">${esc(l)}${l === EVENT_LABEL || l === DATE_LABEL ? '' : `<span class="photo-label-del" data-label-off="${esc(l)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</span>`}</span>`
       ).join('')}</div>` : ''}
       ${currentLabel === EVENT_LABEL && p.title ? `<span class="photo-caption">${esc(eventFilter.title || p.title)}</span>` : ''}
-    </div>`).join('')
+    </div>`;
+  }).join('')
     : '<p class="cal-tip">📷 Загрузите ваши фото — они будут храниться локально, прямо в браузере.</p>';
+  hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
 }
 // Витрина «📅 События»: кнопки «год → месяц → событие» появляются по мере выбора
 function eventPhotosCount(year, month, title) {

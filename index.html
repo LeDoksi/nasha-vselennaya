@@ -315,7 +315,7 @@
     </div>
   </div>
 
-  <!-- ===== Просмотр фото (светбокс 2.0: стрелки, свайп, зум, счётчик) ===== -->
+  <!-- ===== Просмотр фото (светбокс 2.0: стрелки, свайп, зум, счётчик, скачивание) ===== -->
   <div class="overlay lightbox" id="lightbox" hidden role="dialog" aria-modal="true" aria-label="Просмотр фото">
     <button type="button" class="modal-x lb-close" data-close="lightbox" aria-label="Закрыть" title="Закрыть (Esc)">✕</button>
     <div class="lb-stage" id="lbStage">
@@ -324,6 +324,7 @@
       <button type="button" class="lb-btn lb-arrow lb-next" id="lbNext" aria-label="Следующее фото" title="Следующее (→)">›</button>
       <div class="lb-counter" id="lbCounter" aria-live="polite"></div>
       <button type="button" class="lb-btn lb-zoom" id="lbZoomBtn" aria-label="Приблизить или отдалить" title="Зум: кнопка, двойной клик или щипок">🔍</button>
+      <button type="button" class="lb-btn lb-download" id="lbDownload" aria-label="Скачать оригинал" title="Скачать оригинал (полное качество)">⬇️</button>
     </div>
   </div>
 
@@ -341,6 +342,8 @@
       <input type="password" id="authPass" autocomplete="current-password" placeholder="••••••">
       <button class="btn" id="authGo" style="width:100%">Войти 💜</button>
       <p class="auth-err" id="authErr" role="alert" aria-live="polite"></p>
+      <p class="auth-hint" id="cloudHint" hidden>💜 В облаке найден ваш сейф — войди с паролем, и данные восстановятся на этом устройстве.</p>
+      <p class="auth-hint" id="cloudHint2" hidden>💜 На этом устройстве лежит сейф с другим паролем, а в облаке — общий сейф пары. Введи пароль облачного сейфа — облачные данные заберутся на это устройство.</p>
       <p class="auth-hint">Забыл пароль? Второй человек может пересоздать его в настройках — только он.</p>
     </div>
   </section>
@@ -363,6 +366,7 @@
       <button class="btn" id="setupGo" style="width:100%">Создать и войти 💜</button>
       <p class="auth-err" id="setupErr" role="alert" aria-live="polite"></p>
       <p class="auth-hint">⚠️ Пароль не хранится нигде. Если вы оба забудете пароли — данные не восстановить. Запишите их в надёжном месте.</p>
+      <button type="button" class="btn-plain" id="setupToLock">У меня уже есть сейф — войти с паролем</button>
     </div>
   </section>
 
@@ -401,6 +405,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-storage-compat.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

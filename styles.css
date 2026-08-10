@@ -127,6 +127,8 @@ main{max-width:1100px;margin:0 auto;padding:28px 20px 90px}
   box-shadow:0 8px 20px rgba(236,72,153,.25);
 }
 .btn:hover{transform:translateY(-2px)}
+.btn-plain{background:transparent;color:var(--violet2);box-shadow:none;padding:8px 4px;width:100%;justify-content:center}
+[data-theme="dark"] .btn-plain{color:#c4b5fd}
 .btn-danger{background:linear-gradient(135deg,#dc2626,#be185d)}
 .file-btn{position:relative;overflow:hidden;cursor:pointer}
 input[type=text],input[type=date],input[type=time],input[type=password],textarea,select{
@@ -485,6 +487,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .lb-prev{left:14px}
 .lb-next{right:14px}
 .lb-zoom{position:absolute;right:14px;bottom:18px;width:46px;height:46px;font-size:20px}
+.lb-download{position:absolute;right:70px;bottom:18px;width:46px;height:46px;font-size:20px}
 .lb-counter{
   position:absolute;left:50%;bottom:16px;transform:translateX(-50%);
   background:rgba(20,10,40,.55);color:#fff;font-size:13px;font-weight:800;

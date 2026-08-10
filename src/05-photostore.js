@@ -154,12 +154,18 @@ const IDBPhotoStore = {
   async init() {
     this.db = await openPhotoDB();
   },
-  async put(id, fullBlob, thumbBlob, meta) {
+  async put(id, fullBlob, thumbBlob, meta, origBlob) {
     const fullU8 = fullBlob instanceof Uint8Array ? fullBlob : await blobToU8(fullBlob);
     const thumbU8 = thumbBlob instanceof Uint8Array ? thumbBlob : (thumbBlob ? await blobToU8(thumbBlob) : null);
+    const origU8 = origBlob instanceof Uint8Array ? origBlob : (origBlob ? await blobToU8(origBlob) : null);
     const encFull = await encryptBlob(fullU8);
     const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
-    await idbPut(this, { id, full: encFull, thumb: encThumb, meta: meta || {} });
+    const encOrig = origU8 ? await encryptBlob(origU8) : null;
+    await idbPut(this, { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} });
+  },
+  // Сохранение уже зашифрованных блобов (пришли из облака) — без повторного шифрования.
+  async putEncrypted(id, encFull, encThumb, meta, encOrig) {
+    await idbPut(this, { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} });
   },
   async getFull(id) {
     const row = await idbGet(this, id);
@@ -173,9 +179,23 @@ const IDBPhotoStore = {
     const u8 = await decryptBlob(row.thumb);
     return u8ToBlob(u8, row.meta?.thumbType || 'image/webp');
   },
+  async getOrig(id) {
+    const row = await idbGet(this, id);
+    if (!row || !row.orig) return null;
+    const u8 = await decryptBlob(row.orig);
+    return u8ToBlob(u8, row.meta?.origType || row.meta?.type || 'image/jpeg');
+  },
+  async getEncryptedFull(id) { const row = await idbGet(this, id); return row?.full || null; },
+  async getEncryptedThumb(id) { const row = await idbGet(this, id); return row?.thumb || null; },
+  async getEncryptedOrig(id) { const row = await idbGet(this, id); return row?.orig || null; },
   async getMeta(id) {
     const row = await idbGet(this, id);
     return row?.meta || null;
+  },
+  // Лёгкий список того, что лежит в сторе (без дешифровки) — для облачной сверки.
+  async listIds() {
+    const rows = await idbGetAll(this);
+    return rows.map(r => ({ id: r.id, hasFull: !!r.full, hasThumb: !!r.thumb, hasOrig: !!r.orig }));
   },
   async delete(id) {
     await idbDelete(this, id);
@@ -184,10 +204,11 @@ const IDBPhotoStore = {
     const rows = await idbGetAll(this);
     const result = [];
     for (const r of rows) {
-      let full = null, thumb = null;
+      let full = null, thumb = null, orig = null;
       try { full = await decryptBlob(r.full); } catch (e) {}
       try { if (r.thumb) thumb = await decryptBlob(r.thumb); } catch (e) {}
-      result.push({ id: r.id, full, thumb, meta: r.meta || {} });
+      try { if (r.orig) orig = await decryptBlob(r.orig); } catch (e) {}
+      result.push({ id: r.id, full, thumb, orig, meta: r.meta || {} });
     }
     return result;
   },
@@ -195,10 +216,11 @@ const IDBPhotoStore = {
     const rows = await idbGetAll(this);
     const out = [];
     for (const r of rows) {
-      let fullB64 = null, thumbB64 = null;
+      let fullB64 = null, thumbB64 = null, origB64 = null;
       try { if (r.full) fullB64 = b64(await decryptBlob(r.full)); } catch (e) {}
       try { if (r.thumb) thumbB64 = b64(await decryptBlob(r.thumb)); } catch (e) {}
-      out.push({ id: r.id, full: fullB64, thumb: thumbB64, meta: r.meta || {} });
+      try { if (r.orig) origB64 = b64(await decryptBlob(r.orig)); } catch (e) {}
+      out.push({ id: r.id, full: fullB64, thumb: thumbB64, orig: origB64, meta: r.meta || {} });
     }
     return out;
   },
@@ -207,9 +229,11 @@ const IDBPhotoStore = {
       if (!item.id || !item.full) continue;
       const fullU8 = unb64(item.full);
       const thumbU8 = item.thumb ? unb64(item.thumb) : null;
+      const origU8 = item.orig ? unb64(item.orig) : null;
       const encFull = await encryptBlob(fullU8);
       const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
-      await idbPut(this, { id: item.id, full: encFull, thumb: encThumb, meta: item.meta || {} });
+      const encOrig = origU8 ? await encryptBlob(origU8) : null;
+      await idbPut(this, { id: item.id, full: encFull, thumb: encThumb, orig: encOrig, meta: item.meta || {} });
         }
   },
   async clear() {
@@ -230,12 +254,18 @@ const IDBPhotoStore = {
 const MemoryPhotoStore = {
   _map: new Map(),
   async init() { this._map.clear(); },
-  async put(id, fullBlob, thumbBlob, meta) {
+  async put(id, fullBlob, thumbBlob, meta, origBlob) {
     const fullU8 = fullBlob instanceof Uint8Array ? fullBlob : await blobToU8(fullBlob);
     const thumbU8 = thumbBlob instanceof Uint8Array ? thumbBlob : (thumbBlob ? await blobToU8(thumbBlob) : null);
+    const origU8 = origBlob instanceof Uint8Array ? origBlob : (origBlob ? await blobToU8(origBlob) : null);
     const encFull = await encryptBlob(fullU8);
     const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
-    this._map.set(id, { id, full: encFull, thumb: encThumb, meta: meta || {} });
+    const encOrig = origU8 ? await encryptBlob(origU8) : null;
+    this._map.set(id, { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} });
+  },
+  // Сохранение уже зашифрованных блобов (пришли из облака) — без повторного шифрования.
+  async putEncrypted(id, encFull, encThumb, meta, encOrig) {
+    this._map.set(id, { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} });
   },
   async getFull(id) {
     const r = this._map.get(id);
@@ -249,9 +279,22 @@ const MemoryPhotoStore = {
     const u8 = await decryptBlob(r.thumb);
     return u8ToBlob(u8, r.meta?.thumbType || 'image/webp');
   },
+  async getOrig(id) {
+    const r = this._map.get(id);
+    if (!r || !r.orig) return null;
+    const u8 = await decryptBlob(r.orig);
+    return u8ToBlob(u8, r.meta?.origType || r.meta?.type || 'image/jpeg');
+  },
+  async getEncryptedFull(id) { const r = this._map.get(id); return r?.full || null; },
+  async getEncryptedThumb(id) { const r = this._map.get(id); return r?.thumb || null; },
+  async getEncryptedOrig(id) { const r = this._map.get(id); return r?.orig || null; },
   async getMeta(id) {
     const r = this._map.get(id);
     return r?.meta || null;
+  },
+  // Лёгкий список того, что лежит в сторе (без дешифровки) — для облачной сверки.
+  async listIds() {
+    return [...this._map.values()].map(r => ({ id: r.id, hasFull: !!r.full, hasThumb: !!r.thumb, hasOrig: !!r.orig }));
   },
     async delete(id) {
     this._map.delete(id);
@@ -259,20 +302,22 @@ const MemoryPhotoStore = {
   async all() {
     const result = [];
     for (const r of this._map.values()) {
-      let full = null, thumb = null;
+      let full = null, thumb = null, orig = null;
       try { full = await decryptBlob(r.full); } catch (e) {}
       try { if (r.thumb) thumb = await decryptBlob(r.thumb); } catch (e) {}
-      result.push({ id: r.id, full, thumb, meta: r.meta || {} });
+      try { if (r.orig) orig = await decryptBlob(r.orig); } catch (e) {}
+      result.push({ id: r.id, full, thumb, orig, meta: r.meta || {} });
     }
     return result;
   },
   async exportBlobs() {
     const out = [];
     for (const r of this._map.values()) {
-      let fullB64 = null, thumbB64 = null;
+      let fullB64 = null, thumbB64 = null, origB64 = null;
       try { if (r.full) fullB64 = b64(await decryptBlob(r.full)); } catch (e) {}
       try { if (r.thumb) thumbB64 = b64(await decryptBlob(r.thumb)); } catch (e) {}
-      out.push({ id: r.id, full: fullB64, thumb: thumbB64, meta: r.meta || {} });
+      try { if (r.orig) origB64 = b64(await decryptBlob(r.orig)); } catch (e) {}
+      out.push({ id: r.id, full: fullB64, thumb: thumbB64, orig: origB64, meta: r.meta || {} });
     }
     return out;
   },
@@ -283,7 +328,9 @@ const MemoryPhotoStore = {
       const thumbU8 = item.thumb ? unb64(item.thumb) : null;
       const encFull = await encryptBlob(fullU8);
       const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
-      this._map.set(item.id, { id: item.id, full: encFull, thumb: encThumb, meta: item.meta || {} });
+      const origU8 = item.orig ? unb64(item.orig) : null;
+      const encOrig = origU8 ? await encryptBlob(origU8) : null;
+      this._map.set(item.id, { id: item.id, full: encFull, thumb: encThumb, orig: encOrig, meta: item.meta || {} });
     }
   },
   async clear() {
@@ -472,7 +519,8 @@ async function photoUrl(p, useThumb = true) {
   if (photoStore && p.id) {
     try {
       let blob = null;
-      if (useThumb) blob = await photoStore.getThumb(p.id);
+      // Миниатюра могла не расшифроваться — не бросаем, падаем на полный блоб
+      if (useThumb) { try { blob = await photoStore.getThumb(p.id); } catch (e) {} }
       if (!blob) blob = await photoStore.getFull(p.id);
       if (blob) {
         const url = await blobToDataUrl(blob);
@@ -499,7 +547,8 @@ async function warmThumbCache() {
   for (const p of db.photos) {
     if (!p.id || getThumbUrl(p.id)) continue;
     try {
-      let blob = await photoStore.getThumb(p.id);
+      let blob = null;
+      try { blob = await photoStore.getThumb(p.id); } catch (e) {}
       if (!blob) blob = await photoStore.getFull(p.id);
       if (blob) {
         const url = await blobToDataUrl(blob);
@@ -522,7 +571,7 @@ async function hydratePhotoImgs(scope) {
   for (const im of imgs) {
     const id = im.dataset.photoSrc;
     const p = db.photos.find(x => x.id === id);
-    const url = p ? await photoUrl(p, false) : '';
+    const url = p ? await photoUrl(p, true) : '';
     if (url) im.src = url;
     im.removeAttribute('data-photo-src');
   }

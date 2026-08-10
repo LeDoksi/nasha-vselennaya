@@ -5,7 +5,7 @@
   "description": "«Наша вселенная» — личное приложение пары: календарь, заметки, фото, сейф с шифрованием.",
   "scripts": {
     "build": "node build.js",
-    "test": "node tests/uni-smoke.js app.js && node tests/uni-dnd.js app.js && node tests/uni-hash.js app.js && node tests/uni-sync.js app.js",
-    "check": "node build.js && node tests/uni-smoke.js app.js && node tests/uni-dnd.js app.js && node tests/uni-hash.js app.js && node tests/uni-sync.js app.js"
+    "test": "node tests/uni-smoke.js app.js && node tests/uni-dnd.js app.js && node tests/uni-hash.js app.js && node tests/uni-sync.js app.js && node tests/uni-photo-sync.js app.js",
+    "check": "node build.js && node tests/uni-smoke.js app.js && node tests/uni-dnd.js app.js && node tests/uni-hash.js app.js && node tests/uni-sync.js app.js && node tests/uni-photo-sync.js app.js"
   }
 }

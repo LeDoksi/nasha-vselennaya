@@ -53,15 +53,25 @@ async function createVault(who, pass, legacyDb) {
   currentUser = who;
   return true;
 }
-async function unlockWith(who, pass) {
-  const vault = loadVault();
-  if (!vault) return false;
-  const wrap = (vault.keys || []).find(k => k.who === who);
-  if (!wrap) return false;
+// Пробует вытащить мастер-ключ сейфа паролем БЕЗ побочных эффектов: не трогает
+// masterKey, db и VAULT_KEY. Возвращает CryptoKey или null (нет записи для who,
+// неверный пароль, повреждённая обёртка).
+async function tryUnwrapKey(who, pass, vault) {
+  const wrap = (vault && (vault.keys || [])).find(k => k.who === who);
+  if (!wrap) return null;
   try {
     const pwdKey = await pbkdf2Key(pass, unb64(wrap.s), vault.a || PBKDF2_ITERS);
     const kraw = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(wrap.i) }, pwdKey, unb64(wrap.d)));
-        masterKey = await crypto.subtle.importKey('raw', kraw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+    return await crypto.subtle.importKey('raw', kraw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+  } catch (e) { return null; }
+}
+
+async function unlockWith(who, pass, vaultOverride) {
+  const vault = vaultOverride || loadVault();
+  const key = await tryUnwrapKey(who, pass, vault);
+  if (!key) return false;
+  try {
+    masterKey = key;
     currentUser = who;
     const raw = await aesDec(masterKey, vault.db);
     db = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(raw)) });
@@ -69,6 +79,19 @@ async function unlockWith(who, pass) {
     await photoStore.migratePhotos(db);
     await photoStore.refreshSizes();
     warmThumbCache(); // миниатюры в кэш — галерея рендерится без ожидания
+    if (vaultOverride) {
+      // Вход по облачному сейфу (новый браузер / восстановление): забираем его
+      // себе — дальше он живёт на устройстве, а фото докачаются из облака.
+      // Если на устройстве оставался ДРУГОЙ сейф — кладём его в резервную
+      // копию (universe_vault_prev), чтобы ничего не пропало безвозвратно.
+      const prevLocal = loadVault();
+      if (prevLocal && JSON.stringify(prevLocal) !== JSON.stringify(vaultOverride)) {
+        try { localStorage.setItem(VAULT_KEY_PREV, JSON.stringify(prevLocal)); } catch (e) { console.warn('Не удалось сохранить бэкап сейфа', e); }
+      }
+      if (!store.set(VAULT_KEY, JSON.stringify(vaultOverride))) return false;
+      pendingCloudVault = null;
+      notify('Сейф восстановлен из облака 💜');
+    }
     try { await save(); } catch (e) { console.warn('Не удалось закрепить миграцию', e); } // p.data убран, ссылки событий на id
     unlockApp();
     return true;
@@ -138,6 +161,11 @@ function lock() {
 function isLocked() { return authLocked; }
 
 let pendingAuthWho = 'gosha';
+// Сейф, найденный в облаке до входа. Может быть «вторым» сейфом (на устройстве
+// остался локальный сейф с другим паролем). tryUnlock проверяет пароль и по
+// локальному, и по облачному сейфу: если пароль открывает облачный — он
+// «усыновляется» (см. unlockWith), и облачные данные приходят на устройство.
+let pendingCloudVault = null;
 function renderAuthWho() {
   $$('.auth-user').forEach(b => b.classList.toggle('auth-on', b.dataset.authWho === pendingAuthWho));
   const lbl = $('#authWhoLabel');
@@ -145,17 +173,53 @@ function renderAuthWho() {
 }
 async function tryUnlock() {
   const err = $('#authErr');
-  const vault = loadVault();
-  const hasPass = !!(vault && (vault.keys || []).some(k => k.who === pendingAuthWho));
+  const local = loadVault();
+  const cloud = pendingCloudVault;
+  if (!local && !cloud) {
+    if (err) err.textContent = 'Сейф не найден ни на устройстве, ни в облаке. Создай пароль или проверь интернет.';
+    return;
+  }
+  const hasPass = !!((local && (local.keys || []).some(k => k.who === pendingAuthWho)) ||
+                    (cloud && (cloud.keys || []).some(k => k.who === pendingAuthWho)));
   if (!hasPass) {
     if (err) err.textContent = 'Пароль для этого человека ещё не создан. Добавь его в настройках — или войди другим.';
     return;
   }
-  const ok = await unlockWith(pendingAuthWho, $('#authPass').value);
+  const pass = $('#authPass').value;
+  if (!pass) { if (err) err.textContent = 'Введи пароль 💜'; return; }
+  // Проверяем пароль СРАЗУ против обоих сейфов (без побочных эффектов) и решаем,
+  // каким входим:
+  //  • локальный не открылся, а облачный открылся      → облачный (новый браузер)
+  //  • открылись оба, но это РАЗНЫЕ сейфы (облачный не
+  //    расшифровывается ключом локального)             → облачный: введён пароль
+  //                                                     облачного сейфа — нужны
+  //                                                     облачные данные
+  //  • открылись оба, одна линия (тот же мастер-ключ)  → локальный: облачная
+  //                                                     копия — та же линия,
+  //                                                     не теряем свежие правки
+  //  • открылся только локальный                       → локальный (обычный вход)
+  const localKey = local ? await tryUnwrapKey(pendingAuthWho, pass, local) : null;
+  const cloudKey = cloud ? await tryUnwrapKey(pendingAuthWho, pass, cloud) : null;
+  let useCloud = false;
+  if (!localKey && cloudKey) {
+    useCloud = true;
+  } else if (localKey && cloudKey) {
+    let sameLineage = false;
+    try { await aesDec(localKey, cloud.db); sameLineage = true; } catch (e) {}
+    useCloud = !sameLineage;
+  }
+  const ok = await unlockWith(pendingAuthWho, pass, useCloud ? cloud : undefined);
   if (!ok && err) err.textContent = 'Неверный пароль. Попробуй ещё раз 💜';
 }
 async function doSetup() {
   const err = $('#setupErr');
+  // Если в облаке уже есть сейф, а на устройстве его нет — не плодим второй:
+  // ведём на экран входа, там сейф восстановится по паролю.
+  if (pendingCloudVault && !loadVault()) {
+    showAuth('lock');
+    $('#cloudHint').hidden = false;
+    return;
+  }
   const who = $('#setupWho').value;
   const p1 = $('#setupPass').value;
   const p2 = $('#setupPass2').value;
@@ -189,6 +253,18 @@ $('#authGo').addEventListener('click', tryUnlock);
 $('#authPass').addEventListener('keydown', e => { if (e.key === 'Enter') tryUnlock(); });
 $('#setupGo').addEventListener('click', doSetup);
 $('#setupPass2').addEventListener('keydown', e => { if (e.key === 'Enter') doSetup(); });
+// «У меня уже есть сейф» на экране первого запуска: переходим на вход и
+// пробуем ещё раз найти сейф в облаке (сетевой запрос мог не успеть).
+const setupToLockEl = $('#setupToLock');
+if (setupToLockEl) setupToLockEl.addEventListener('click', async () => {
+  showAuth('lock');
+  $('#authErr').textContent = '';
+  const cloud = typeof fetchCloudVault === 'function' ? await fetchCloudVault() : null;
+  pendingCloudVault = cloud ? cloud.vault : null;
+  const hint = $('#cloudHint');
+  if (hint) hint.hidden = !cloud;
+  if (cloud) $('#authPass').focus();
+});
 document.addEventListener('click', e => {
   const au = e.target.closest('[data-auth-who]');
   if (au) {

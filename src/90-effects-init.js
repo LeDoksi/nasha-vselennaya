@@ -15,7 +15,7 @@ $('#themeToggle').addEventListener('click', toggleTheme);
 $('#settingsThemeBtn').addEventListener('click', toggleTheme);
 
 /* ===== Запуск: приложение закрыто, пока не вошли ===== */
-function initAuth() {
+async function initAuth() {
   initPhotoStore(); // открываем IndexedDB (или fallback) до первого входа
   renderUserChip();
   setTheme(getTheme());
@@ -23,13 +23,40 @@ function initAuth() {
   lastActivity = Date.now();
   startAutoLock();
   document.body.classList.add('auth');
-  showAuth(loadVault() ? 'lock' : 'setup'); // сейф есть → вход; нет → первое создание пароля
+  if (loadVault()) {
+    showAuth('lock'); // сейф есть → вход
+  } else {
+    // Первый запуск: сначала проверяем, нет ли сейфа пары в облаке (например,
+    // на этом же устройстве очистили localStorage, или новый браузер). Если есть —
+    // показываем вход с подсказкой, а не экран «создать пароль»: иначе создание
+    // второго сейфа затёрло бы облачный.
+    showAuth('setup');
+  }
+  // Сейф пары в облаке ищем ВСЕГДА (и когда локальный уже есть): если в облаке
+  // лежит ДРУГОЙ сейф, пароль облачного сейфа должен восстановить облачные
+  // данные, а не открыть устаревший локальный. pendingCloudVault даёт входу
+  // второй вариант, hint объясняет пользователю, что происходит.
+  const cloud = await fetchCloudVault();
+  if (cloud && cloud.vault) {
+    pendingCloudVault = cloud.vault;
+    showAuth('lock');
+    if (loadVault()) {
+      // Локальный сейф есть + облачный отдельный: вход паролем облачного сейфа
+      // вернёт облачные данные (см. cloudHint2 в index.html).
+      $('#cloudHint2').hidden = false;
+    } else {
+      $('#cloudHint').hidden = false;
+    }
+    $('#authPass').focus();
+  }
   pendingAuthWho = 'gosha';
   renderAuthWho();
   // Если JS по какой-то причине не выполнится — контент так и останется скрытым
   // (body.auth прячет шапку и main), никто ничего не увидит.
 }
-initAuth();
+// Вызов initAuth() стоит в конце 95-sync.js (самый последний модуль сборки):
+// initAuth читает FIREBASE_CONFIG (let из 95-sync.js), а он ещё в «мёртвой зоне»
+// во время выполнения 90-effects-init.js.
 // Клик по чипу «Гоша ▾ / Даша ▾» = заблокировать и дать войти другому
 $('#userChip').addEventListener('click', lock);
 
