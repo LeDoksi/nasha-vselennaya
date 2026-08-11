@@ -1,9 +1,20 @@
-// uni-dnd.js — проверка drag&drop через события (мини-DOM):
-//  1) заметки переставляются (в т.ч. бросок на фон ниже последней карточки);
-//  2) фото → чип лейбла: лейбл навешивается;
-//  3) чип лейбла → фото: лейбл навешивается;
-//  4) фото → фото: порядок меняется;
-//  5) карточки списков переставляются (порядок db.lists сохраняется).
+// uni-dnd.js — проверка drag&drop-логики после перехода на SortableJS.
+// Реальный SortableJS в этой мини-DOM (без getBoundingClientRect-геометрии,
+// requestAnimationFrame с layout и т.п.) не запустить — Sortable.create() везде
+// обёрнут в `if (typeof Sortable !== 'undefined')`, в тестах Sortable не
+// определён, поэтому эти блоки просто не выполняются (проверено отдельно —
+// см. «Sortable недоступен»). Вместо симуляции пиксельного перетаскивания тут
+// проверяется своя клеевая логика — onEnd-хендлеры вызываются напрямую с
+// рукотворным evt-объектом ({to:{children:[...]}}, как отдаёт SortableJS):
+//  1) заметки — notesSortEnd (order, закреплённые всегда первыми);
+//  2) карточки списков — listsSortEnd (порядок — сам массив db.lists);
+//  3) подзадачи внутри списка — subtaskSortEnd (новая фича, порядок — позиция
+//     в list.items, без миграции схемы; стабильность через toggleSubtask);
+//  4) фото — photosSortEnd, обе развязки: обычный реордер и «отпущено над
+//     чипом лейбла» (откат перестановки + применение лейбла);
+//  5) чип лейбла → фото — единственный жест, оставшийся на pointer-обработчике
+//     (chipDragSetup, 05-dnd.js), не на SortableJS: тут по-прежнему живая
+//     симуляция pointerdown/move/up, как раньше.
 // Запуск: node tests/uni-dnd.js app.js
 'use strict';
 const fs = require('fs');
@@ -135,7 +146,7 @@ const body = makeEl('body');
 docEl.appendChild(body);
 const document = {
   body, documentElement: docEl, hidden: false, visibilityState: 'visible', title: '',
-  _handlers: {},
+  _handlers: {}, _efp: null, // элемент, который «отдаёт» elementFromPoint в тесте (null — метод отсутствует)
   addEventListener(t, fn) { (this._handlers[t] = this._handlers[t] || []).push(fn); },
   removeEventListener() {},
   createElement(tag) { return makeEl(tag); },
@@ -150,6 +161,11 @@ const document = {
   },
   querySelectorAll(sel) { return treeQSA(docEl, sel); }
 };
+// elementFromPoint нарочно не определяем на верхнем уровне: чип-драг (05-dnd.js)
+// в его отсутствие падает на e.target (тот же приём, что был у старого движка) —
+// events в этих тестах диспатчатся прямо на нужный элемент, так что e.target
+// и есть искомая цель. Так проверяется реальный производственный фолбэк, а не
+// геометрия, которую в мини-DOM всё равно негде взять без рисования layout.
 
 // id-элементы, которые приложение запрашивает при загрузке и в обработчиках
 const PREIDS = ['notesGrid', 'photosGrid', 'labelBar', 'calendar', 'dayPanel', 'dragHint', 'photoSelBar', 'selCount',
@@ -173,15 +189,8 @@ const sandbox = {
   addEventListener() {}, isNaN, console, Date, Math, JSON, Object, Array, Number, String, RegExp,
   _store: { universe: JSON.stringify({ events: [], notes: [], shopping: [], todos: [], photos: [], dates: [] }) },
   _ss: {}, _timers: [],
-  // фейковый rAF. По умолчанию колбэки выполняются сразу (как в песочнице без rAF).
-  // В режиме троттлинга (_throttleMode) — откладываются на «кадр», который тесты
-  // прогоняют вручную (pumpRAF): проверяется, что перестановка применяется раз в кадр.
-  requestAnimationFrame(fn) {
-    if (sandbox._throttleMode) { sandbox._rAFQueue.push(fn); return ++sandbox._rAFSeq; }
-    fn(); return 0;
-  },
-  cancelAnimationFrame() {},
-  _throttleMode: false, _rAFQueue: [], _rAFSeq: 0
+  requestAnimationFrame(fn) { fn(); return 0; },
+  cancelAnimationFrame() {}
 };
 
 const suffix = `
@@ -189,13 +198,13 @@ const suffix = `
 function __TEST__(s){
   Object.defineProperty(s, 'db', { get: () => db, set: v => { db = v; }, configurable: true });
   Object.defineProperty(s, 'currentLabel', { get: () => currentLabel, set: v => { currentLabel = v; }, configurable: true });
-  Object.defineProperty(s, 'dragNoteId', { get: () => dragNoteId, set: v => { dragNoteId = v; }, configurable: true });
-  Object.defineProperty(s, 'dragPhotoId', { get: () => dragPhotoId, set: v => { dragPhotoId = v; }, configurable: true });
-  Object.defineProperty(s, 'dragLabel', { get: () => dragLabel, set: v => { dragLabel = v; }, configurable: true });
-  Object.defineProperty(s, 'dragListId', { get: () => dragListId, set: v => { dragListId = v; }, configurable: true });
   s.renderNotes = renderNotes; s.renderPhotos = renderPhotos; s.renderLabels = renderLabels;
-  s.go = go; s.migrateDB = migrateDB; s.reorderNoteIds = reorderNoteIds;
+  s.renderLists = renderLists;
+  s.go = go; s.migrateDB = migrateDB;
   s.selectedPhotos = selectedPhotos;
+  s.notesSortEnd = notesSortEnd; s.listsSortEnd = listsSortEnd;
+  s.subtaskSortEnd = subtaskSortEnd; s.photosSortEnd = photosSortEnd;
+  s.toggleSubtask = toggleSubtask;
 }
 `;
 const wrapped = new Function('sandbox', 'document', 'localStorage', 'sessionStorage', 'alert', 'confirm', 'URL',
@@ -214,148 +223,39 @@ function assert(cond, msg) {
 }
 
 /* ================= тесты ================= */
-// Универсальный Pointer Events-драг: pointerdown на ручке ⠿ → pointermove за порог 6px
-// (начало драга) → живая перестановка соседей (FLIP) → pointerup (дроп) / Esc / cancel.
-const startDrag = (el, x, y) => el.dispatchEvent('pointerdown', { bubbles: true, clientX: x, clientY: y });
-const pumpRAF = () => { while (sandbox._rAFQueue.length) sandbox._rAFQueue.shift()(); };
-// в браузере перестановка и FLIP применяются раз в кадр — после каждого move прогоняем кадр
-const moveDrag = (x, y, target) => {
-  (target || sandbox.document.body).dispatchEvent('pointermove', { bubbles: true, clientX: x, clientY: y });
-  pumpRAF();
-};
-const moveRaw = (x, y) => sandbox.document.body.dispatchEvent('pointermove', { bubbles: true, clientX: x, clientY: y });
-const endDrag = (x, y, target) => (target || sandbox.document.body).dispatchEvent('pointerup', { bubbles: true, clientX: x, clientY: y });
-const escDrag = root => root.dispatchEvent('keydown', { bubbles: true, key: 'Escape' });
 
-// 1) Заметки: перестановка за ручку ⠿ (порядок — db.notes[].order)
+// 0) Sortable недоступен в песочнице (нет браузера/vendor-скрипта) — все
+//    Sortable.create() обёрнуты в typeof-проверку и должны молча пропускаться,
+//    не роняя загрузку приложения (проверено самим фактом, что wrapped() выше
+//    не бросил исключение). Явно фиксируем это как инвариант:
+assert(typeof sandbox.Sortable === 'undefined', 'в песочнице Sortable не определён — Sortable.create() нигде не вызывается');
+
+// 1) Заметки: notesSortEnd — order пересчитывается по итоговому DOM-порядку,
+//    закреплённые всегда встают первыми независимо от того, где их бросили.
 sandbox.db = sandbox.migrateDB({ events: [], notes: [
   { id: 'a', text: 'A', ts: 1, pinned: false, author: 'gosha', order: 0 },
   { id: 'b', text: 'B', ts: 2, pinned: false, author: 'dasha', order: 1 },
   { id: 'c', text: 'C', ts: 3, pinned: false, author: 'gosha', order: 2 }
 ], shopping: [], todos: [], photos: [], dates: [], wishlist: [], labels: [] });
 sandbox.go('notes');
-const grid = sandbox.document.querySelector('#notesGrid');
+const notesGrid = sandbox.document.querySelector('#notesGrid');
 const noteOrder = () => sandbox.document.querySelectorAll('.note').map(n => n.dataset.id);
-const setRects = () => sandbox.document.querySelectorAll('.note').forEach((c, i) => {
-  c._rect = { top: i * 100, left: 0, right: 200, bottom: i * 100 + 100, width: 200, height: 100, x: 0, y: i * 100 };
-});
-const note = id => grid.children.find(x => x.dataset.id === id);
-const noteHandle = id => note(id) && note(id).querySelector('[data-note-drag]');
+const note = id => notesGrid.children.find(x => x.dataset.id === id);
 assert(JSON.stringify(noteOrder()) === '["a","b","c"]', 'заметки отрисованы в порядке a,b,c');
-assert(!!noteHandle('a'), 'у заметки есть драг-ручка ⠿ (data-note-drag)');
-setRects();
+assert(!!note('a').querySelector('[data-note-drag]'), 'у заметки есть драг-ручка ⠿ (data-note-drag)');
 
-// «a» в конец: держим ручку, тащим ниже середины «c» и бросаем
-startDrag(noteHandle('a'), 5, 5);
-moveDrag(10, 280); // порог 6px пройден — драг начался
-assert(sandbox.dragNoteId === 'a', 'после порога pointermove dragNoteId=a');
-assert(note('a').classList.contains('dragging'), 'перетаскиваемая заметка получает класс dragging');
-assert(sandbox.document.body.classList.contains('uni-dragging'), 'во время драга body получает uni-dragging');
-assert(JSON.stringify(noteOrder()) === '["b","c","a"]', 'пока тащим — соседи «разъехались» (live-порядок)');
-endDrag(10, 280);
-assert(JSON.stringify(noteOrder()) === '["b","c","a"]', 'заметка a переехала после c');
-assert(sandbox.db.notes.find(n => n.id === 'a').order === 2 && sandbox.db.notes.find(n => n.id === 'b').order === 0,
-  'order пересчитан (b=0, a=2)');
-assert(sandbox.dragNoteId === null, 'после дропа dragNoteId сброшен');
+sandbox.notesSortEnd({ to: { children: [note('b'), note('c'), note('a')] } });
+assert(sandbox.db.notes.find(n => n.id === 'b').order === 0
+  && sandbox.db.notes.find(n => n.id === 'c').order === 1
+  && sandbox.db.notes.find(n => n.id === 'a').order === 2,
+  'notesSortEnd: order пересчитан по DOM-порядку из evt.to.children (b=0,c=1,a=2)');
 
-// 1а) Бросок на свою позицию ничего не ломает (порядок не меняется)
-setRects();
-startDrag(noteHandle('b'), 5, 5);
-moveDrag(10, 50); // b остаётся наверху
-endDrag(10, 50);
-assert(JSON.stringify(noteOrder()) === '["b","c","a"]', 'бросок на свою позицию не меняет порядок');
+// закреплённая заметка встаёт первой, даже если DOM-порядок говорит иное
+sandbox.db.notes.find(n => n.id === 'c').pinned = true;
+sandbox.notesSortEnd({ to: { children: [note('a'), note('b'), note('c')] } });
+assert(sandbox.db.notes.find(n => n.id === 'c').order === 0, 'notesSortEnd: закреплённая заметка всегда order=0');
 
-// 1б) Бросок на фон НИЖЕ последней карточки — в конец
-setRects();
-startDrag(noteHandle('b'), 5, 5);
-moveDrag(10, 9999);
-assert(JSON.stringify(noteOrder()) === '["c","a","b"]', 'живой порядок: b уехала в конец');
-endDrag(10, 9999);
-assert(JSON.stringify(noteOrder()) === '["c","a","b"]', 'бросок на фон ниже списка ставит заметку в конец');
-
-// 1в) Бросок на фон ВЫШЕ первой карточки — в начало
-setRects();
-startDrag(noteHandle('b'), 5, 5);
-moveDrag(10, -9999);
-assert(JSON.stringify(noteOrder()) === '["b","c","a"]', 'живой порядок: b снова в начале');
-endDrag(10, -9999);
-assert(JSON.stringify(noteOrder()) === '["b","c","a"]', 'бросок на фон выше списка ставит заметку в начало');
-
-// 1г) Esc отменяет: порядок возвращается, db не трогается
-setRects();
-startDrag(noteHandle('c'), 5, 5);
-moveDrag(10, 9999);
-assert(JSON.stringify(noteOrder()) === '["b","a","c"]', 'пока тащим — порядок изменился');
-escDrag(grid);
-assert(JSON.stringify(noteOrder()) === '["b","c","a"]', 'Esc отменяет перестановку (порядок восстановлен)');
-assert(sandbox.db.notes.find(n => n.id === 'a').order === 2 && sandbox.db.notes.find(n => n.id === 'c').order === 1,
-  'Esc не трогает db (порядок как до драга)');
-assert(sandbox.dragNoteId === null, 'после отмены dragNoteId сброшен');
-
-// 1д) pointercancel тоже отменяет драг
-setRects();
-startDrag(noteHandle('b'), 5, 5);
-moveDrag(10, 9999);
-sandbox.document.body.dispatchEvent('pointercancel', { bubbles: true });
-assert(JSON.stringify(noteOrder()) === '["b","c","a"]', 'pointercancel отменяет перестановку');
-assert(sandbox.dragNoteId === null, 'после pointercancel dragNoteId сброшен');
-
-// 2) Фото: перестановка за ручку ⠿, фото → чип лейбла, чип → фото
-sandbox.db = sandbox.migrateDB({ events: [], notes: [], shopping: [], todos: [], dates: [], wishlist: [], labels: ['Поездка'],
-  photos: [
-    { id: 'p1', data: 'data:image/jpeg;base64,AA==', title: 'Ф1', pinned: false, order: 0, labels: [] },
-    { id: 'p2', data: 'data:image/jpeg;base64,AA==', title: 'Ф2', pinned: false, order: 1, labels: [] }
-  ] });
-sandbox.currentLabel = '';
-sandbox.go('photos');
-const photosGrid = sandbox.document.querySelector('#photosGrid');
-const photo = id => photosGrid.children.find(x => x.dataset.id === id);
-const photoHandle = id => photo(id) && photo(id).querySelector('[data-photo-drag]');
-// .album-chip теперь обёрнут в .chip-wrap (сосед .label-del — кнопка внутри
-// кнопки была невалидным HTML и не давала удалить лейбл с клавиатуры), поэтому
-// он больше не прямой потомок #labelBar — ищем полным querySelector.
-const chip = () => sandbox.document.querySelector('#labelBar').querySelector('.album-chip[data-label="Поездка"]');
-const setPRects = () => photosGrid.children.filter(x => x.classList.contains('photo')).forEach((c, i) => {
-  c._rect = { top: i * 160, left: 0, right: 220, bottom: i * 160 + 150, width: 220, height: 150, x: 0, y: i * 160 };
-});
-assert(!!photo('p1') && !!photo('p2') && !!chip(), 'фото и чип лейбла отрисованы');
-assert(!!photoHandle('p1'), 'у фото есть драг-ручка ⠿ (data-photo-drag)');
-setPRects();
-
-// 2а) Фото → чип лейбла: лейбл навешивается, порядок сетки возвращается
-startDrag(photoHandle('p1'), 5, 5);
-moveDrag(10, 20); // начали драг
-assert(sandbox.dragPhotoId === 'p1', 'после порога pointermove dragPhotoId=p1');
-moveDrag(400, 20, chip()); // курсор над чипом
-assert(chip().classList.contains('drag-over'), 'чип подсвечивается при наведении фото');
-endDrag(400, 20, chip());
-assert(sandbox.db.photos.find(x => x.id === 'p1').labels.includes('Поездка'), 'лейбл навешен на перетащенное фото');
-assert(!sandbox.db.photos.find(x => x.id === 'p2').labels.includes('Поездка'), 'другие фото не тронуты');
-assert(sandbox.dragPhotoId === null, 'после дропа на чип dragPhotoId сброшен');
-setPRects(); // renderPhotos перерисовала сетку — у новых узлов новые координаты
-
-// 2б) Фото → фото: перестановка порядка (закреплённые всегда сверху)
-startDrag(photoHandle('p1'), 5, 5);
-moveDrag(10, 300); // ниже середины p2 (центр 160+75=235)
-assert(JSON.stringify(photosGrid.children.filter(c => c.classList.contains('photo')).map(c => c.dataset.id)) === '["p2","p1"]',
-  'живой порядок: p1 уехала за p2');
-endDrag(10, 300);
-assert(sandbox.db.photos.find(x => x.id === 'p1').order === 1 && sandbox.db.photos.find(x => x.id === 'p2').order === 0,
-  'перетаскивание фото меняет порядок (p2 выше p1)');
-
-// 2в) Чип лейбла → фото (обратное направление)
-const chipEl = chip();
-startDrag(chipEl, 5, 5);
-moveDrag(10, 20);
-assert(sandbox.dragLabel === 'Поездка', 'после порога pointermove чипа dragLabel=Поездка');
-moveDrag(400, 20, photo('p2')); // курсор над фото
-assert(photo('p2').classList.contains('drag-over'), 'фото подсвечивается при наведении чипа');
-endDrag(400, 20, photo('p2'));
-assert(sandbox.db.photos.find(x => x.id === 'p2').labels.includes('Поездка'), 'чип лейбла на фото навешивает лейбл');
-assert(sandbox.dragLabel === null, 'после дропа чипа dragLabel сброшен');
-
-// 3) Списки: перестановка карточек за ручку ⠿ (порядок — сам массив db.lists).
-//    Во время перетаскивания карточки сдвигаются «по-живому» — видно место вставки.
+// 2) Карточки списков: listsSortEnd — порядок db.lists = порядок DOM (без order-поля)
 sandbox.db = sandbox.migrateDB({ events: [], notes: [], shopping: [], todos: [], photos: [], dates: [], wishlist: [], labels: [],
   lists: [
     { id: 'l1', name: 'Подарки', items: [] },
@@ -365,149 +265,112 @@ sandbox.db = sandbox.migrateDB({ events: [], notes: [], shopping: [], todos: [],
 sandbox.go('lists');
 const lWrap = sandbox.document.querySelector('#listsWrap');
 const listCard = id => lWrap.children.find(x => x.dataset.id === id);
-const listOrder = () => lWrap.children.filter(x => x.classList.contains('list-card')).map(c => c.dataset.id);
-const listHandle = id => listCard(id) && listCard(id).querySelector('[data-list-drag]');
-const setLRects = () => listOrder().forEach((id, i) => {
-  listCard(id)._rect = { top: i * 120, left: 0, right: 200, bottom: i * 120 + 100, width: 200, height: 100, x: 0, y: i * 120 };
-});
-assert(JSON.stringify(listOrder()) === '["l1","l2","l3"]', 'карточки списков отрисованы в порядке l1,l2,l3');
-assert(!!listHandle('l1'), 'у карточки списка есть драг-ручка ⠿ (data-list-drag)');
+assert(JSON.stringify(lWrap.children.filter(c => c.classList.contains('list-card')).map(c => c.dataset.id)) === '["l1","l2","l3"]',
+  'карточки списков отрисованы в порядке l1,l2,l3');
+assert(!!listCard('l1').querySelector('[data-list-drag]'), 'у карточки списка есть драг-ручка ⠿ (data-list-drag)');
 
-// «первый на второй»: курсор в нижней половине второй карточки — сдвиг вниз
-setLRects();
-startDrag(listHandle('l1'), 5, 5);
-moveDrag(10, 200); // l2: верх 120, низ 220, центр 170 → ниже центра
-assert(sandbox.dragListId === 'l1', 'после порога pointermove dragListId=l1');
-assert(JSON.stringify(listOrder()) === '["l2","l1","l3"]', 'живой порядок: l1 между l2 и l3');
-endDrag(10, 200);
-assert(JSON.stringify(sandbox.db.lists.map(l => l.id)) === '["l2","l1","l3"]', 'бросок первой на вторую меняет порядок в db');
-assert(JSON.stringify(listOrder()) === '["l2","l1","l3"]', 'после дропа карточки в новом порядке');
-assert(sandbox.dragListId === null, 'после дропа dragListId сброшен');
+sandbox.listsSortEnd({ to: { children: [listCard('l2'), listCard('l3'), listCard('l1')] } });
+assert(JSON.stringify(sandbox.db.lists.map(l => l.id)) === '["l2","l3","l1"]',
+  'listsSortEnd: db.lists переставлен по DOM-порядку из evt.to.children');
 
-// первая на последнюю: курсор ниже середины последней — в конец
-setLRects();
-startDrag(listHandle('l2'), 5, 5);
-moveDrag(10, 300); // l3: верх 240, низ 340, центр 290 → ниже середины
-assert(JSON.stringify(listOrder()) === '["l1","l3","l2"]', 'живой порядок: l2 сдвигается за l3');
-endDrag(10, 300);
-assert(JSON.stringify(sandbox.db.lists.map(l => l.id)) === '["l1","l3","l2"]', 'бросок на нижнюю половину последней — в конец');
-
-// отмена перетаскивания: порядок и db.lists возвращаются к исходному
+// 3) Подзадачи внутри списка — новая фича (раньше ручного порядка не было).
+//    Порядок = позиция в list.items, без отдельного order-поля (тот же
+//    паттерн, что у db.lists выше).
 sandbox.db = sandbox.migrateDB({ events: [], notes: [], shopping: [], todos: [], photos: [], dates: [], wishlist: [], labels: [],
-  lists: [
-    { id: 'l1', name: 'Подарки', items: [] },
-    { id: 'l2', name: 'Дела', items: [] },
-    { id: 'l3', name: 'Идеи', items: [] }
-  ] });
+  lists: [{ id: 'l1', name: 'Список', items: [
+    { id: 'i1', text: 'A', done: false },
+    { id: 'i2', text: 'B', done: false },
+    { id: 'i3', text: 'C', done: false }
+  ] }] });
 sandbox.go('lists');
-setLRects();
-startDrag(listHandle('l1'), 5, 5);
-moveDrag(10, 300);
-assert(JSON.stringify(listOrder()) === '["l2","l3","l1"]', 'во время перетаскивания порядок меняется (живое превью)');
-escDrag(lWrap);
-assert(JSON.stringify(listOrder()) === '["l1","l2","l3"]', 'Esc отменяет: исходный порядок возвращён');
-assert(JSON.stringify(sandbox.db.lists.map(l => l.id)) === '["l1","l2","l3"]', 'отмена не меняет db.lists');
+const listUl = () => sandbox.document.querySelector('#listItems-l1');
+const li = id => listUl().children.find(x => x.dataset.item === id);
+assert(JSON.stringify(listUl().children.filter(c => c.dataset.item).map(c => c.dataset.item)) === '["i1","i2","i3"]',
+  'подзадачи отрисованы в порядке i1,i2,i3');
+assert(!!li('i1').querySelector('[data-item-drag]'), 'у подзадачи есть драг-ручка ⠿ (data-item-drag)');
 
-// 4) Троттлинг живой перестановки: несколько pointermove за «кадр» — одна
-//    перестановка по последней позиции курсора (без рывков между кадрами)
-sandbox._throttleMode = true; sandbox._rAFQueue.length = 0;
-sandbox.db = sandbox.migrateDB({ events: [], notes: [], shopping: [], todos: [], photos: [], dates: [], wishlist: [], labels: [],
-  lists: [
-    { id: 'l1', name: 'Подарки', items: [] },
-    { id: 'l2', name: 'Дела', items: [] },
-    { id: 'l3', name: 'Идеи', items: [] }
-  ] });
-sandbox.go('lists');
-setLRects();
-assert(JSON.stringify(listOrder()) === '["l1","l2","l3"]', 'троттлинг: база l1,l2,l3');
-startDrag(listHandle('l1'), 5, 5);
-moveRaw(10, 250); // граница между l2 и l3
-moveRaw(10, 310); // ниже середины l3 — хвост
-moveRaw(10, 400); // ещё ниже — хвост
-assert(JSON.stringify(listOrder()) === '["l1","l2","l3"]', 'троттлинг: пока кадр не прошёл — порядок не меняется');
-pumpRAF();
-assert(JSON.stringify(listOrder()) === '["l2","l3","l1"]', 'троттлинг: за кадр применяется последняя позиция курсора');
-endDrag(10, 400);
-assert(JSON.stringify(sandbox.db.lists.map(l => l.id)) === '["l2","l3","l1"]', 'троттлинг: дроп сохраняет дожатый порядок');
+sandbox.subtaskSortEnd('l1', { to: { children: [li('i2'), li('i3'), li('i1')] } });
+assert(JSON.stringify(sandbox.db.lists.find(l => l.id === 'l1').items.map(i => i.id)) === '["i2","i3","i1"]',
+  'subtaskSortEnd: список подзадач переставлен по DOM-порядку');
 
-// 4а) Дроп без прогона кадра: последняя позиция дожимается в uniDragEnd
-sandbox.db = sandbox.migrateDB({ events: [], notes: [], shopping: [], todos: [], photos: [], dates: [], wishlist: [], labels: [],
-  lists: [
-    { id: 'l1', name: 'Подарки', items: [] },
-    { id: 'l2', name: 'Дела', items: [] },
-    { id: 'l3', name: 'Идеи', items: [] }
-  ] });
-sandbox.go('lists');
-setLRects();
-startDrag(listHandle('l1'), 5, 5);
-moveRaw(10, 310); // кадр не прогоняем — перестановка висит в очереди rAF
-endDrag(10, 310);
-assert(JSON.stringify(listOrder()) === '["l2","l3","l1"]', 'дроп без кадра: порядок дожимается перед onDrop');
-assert(JSON.stringify(sandbox.db.lists.map(l => l.id)) === '["l2","l3","l1"]', 'дроп без кадра: db сохранён в новом порядке');
-sandbox._throttleMode = false;
+// защита от гонки: если детей в evt меньше, чем реально подзадач (например,
+// рендер ещё не успел приехать) — порядок не трогаем, а не обрезаем список
+sandbox.subtaskSortEnd('l1', { to: { children: [li('i3')] } });
+assert(JSON.stringify(sandbox.db.lists.find(l => l.id === 'l1').items.map(i => i.id)) === '["i2","i3","i1"]',
+  'subtaskSortEnd: несовпадение числа детей — список подзадач не обрезается');
 
+// стабильность: ручной порядок внутри группы «не выполнено» переживает toggle
+// (sortListItems — стабильная сортировка по done, применяется поверх)
+sandbox.toggleSubtask('l1', 'i2'); // i2 → done, должна уйти вниз, остальные — как были
+assert(JSON.stringify(sandbox.db.lists.find(l => l.id === 'l1').items.map(i => i.id)) === '["i3","i1","i2"]',
+  'toggleSubtask сохраняет ручной порядок внутри групп (i2 done — в конец)');
 
-// 2в) СЕТКА (узкое окно): 4 фото в 2 строки × 2 колонки — индекс вставки
-//     стабилен и следует читающему порядку (без прыжков с 1 на 4 слот).
-//     Раньше «ближайшая граница» в сетке давала ложные цели между строками →
-//     осцилляция слота; теперь — «ближайшая карточка».
-sandbox.db = sandbox.migrateDB({ events: [], notes: [], shopping: [], todos: [], dates: [], wishlist: [], labels: [],
+// 4) Фото: photosSortEnd — обычный реордер и «отпущено над чипом лейбла»
+sandbox.db = sandbox.migrateDB({ events: [], notes: [], shopping: [], todos: [], dates: [], wishlist: [], labels: ['Поездка'],
   photos: [
-    { id: 'g1', data: 'data:image/jpeg;base64,AA==', title: 'G1', pinned: false, order: 0, labels: [] },
-    { id: 'g2', data: 'data:image/jpeg;base64,AA==', title: 'G2', pinned: false, order: 1, labels: [] },
-    { id: 'g3', data: 'data:image/jpeg;base64,AA==', title: 'G3', pinned: false, order: 2, labels: [] },
-    { id: 'g4', data: 'data:image/jpeg;base64,AA==', title: 'G4', pinned: false, order: 3, labels: [] }
+    { id: 'p1', data: 'data:image/jpeg;base64,AA==', title: 'Ф1', pinned: false, order: 0, labels: [] },
+    { id: 'p2', data: 'data:image/jpeg;base64,AA==', title: 'Ф2', pinned: false, order: 1, labels: [] }
   ] });
+sandbox.currentLabel = '';
 sandbox.go('photos');
-const gridPhoto = id => photosGrid.children.find(x => x.classList.contains('photo') && x.dataset.id === id);
-const gridOrder = () => photosGrid.children.filter(x => x.classList.contains('photo')).map(c => c.dataset.id);
-const gridHandle = id => gridPhoto(id) && gridPhoto(id).querySelector('[data-photo-drag]');
-const gridRects = {
-  g1: { top: 0, left: 0, right: 300, bottom: 300, width: 300, height: 300, x: 0, y: 0 },
-  g2: { top: 0, left: 320, right: 620, bottom: 300, width: 300, height: 300, x: 320, y: 0 },
-  g3: { top: 320, left: 0, right: 300, bottom: 620, width: 300, height: 300, x: 0, y: 320 },
-  g4: { top: 320, left: 320, right: 620, bottom: 620, width: 300, height: 300, x: 320, y: 320 }
+const photosGrid = sandbox.document.querySelector('#photosGrid');
+const photo = id => photosGrid.children.find(x => x.dataset.id === id);
+const chip = () => sandbox.document.querySelector('#labelBar').querySelector('.album-chip[data-label="Поездка"]');
+assert(!!photo('p1') && !!photo('p2') && !!chip(), 'фото и чип лейбла отрисованы');
+assert(!!photo('p1').querySelector('[data-photo-drag]'), 'у фото есть драг-ручка ⠿ (data-photo-drag)');
+
+// 4а) обычный реордер: курсор не над чипом (elementFromPoint не задан, e.target
+//     указывает на пустой div — не чип и не фото)
+const emptyTarget = sandbox.document.createElement('div');
+sandbox.photosSortEnd({
+  to: { children: [photo('p2'), photo('p1')] }, item: photo('p1'), from: { children: [photo('p2'), photo('p1')] }, oldIndex: 0,
+  originalEvent: { clientX: 999, clientY: 999, target: emptyTarget }
+});
+assert(sandbox.db.photos.find(p => p.id === 'p1').order === 1 && sandbox.db.photos.find(p => p.id === 'p2').order === 0,
+  'photosSortEnd: обычный реордер пересчитывает order по DOM-порядку (p2=0, p1=1)');
+assert(!sandbox.db.photos.find(p => p.id === 'p1').labels.includes('Поездка'), 'обычный реордер не навешивает лейбл');
+
+// 4б) отпустили над чипом: перестановка откатывается назад (evt.from/oldIndex),
+//     вместо order — применяется лейбл (и перетаскиваемому, и всем отмеченным)
+sandbox.selectedPhotos.clear();
+sandbox.selectedPhotos.add('p2'); // «все отмеченные» тоже получают лейбл
+const fromList = { children: [photo('p1'), photo('p2')] }; // p1 «убрали» при живой перестановке…
+fromList.insertBefore = (node, ref) => { // …insertBefore возвращает его на oldIndex=0
+  const i = fromList.children.indexOf(ref);
+  const cur = fromList.children.indexOf(node);
+  if (cur >= 0) fromList.children.splice(cur, 1);
+  fromList.children.splice(i < 0 ? fromList.children.length : i, 0, node);
 };
-const setGridRects = () => gridOrder().forEach(id => { gridPhoto(id)._rect = gridRects[id]; });
-assert(JSON.stringify(gridOrder()) === '["g1","g2","g3","g4"]', 'сетка: фото отрисованы g1,g2,g3,g4');
-assert(!!gridHandle('g1'), 'сетка: у g1 есть драг-ручка');
+sandbox.photosSortEnd({
+  to: fromList, from: fromList, item: photo('p1'), oldIndex: 0,
+  originalEvent: { clientX: 10, clientY: 10, target: chip() }
+});
+assert(sandbox.db.photos.find(p => p.id === 'p1').labels.includes('Поездка'), 'photosSortEnd: лейбл навешен на перетащенное фото (p1)');
+assert(sandbox.db.photos.find(p => p.id === 'p2').labels.includes('Поездка'), 'photosSortEnd: лейбл навешен и на отмеченное фото (p2)');
+assert(sandbox.selectedPhotos.size === 0, 'photosSortEnd: после навешивания лейбла выделение снято');
 
-// g1 на свою позицию: порядок не меняется
-setGridRects();
-startDrag(gridHandle('g1'), 5, 5);
-moveDrag(150, 150);
-assert(JSON.stringify(gridOrder()) === '["g1","g2","g3","g4"]', 'сетка: курсор на своём месте — порядок не меняется');
-endDrag(150, 150);
+// 5) Чип лейбла → фото (обратное направление) — единственный жест на
+//    самостоятельном pointer-обработчике (chipDragSetup, 05-dnd.js). Живая
+//    симуляция pointerdown/move/up, e.target — цель (elementFromPoint нет).
+const startDrag = (el, x, y) => el.dispatchEvent('pointerdown', { bubbles: true, clientX: x, clientY: y });
+const moveDrag = (x, y, target) => (target || sandbox.document.body).dispatchEvent('pointermove', { bubbles: true, clientX: x, clientY: y });
+const endDrag = (x, y, target) => (target || sandbox.document.body).dispatchEvent('pointerup', { bubbles: true, clientX: x, clientY: y });
 
-// g1 на g2 — ЛЮБАЯ часть карточки: g1 сразу после g2 (слот 2)
-setGridRects();
-startDrag(gridHandle('g1'), 5, 5);
-moveDrag(340, 60); // левая половина g2 (раньше срабатывало только при наведении в правый бок)
-assert(JSON.stringify(gridOrder()) === '["g2","g1","g3","g4"]', 'сетка: курсор над g2 (левая половина) → g1 после g2');
-moveDrag(600, 280); // правая нижняя часть g2 — стабильно
-assert(JSON.stringify(gridOrder()) === '["g2","g1","g3","g4"]', 'сетка: внутри g2 порядок стабилен');
-endDrag(600, 280);
+sandbox.db.photos.forEach(p => { p.labels = []; }); // чистый лист под этот сценарий
+const chipEl = chip();
+startDrag(chipEl, 5, 5);
+moveDrag(400, 20, photo('p2')); // курсор «над» фото p2 (событие диспатчится прямо на него)
+assert(photo('p2').classList.contains('drag-over'), 'чип-драг: фото подсвечивается при наведении чипа (живая подсветка)');
+endDrag(400, 20, photo('p2'));
+assert(sandbox.db.photos.find(p => p.id === 'p2').labels.includes('Поездка'), 'чип-драг: бросок чипа на фото навешивает лейбл');
+assert(!photo('p2').classList.contains('drag-over'), 'чип-драг: подсветка снята после дропа');
 
-// g1 на g3 (нижний ряд): после g3
-setGridRects();
-startDrag(gridHandle('g1'), 5, 5);
-moveDrag(60, 340);
-assert(JSON.stringify(gridOrder()) === '["g2","g3","g1","g4"]', 'сетка: курсор над g3 → g1 после g3');
-endDrag(60, 340);
-
-// g1 на g4 (нижний ряд, правая колонка): СТАБИЛЬНЫЙ слот 4
-setGridRects();
-startDrag(gridHandle('g1'), 5, 5);
-moveDrag(340, 340); // верхняя часть g4
-assert(JSON.stringify(gridOrder()) === '["g2","g3","g4","g1"]', 'сетка: курсор над g4 → g1 в конец (после g4)');
-moveDrag(500, 600); // низ g4 — порядок не осциллирует
-assert(JSON.stringify(gridOrder()) === '["g2","g3","g4","g1"]', 'сетка: внутри g4 порядок стабилен (нет прыжков с 1 на 4)');
-endDrag(500, 600);
-const gOrder = id => sandbox.db.photos.find(p => p.id === id).order;
-assert(gOrder('g2') === 0 && gOrder('g3') === 1 && gOrder('g4') === 2 && gOrder('g1') === 3,
-  'сетка: дроп сохраняет новый порядок в db (order: g2,g3,g4,g1)');
+// Esc отменяет чип-драг без применения лейбла
+startDrag(chipEl, 5, 5);
+moveDrag(400, 20, photo('p1'));
+assert(photo('p1').classList.contains('drag-over'), 'чип-драг: подсветка на p1 перед отменой');
+chipEl.dispatchEvent('keydown', { bubbles: true, key: 'Escape' }); // keydown висит на #labelBar (фолбэк для тестов), не на body
+assert(!sandbox.db.photos.find(p => p.id === 'p1').labels.includes('Поездка'), 'чип-драг: Esc отменяет — лейбл не навешен');
+assert(!photo('p1').classList.contains('drag-over'), 'чип-драг: Esc снимает подсветку');
 
 console.log('OK: ' + checks + ' dnd checks passed');
-
-
-

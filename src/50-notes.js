@@ -1,6 +1,5 @@
 /* ===== Заметки ===== */
 let editingNoteId = null; // id заметки в режиме инлайн-правки (null — не редактируем)
-let dragNoteId = null;    // id заметки, которую сейчас перетаскиваем
 function noteAuthorName(n) {
   return n.author === 'dasha' ? '👧 Даша' : n.author === 'gosha' ? '👦 Гоша' : '💜 Наши';
 }
@@ -68,35 +67,26 @@ $('#notesGrid').addEventListener('dblclick', e => {
   startEditNote(card.dataset.id);
 });
 
-// Перетаскивание заметок — универсальный Pointer Events-движок (05-dnd.js).
-// Порядок меняется «вживую»: соседние заметки FLIP-анимацией разъезжаются,
-// на дропе пересчитываем order всем заметкам.
-function reorderNoteIds(ids, dragId, targetId, after) {
-  const from = ids.indexOf(dragId);
-  if (from < 0) return ids.slice();
-  const out = ids.slice();
-  out.splice(from, 1);
-  const to = out.indexOf(targetId);
-  if (to < 0) return out;
-  out.splice(after ? to + 1 : to, 0, dragId);
-  return out;
+// Перетаскивание заметок — SortableJS (forceFallback: нативный HTML5 DnD не
+// поддерживает тач, а телефон — основной сценарий этого сайта). На дропе
+// пересчитываем order всем заметкам; renderNotes() всегда ставит закреплённые
+// сверху — стабильно отсортируем итоговый DOM-порядок по pin, чтобы список не
+// «перепрыгивал» сразу после перерисовки.
+function notesSortEnd(evt) {
+  const ids = [...evt.to.children]
+    .filter(c => c.classList && c.classList.contains('note'))
+    .map(c => c.dataset.id);
+  const pinOf = id => { const n = db.notes.find(x => x.id === id); return n && n.pinned ? 0 : 1; };
+  ids.sort((a, b) => pinOf(a) - pinOf(b))
+    .forEach((id, i) => { const n = db.notes.find(x => x.id === id); if (n) n.order = i; });
+  save(); renderNotes();
 }
-uniDragSetup({
-  container: $('#notesGrid'),
-  itemSel: '.note',
-  handleSel: '.note-drag',
-  idOf: c => c.dataset.id,
-  onStart(st) { dragNoteId = st.id; },
-  onDrop(st) {
-    // renderNotes() всегда ставит закреплённые сверху — стабильно отсортируем ids
-    // по pin до записи order, чтобы DOM после дропа не «перепрыгивал».
-    const pinOf = id => { const n = db.notes.find(x => x.id === id); return n && n.pinned ? 0 : 1; };
-    const ids = st.ids.slice().sort((a, b) => pinOf(a) - pinOf(b));
-    ids.forEach((id, i) => { const n = db.notes.find(x => x.id === id); if (n) n.order = i; });
-    save(); renderNotes();
-    dragNoteId = null;
-  },
-  onCancel() { dragNoteId = null; }
-});
+if (typeof Sortable !== 'undefined') {
+  Sortable.create($('#notesGrid'), {
+    handle: '.note-drag', forceFallback: true, fallbackOnBody: true, animation: 150,
+    scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
+    onEnd: notesSortEnd
+  });
+}
 
 

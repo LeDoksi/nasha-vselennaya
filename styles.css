@@ -287,10 +287,19 @@ h3{font-weight:800}
 .note-author{font-size:12px;font-weight:800;color:var(--violet-ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .note-date{font-size:12px;color:var(--muted);white-space:nowrap}
 .note p{white-space:pre-wrap;font-size:15px;word-break:break-word}
-/* перетаскиваемую карточку прячем под призраком */
-.note.dragging{opacity:.45;border-style:dashed;transform:none;box-shadow:none}
-.list-card.dragging{opacity:.45;border-style:dashed;transform:none;box-shadow:none}
-.photo.dragging{opacity:.5}
+/* перетаскиваемую карточку прячем под призраком (старые классы — чип↔фото,
+   05-dnd.js; sortable-* — то же самое, но от SortableJS: реордер заметок/
+   списков/подзадач/фото, см. src/50-notes.js, 60-lists-wishes.js, 70-photos.js) */
+.note.dragging,.note.sortable-ghost{opacity:.45;border-style:dashed;transform:none;box-shadow:none}
+.list-card.dragging,.list-card.sortable-ghost{opacity:.45;border-style:dashed;transform:none;box-shadow:none}
+.photo.dragging,.photo.sortable-ghost{opacity:.5}
+.items li.sortable-ghost{opacity:.45;background:#fbf5ff}
+/* sortable-fallback — плавающий клон под курсором в forceFallback-режиме
+   (тач и мышь без нативного HTML5 DnD) — тот же вид, что был у .drag-ghost */
+.sortable-fallback{
+  opacity:.95 !important;box-shadow:0 18px 44px rgba(76,29,149,.28);
+  transition:none !important;pointer-events:none;
+}
 /* ===== Драг-ручки и призрак (Pointer Events драг, схема A+D) ===== */
 .drag-handle{
   display:inline-flex;align-items:center;justify-content:center;
@@ -301,6 +310,7 @@ h3{font-weight:800}
 .drag-handle:hover{border-color:var(--violet2);color:var(--violet-ink);background:#fbf5ff}
 .drag-handle:active{cursor:grabbing}
 .note .drag-handle{width:26px;height:26px;border-radius:8px}
+.items li .drag-handle{width:26px;height:26px;border-radius:8px;font-size:12px}
 .list-head{display:flex;align-items:flex-start;gap:10px}
 .list-head h3{flex:1}
 .photo .drag-handle{
@@ -360,7 +370,7 @@ body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
   position:absolute;top:8px;width:30px;height:30px;border-radius:50%;border:none;cursor:pointer;
   font-size:14px;background:rgba(255,255,255,.88);box-shadow:0 2px 8px rgba(0,0,0,.18);transition:.2s;
 }
-.pin-photo{right:44px}
+.pin-photo{right:44px;color:var(--violet-ink)} /* иначе ☆ рисуется бесцветным контуром — почти не видна на белом */
 .del-photo{right:8px;color:#dc2626}
 .pin-photo.active{background:var(--grad);color:#fff}
 .pin-photo:hover{transform:scale(1.15)}
@@ -647,6 +657,15 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
      сотни фото по одному неудобно. Три колонки — привычная плотность
      фотолент (Instagram/Google Photos). */
   .photos-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px}
+  /* На узкой карточке (100px) 4 кнопки в один ряд (выбор/драг/избранное/удаление,
+     по 30px) не помещаются без наложения — драг-ручка (left:44px) и «избранное»
+     (right:44px) перекрывали друг друга. Вместо одного ряда — два столбика по
+     углам: выбор+драг слева, избранное+удаление справа — влезает даже на 100px. */
+  .sel-photo,.photo .drag-handle,.pin-photo,.del-photo{width:26px;height:26px}
+  .sel-photo{top:6px;left:6px}
+  .photo .drag-handle{top:38px;left:6px}
+  .pin-photo{top:6px;right:6px}
+  .del-photo{top:38px;right:6px}
   /* Шапка на мобильном: лого + кнопки темы/пользователя не помещались в одну
      строку и переносились на вторую — sticky-шапка съедала заметную часть
      экрана. Уменьшаем и лого, и правую группу, чтобы гарантированно влезали

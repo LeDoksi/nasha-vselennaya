@@ -3,6 +3,7 @@ let editingSubtask = null; // {listId, itemId} в режиме инлайн-пр
 function listItemHTML(listId, it) {
   const editing = editingSubtask && editingSubtask.listId === listId && editingSubtask.itemId === it.id;
   return `<li class="${it.done ? 'done' : ''}" data-item="${esc(it.id)}">
+    <button class="drag-handle subtask-drag" data-item-drag="${esc(it.id)}" title="Перетащить">⠿</button>
     <button class="check" data-toggle-item="${listId}" data-id="${it.id}" title="Готово">${it.done ? '✅' : '○'}</button>
     ${editing
       ? `<input type="text" class="subtask-editor" id="subtaskEdit-${esc(it.id)}" value="${esc(it.text)}">
@@ -57,6 +58,7 @@ function renderLists() {
       </div>
     </div>`;
   }).join('');
+  initSubtaskSortables();
 }
 // Точечное обновление подзадач ОДНОГО списка (без перерисовки всех карточек): в DOM
 // переезжают только существующие <li> — FLIP-анимация плавно показывает, как
@@ -190,24 +192,57 @@ function completeList(listId) {
   return true;
 }
 
-// Перетаскивание списков — универсальный Pointer Events-движок (05-dnd.js).
-// Порядок — сам массив db.lists. Во время перетаскивания карточки «разъезжаются»
-// по-живому (FLIP): видно, куда встанет перетаскиваемая. Отмена (Esc/пропуск
-// броска) возвращает исходный порядок.
-let dragListId = null; // id карточки, которую сейчас перетаскиваем
-uniDragSetup({
-  container: $('#listsWrap'),
-  itemSel: '.list-card',
-  handleSel: '.list-drag',
-  idOf: c => c.dataset.id,
-  onStart(st) { dragListId = st.id; },
-  onDrop(st) {
-    db.lists = st.ids.map(id => db.lists.find(l => l.id === id)).filter(Boolean);
-    save();
-    dragListId = null;
-  },
-  onCancel() { dragListId = null; }
-});
+// Перетаскивание карточек списков — SortableJS (forceFallback: нативный HTML5
+// DnD не поддерживает тач). Порядок — сам массив db.lists (без отдельного
+// order-поля), как и раньше.
+function listsSortEnd(evt) {
+  db.lists = [...evt.to.children]
+    .filter(c => c.classList && c.classList.contains('list-card'))
+    .map(c => db.lists.find(l => l.id === c.dataset.id)).filter(Boolean);
+  save();
+}
+if (typeof Sortable !== 'undefined') {
+  Sortable.create($('#listsWrap'), {
+    handle: '.list-drag', forceFallback: true, fallbackOnBody: true, animation: 150,
+    scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
+    onEnd: listsSortEnd
+  });
+}
+
+// Перетаскивание подзадач внутри списка — новая фича (раньше подзадачи можно
+// было только переключать/удалять, ручного порядка не было). Порядок — позиция
+// в list.items, тот же паттерн, что у db.lists выше: отдельного order-поля нет,
+// схему/DB_VERSION трогать не нужно. sortListItems() (стабильная сортировка по
+// done) применяется поверх при каждом рендере — ручной порядок внутри групп
+// «не выполнено»/«выполнено» стабильностью сортировки не портится.
+// Один Sortable-инстанс на каждую карточку списка — своя <ul>, свой Map-реестр,
+// чтобы при полной перерисовке #listsWrap (renderLists) не плодить дубли.
+const subtaskSortables = new Map(); // listId -> Sortable instance
+function subtaskSortEnd(listId, evt) {
+  const list = db.lists.find(l => l.id === listId);
+  if (!list) return;
+  const items = [...evt.to.children]
+    .filter(li => li.dataset && li.dataset.item)
+    .map(li => list.items.find(it => it.id === li.dataset.item))
+    .filter(Boolean);
+  if (items.length === list.items.length) list.items = items;
+  save();
+}
+function initSubtaskSortables() {
+  if (typeof Sortable === 'undefined') return;
+  subtaskSortables.forEach(inst => { if (inst && inst.destroy) inst.destroy(); });
+  subtaskSortables.clear();
+  document.querySelectorAll('.list-card').forEach(card => {
+    const listId = card.dataset.id;
+    const ul = card.querySelector ? card.querySelector('.items') : null;
+    if (!listId || !ul) return;
+    subtaskSortables.set(listId, Sortable.create(ul, {
+      handle: '.subtask-drag', filter: '.empty-li', forceFallback: true, fallbackOnBody: true, animation: 150,
+      scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
+      onEnd: evt => subtaskSortEnd(listId, evt)
+    }));
+  });
+}
 
 $('#listCreateBtn').addEventListener('click', () => createList($('#listNameInput').value));
 $('#listNameInput').addEventListener('keydown', e => { if (e.key === 'Enter') createList($('#listNameInput').value); });
