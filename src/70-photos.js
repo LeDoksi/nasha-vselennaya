@@ -60,37 +60,22 @@ $('#photoInput').addEventListener('change', async e => {
   e.target.value = '';
   save(); renderPhotos();
 });
-// Режим «Управлять лейблами»: тап по чипу выбирает лейбл(ы) для массового
-// удаления вместо переключения фильтра — вместо крестика на каждом чипе
-// (на мобиле слишком маленькая тап-зона, легко промахнуться) единая панель
-// «Выбрано: N — 🗑 Удалить» с одним подтверждением на всё, тот же паттерн,
-// что и массовое удаление фото (deleteSelectedPhotos).
-let manageLabels = false;
-const selectedLabels = new Set(); // выбранные имена лейблов (в режиме управления)
-function toggleLabelManage() {
-  manageLabels = !manageLabels;
-  selectedLabels.clear();
-  renderLabels();
-}
+// Лейблы — {id,name,color}. Полоса чипов теперь только фильтр (клик всегда
+// значит одно и то же); создание/переименование/цвет/удаление живут в
+// отдельной модалке «Управление лейблами» (см. openLabelManageOverlay ниже),
+// применение к фото — в модалке «Применить лейблы» (openLabelApplyOverlay).
+function labelById(id) { return db.labels.find(l => l.id === id) || null; }
 function renderLabels() {
   const bar = $('#labelBar');
   if (!bar) return;
   const evCount = db.photos.filter(p => (p.labels || []).includes(EVENT_LABEL)).length;
   const dtCount = db.photos.filter(p => (p.labels || []).includes(DATE_LABEL)).length;
-  const sysLabels = [EVENT_LABEL, DATE_LABEL];
-  const manualLabels = db.labels.filter(l => !sysLabels.includes(l));
   bar.innerHTML =
     `<button class="album-chip${currentLabel === '' ? ' active' : ''}" data-label="">🖼 Все фото (${db.photos.length})</button>` +
     (evCount ? `<button class="album-chip${currentLabel === EVENT_LABEL ? ' active' : ''}" data-label="${esc(EVENT_LABEL)}">📅 События (${evCount})</button>` : '') +
     (dtCount ? `<button class="album-chip${currentLabel === DATE_LABEL ? ' active' : ''}" data-label="${esc(DATE_LABEL)}">💞 Свидания (${dtCount})</button>` : '') +
-    manualLabels.map(l => `<button class="album-chip${manageLabels ? (selectedLabels.has(l) ? ' chip-selected' : '') : (currentLabel === l ? ' active' : '')}" data-label="${esc(l)}" title="${manageLabels ? 'Нажми, чтобы выбрать для удаления' : 'Перетащи на фото, чтобы навесить лейбл'}"># ${esc(l)}</button>`).join('') +
-    `<button class="btn album-add-btn" data-label-new title="Создать лейбл">＋ Лейбл</button>` +
-    (manualLabels.length ? `<button class="btn album-add-btn${manageLabels ? ' active' : ''}" data-label-manage title="${manageLabels ? 'Готово' : 'Управлять лейблами (удалить)'}">${manageLabels ? '✓ Готово' : '✎ Управлять'}</button>` : '');
-  const selBar = $('#labelSelBar');
-  if (selBar) {
-    selBar.style.display = manageLabels && selectedLabels.size ? 'flex' : 'none';
-    if (selectedLabels.size) { const c = $('#labelSelCount'); if (c) c.textContent = selectedLabels.size; }
-  }
+    db.labels.map(l => `<button class="album-chip${currentLabel === l.id ? ' active' : ''}" data-label="${esc(l.id)}" title="Перетащи фото сюда, чтобы навесить лейбл"><span class="label-dot" style="background:${esc(l.color)}"></span>${esc(l.name)}</button>`).join('') +
+    `<button class="btn album-add-btn" data-label-new title="Создать, переименовать, перекрасить или удалить лейблы">🏷 Лейблы</button>`;
 }
 // Чистка фото без подтверждения — общая часть deletePhoto()/deleteSelectedPhotos()
 // (при массовом удалении confirm один, на всех отмеченных сразу).
@@ -208,9 +193,13 @@ function renderPhotosNow() {
       <button class="pin-photo${p.pinned ? ' active' : ''}" data-pin-photo="${p.id}" title="${p.pinned ? 'Открепить' : 'Закрепить'}">${p.pinned ? '⭐' : '☆'}</button>
       <button class="del-photo" data-del-photo="${p.id}" title="Удалить">✕</button>
       <button class="drag-handle photo-drag" data-photo-drag="${p.id}" title="Перетащить">⠿</button>
-      ${(p.labels || []).length ? `<div class="photo-labels">${p.labels.map(l =>
-        `<span class="photo-label">${esc(l)}${l === EVENT_LABEL || l === DATE_LABEL ? '' : `<button type="button" class="photo-label-del" data-label-off="${esc(l)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</button>`}</span>`
-      ).join('')}</div>` : ''}
+      ${(p.labels || []).length ? `<div class="photo-labels">${p.labels.map(id => {
+        const sys = id === EVENT_LABEL || id === DATE_LABEL;
+        const tag = sys ? null : labelById(id);
+        if (!sys && !tag) return ''; // ссылка на удалённый лейбл — не рисуем
+        const name = sys ? id : tag.name;
+        return `<span class="photo-label">${sys ? '' : `<span class="label-dot" style="background:${esc(tag.color)}"></span>`}${esc(name)}${sys ? '' : `<button type="button" class="photo-label-del" data-label-off="${esc(id)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</button>`}</span>`;
+      }).join('')}</div>` : ''}
       ${currentLabel === EVENT_LABEL && p.title ? `<span class="photo-caption">${esc(eventFilter.title || p.title)}</span>` : ''}
     </div>`;
   }).join('')
@@ -270,62 +259,149 @@ function renderEventBar() {
   const reset = $('#eventReset');
   if (reset) reset.style.display = (f.year || f.month || f.title) ? 'inline-block' : 'none';
 }
-// Лейблы: удаление (фото не трогаем), добавление выбранным, создание
-function deleteLabelSilent(name) {
-  if (name === EVENT_LABEL || name === DATE_LABEL) return; // служебные лейблы защищены от удаления
-  db.labels = db.labels.filter(l => l !== name);
-  db.photos.forEach(p => { if (p.labels) p.labels = p.labels.filter(l => l !== name); });
-  if (currentLabel === name) currentLabel = '';
-  selectedPhotos.clear();
-  selectedLabels.delete(name);
+// Лейблы: удаление (фото не трогаем), применение/снятие, создание.
+// p.labels хранит id — у служебных EVENT_LABEL/DATE_LABEL id равен имени,
+// у ручных лейблов id генерируется при создании (см. labelById в renderLabels).
+function deleteLabelSilent(id) {
+  if (id === EVENT_LABEL || id === DATE_LABEL) return; // служебные лейблы защищены от удаления
+  db.labels = db.labels.filter(l => l.id !== id);
+  db.photos.forEach(p => { if (p.labels) p.labels = p.labels.filter(l => l !== id); });
+  if (currentLabel === id) currentLabel = '';
 }
-// Удаление лейблов — только через режим управления (см. renderLabels выше),
-// один confirm на все выбранные разом, без отдельного диалога на каждый.
-function deleteSelectedLabels() {
-  const names = [...selectedLabels];
-  if (!names.length) return;
-  const word = names.length === 1 ? 'лейбл' : 'лейблов';
-  if (!confirmDelete(`Удалить ${names.length} ${word}? Фото не пострадают.`)) return;
-  names.forEach(deleteLabelSilent);
-  manageLabels = false;
-  save(); renderPhotos();
+function deleteLabel(id) {
+  const l = labelById(id);
+  if (!l) return;
+  const count = db.photos.filter(p => (p.labels || []).includes(id)).length;
+  if (!confirmDelete(`Удалить лейбл «${l.name}»${count ? ` (снимется с ${count} фото)` : ''}? Это не отменить.`)) return;
+  deleteLabelSilent(id);
+  save(); renderLabelManageList(); renderPhotos();
 }
-function applyLabelToPhotos(name, ids) {
+function applyLabelToPhotos(id, ids) {
   const set = new Set(ids);
   db.photos.forEach(p => {
     if (!set.has(p.id)) return;
     if (!Array.isArray(p.labels)) p.labels = [];
-    if (!p.labels.includes(name)) p.labels.push(name);
+    if (!p.labels.includes(id)) p.labels.push(id);
   });
 }
-// Применение лейбла к выбранным фото; после действия выделение снимается.
-function applyLabelToSelected(name) {
-  applyLabelToPhotos(name, [...selectedPhotos]);
-  selectedPhotos.clear();
+// Тоггл лейбла сразу на всех целевых фото (попап «Применить лейблы»): если
+// лейбл уже стоит на всех — снимаем со всех, иначе навешиваем на все.
+function toggleLabelOnPhotos(id, ids) {
+  const targets = db.photos.filter(p => ids.includes(p.id));
+  const allHave = targets.length > 0 && targets.every(p => (p.labels || []).includes(id));
+  targets.forEach(p => {
+    if (!Array.isArray(p.labels)) p.labels = [];
+    p.labels = allHave ? p.labels.filter(l => l !== id) : (p.labels.includes(id) ? p.labels : [...p.labels, id]);
+  });
+  save();
 }
 // Убрать лейбл с конкретного фото (крестик ✕ на бейдже фото).
-function removeLabelFromPhoto(photoId, name) {
+function removeLabelFromPhoto(photoId, id) {
   const p = db.photos.find(x => x.id === photoId);
-  if (!p || !Array.isArray(p.labels) || !p.labels.includes(name)) return;
-  p.labels = p.labels.filter(l => l !== name);
+  if (!p || !Array.isArray(p.labels) || !p.labels.includes(id)) return;
+  p.labels = p.labels.filter(l => l !== id);
   save(); renderPhotos();
 }
-function openLabelOverlay() {
+
+/* ---- Модалка «Лейблы»: создание, переименование, цвет, удаление ---- */
+let editingLabelId = null;     // id лейбла, у которого сейчас правится название
+let colorPickerLabelId = null; // id лейбла с открытой палитрой цвета
+function openLabelManageOverlay() {
+  editingLabelId = null;
+  colorPickerLabelId = null;
   $('#labelNewName').value = '';
-  const pick = $('#labelPick');
-  const manualLabels = db.labels.filter(l => l !== EVENT_LABEL && l !== DATE_LABEL);
-  pick.innerHTML = manualLabels.length
-    ? '<option value="">— выбери лейбл —</option>' + manualLabels.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('')
-    : '<option value="">Сначала создай новый лейбл выше</option>';
-  const hint = $('#labelModalHint');
-  if (hint) hint.textContent = selectedPhotos.size ? `Фото выбрано: ${selectedPhotos.size}` : 'Можно просто создать лейбл — он появится в фильтре.';
+  renderLabelManageList();
   $('#labelOverlay').hidden = false;
   $('#labelNewName').focus();
 }
-$('#selAddLabelBtn').addEventListener('click', openLabelOverlay);
+function renderLabelManageList() {
+  const box = $('#labelManageList');
+  if (!box) return;
+  if (!db.labels.length) {
+    box.innerHTML = '<p class="cal-tip">Пока нет ни одного лейбла — создай первый выше.</p>';
+    return;
+  }
+  box.innerHTML = db.labels.map(l => {
+    const count = db.photos.filter(p => (p.labels || []).includes(l.id)).length;
+    const editing = editingLabelId === l.id;
+    const pickerOpen = colorPickerLabelId === l.id;
+    return `<div class="label-row">
+      <button type="button" class="label-dot-btn" data-label-color-toggle="${l.id}" style="background:${esc(l.color)}" title="Изменить цвет"></button>
+      ${editing
+        ? `<input type="text" class="label-name-editor" id="labelNameEdit-${l.id}" value="${esc(l.name)}">
+           <button class="mini-x" data-save-label="${l.id}" title="Сохранить">💜</button>
+           <button class="mini-x" data-cancel-label title="Отмена">✕</button>`
+        : `<span class="label-row-name">${esc(l.name)}</span>
+           <span class="label-row-count">${count} фото</span>
+           <button class="mini-x" data-edit-label="${l.id}" title="Переименовать">✏️</button>
+           <button class="mini-x" data-del-label="${l.id}" title="Удалить лейбл">🗑</button>`}
+    </div>${pickerOpen ? `<div class="label-color-picker">${LABEL_COLORS.map(c => `<button type="button" class="label-swatch${c === l.color ? ' active' : ''}" data-label-set-color="${l.id}" data-color="${c}" style="background:${c}"></button>`).join('')}</div>` : ''}`;
+  }).join('');
+}
+function startEditLabelName(id) { editingLabelId = id; colorPickerLabelId = null; renderLabelManageList(); }
+function cancelLabelNameEdit() { editingLabelId = null; renderLabelManageList(); }
+function saveLabelNameEdit(id, text) {
+  const l = labelById(id);
+  editingLabelId = null;
+  if (!l) { renderLabelManageList(); return; }
+  const inp = $('#labelNameEdit-' + id);
+  const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
+  if (t) l.name = t;
+  save(); renderLabelManageList(); renderPhotos();
+}
+function toggleLabelColorPicker(id) {
+  colorPickerLabelId = colorPickerLabelId === id ? null : id;
+  editingLabelId = null;
+  renderLabelManageList();
+}
+function setLabelColor(id, color) {
+  const l = labelById(id);
+  if (!l) return;
+  l.color = color;
+  colorPickerLabelId = null;
+  save(); renderLabelManageList(); renderPhotos();
+}
+$('#labelNewBtn').addEventListener('click', () => {
+  const name = $('#labelNewName').value.trim();
+  if (!name) return;
+  db.labels.push({ id: uid(), name, color: LABEL_COLORS[db.labels.length % LABEL_COLORS.length] });
+  $('#labelNewName').value = '';
+  save(); renderLabelManageList(); renderPhotos();
+  $('#labelNewName').focus();
+});
+$('#labelNewName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#labelNewBtn').click(); });
+
+/* ---- Модалка «Применить лейблы»: чек-лист для выбранных фото / лайтбокса ---- */
+let applyTargetIds = [];
+function openLabelApplyOverlay(ids) {
+  applyTargetIds = [...ids];
+  if (!applyTargetIds.length) return;
+  $('#labelApplyNewName').value = '';
+  renderLabelApplyList();
+  $('#labelApplyOverlay').hidden = false;
+}
+function renderLabelApplyList() {
+  const box = $('#labelApplyList');
+  if (!box) return;
+  const targets = db.photos.filter(p => applyTargetIds.includes(p.id));
+  box.innerHTML = db.labels.length ? db.labels.map(l => {
+    const on = targets.length > 0 && targets.every(p => (p.labels || []).includes(l.id));
+    return `<button type="button" class="album-chip label-apply-chip${on ? ' active' : ''}" data-label-apply-toggle="${l.id}"><span class="label-dot" style="background:${esc(l.color)}"></span>${esc(l.name)}${on ? ' ✓' : ''}</button>`;
+  }).join('') : '<p class="cal-tip">Лейблов пока нет — создай ниже.</p>';
+}
+$('#labelApplyNewBtn').addEventListener('click', () => {
+  const name = $('#labelApplyNewName').value.trim();
+  if (!name) return;
+  const l = { id: uid(), name, color: LABEL_COLORS[db.labels.length % LABEL_COLORS.length] };
+  db.labels.push(l);
+  applyLabelToPhotos(l.id, applyTargetIds);
+  $('#labelApplyNewName').value = '';
+  save(); renderLabelApplyList(); renderPhotos();
+});
+$('#labelApplyNewName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#labelApplyNewBtn').click(); });
+$('#selAddLabelBtn').addEventListener('click', () => openLabelApplyOverlay(selectedPhotos));
 $('#selDeleteBtn').addEventListener('click', deleteSelectedPhotos);
 $('#selClearBtn').addEventListener('click', () => { selectedPhotos.clear(); renderPhotos(); });
-$('#labelSelDeleteBtn').addEventListener('click', deleteSelectedLabels);
 // Фильтр витрины «📅 События»: клик по кнопкам «год → месяц → событие» (повторный клик сбрасывает уровень)
 document.addEventListener('click', e => {
   const yearBtn = e.target.closest('[data-ev-year]');
@@ -354,20 +430,6 @@ document.addEventListener('click', e => {
     renderPhotos(); return;
   }
 });
-$('#labelNewBtn').addEventListener('click', () => {
-  const name = $('#labelNewName').value.trim();
-  if (!name) return;
-  if (!db.labels.includes(name)) db.labels.push(name);
-  applyLabelToSelected(name);
-  save(); $('#labelOverlay').hidden = true; renderPhotos();
-});
-$('#labelApplyBtn').addEventListener('click', () => {
-  const name = $('#labelPick').value;
-  if (!name) return;
-  applyLabelToSelected(name);
-  save(); $('#labelOverlay').hidden = true; renderPhotos();
-});
-$('#labelNewName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#labelNewBtn').click(); });
 // Перетаскивание фото — SortableJS (forceFallback: нативный HTML5 DnD не
 // поддерживает тач). Один инстанс, одна ручка .photo-drag, две развязки на
 // отпускании (onEnd), различаются хит-тестом точки курсора:

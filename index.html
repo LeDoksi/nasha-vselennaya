@@ -115,10 +115,6 @@
         <label class="btn file-btn">Загрузить фото<input type="file" id="photoInput" accept="image/*" multiple hidden></label>
       </div>
       <div class="album-bar" id="labelBar"></div>
-      <div class="sel-bar" id="labelSelBar" style="display:none">
-        <span class="sel-count">Выбрано: <b id="labelSelCount">0</b></span>
-        <button class="btn btn-danger album-add-btn" id="labelSelDeleteBtn">🗑 Удалить выбранные</button>
-      </div>
       <div class="ev-album-bar" id="eventBar" style="display:none">
         <div class="ev-filter-head">
           <span class="ev-album-hint">📅 Фото, прикреплённые к памятным датам</span>
@@ -259,20 +255,32 @@
     </div>
   </div>
 
-  <!-- ===== Модалка «лейбл» ===== -->
+  <!-- ===== Модалка «Лейблы»: создание/переименование/цвет/удаление ===== -->
   <div class="overlay" id="labelOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="labelModalTitle">
     <div class="modal">
       <button class="modal-x" data-close="labelOverlay">✕</button>
-      <h3 id="labelModalTitle">🏷 Лейбл</h3>
-      <p class="cal-tip" id="labelModalHint" style="margin-bottom:12px"></p>
-      <label>Новый лейбл</label>
+      <h3 id="labelModalTitle">🏷 Лейблы</h3>
+      <p class="cal-tip" style="margin-bottom:12px">Здесь только создание и управление лейблами. Чтобы навесить лейбл на фото — выдели фото и нажми «🏷 Добавить лейбл», либо перетащи фото на чип в фильтре.</p>
       <div class="list-add">
-        <input type="text" id="labelNewName" placeholder="Например: Свидание, Семья…">
+        <input type="text" id="labelNewName" placeholder="Новый лейбл: Поездка, Семья…">
         <button class="btn album-add-btn" id="labelNewBtn">＋ Создать</button>
       </div>
-      <label>Или добавь готовый выбранным фото</label>
-      <select id="labelPick"></select>
-      <button class="btn" id="labelApplyBtn">Добавить выбранным фото 💜</button>
+      <div id="labelManageList"></div>
+    </div>
+  </div>
+
+  <!-- ===== Модалка «Применить лейблы» — чек-лист для выбранных фото / лайтбокса ===== -->
+  <div class="overlay" id="labelApplyOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="labelApplyTitle">
+    <div class="modal">
+      <button class="modal-x" data-close="labelApplyOverlay">✕</button>
+      <h3 id="labelApplyTitle">🏷 Применить лейблы</h3>
+      <p class="cal-tip" style="margin-bottom:12px">Нажми на лейбл, чтобы навесить его на выбранные фото или снять.</p>
+      <div class="label-apply-list" id="labelApplyList"></div>
+      <label style="margin-top:14px;display:block">Или создай новый и сразу примени</label>
+      <div class="list-add">
+        <input type="text" id="labelApplyNewName" placeholder="Новый лейбл: Поездка, Семья…">
+        <button class="btn album-add-btn" id="labelApplyNewBtn">＋ Создать и применить</button>
+      </div>
     </div>
   </div>
 
@@ -326,6 +334,7 @@
       <button type="button" class="lb-btn lb-arrow lb-next" id="lbNext" aria-label="Следующее фото" title="Следующее (→)">›</button>
       <div class="lb-counter" id="lbCounter" aria-live="polite"></div>
       <button type="button" class="lb-btn lb-zoom" id="lbZoomBtn" aria-label="Приблизить или отдалить" title="Зум: кнопка, двойной клик или щипок">🔍</button>
+      <button type="button" class="lb-btn lb-label" id="lbLabelBtn" aria-label="Лейблы" title="Добавить или снять лейбл">🏷</button>
       <button type="button" class="lb-btn lb-download" id="lbDownload" aria-label="Скачать оригинал" title="Скачать оригинал (полное качество)">⬇️</button>
     </div>
   </div>

@@ -519,21 +519,26 @@ document.addEventListener('click', e => {
   if (labelOff) { removeLabelFromPhoto(labelOff.dataset.photoOff, labelOff.dataset.labelOff); return; }
 
   const labelNew = e.target.closest('[data-label-new]');
-  if (labelNew) { openLabelOverlay(); return; }
-  const labelManageBtn = e.target.closest('[data-label-manage]');
-  if (labelManageBtn) { toggleLabelManage(); return; }
+  if (labelNew) { openLabelManageOverlay(); return; }
   const labelChip = e.target.closest('[data-label]');
   if (labelChip) {
-    const name = labelChip.dataset.label;
-    // В режиме управления тап по (не системному) чипу выбирает его для
-    // массового удаления вместо переключения фильтра.
-    if (manageLabels && name && name !== EVENT_LABEL && name !== DATE_LABEL) {
-      if (selectedLabels.has(name)) selectedLabels.delete(name); else selectedLabels.add(name);
-      renderLabels();
-      return;
-    }
-    currentLabel = name; eventFilter = { year: '', month: '', title: '' }; renderPhotos(); return;
+    currentLabel = labelChip.dataset.label; eventFilter = { year: '', month: '', title: '' }; renderPhotos(); return;
   }
+
+  const labelColorToggle = e.target.closest('[data-label-color-toggle]');
+  if (labelColorToggle) { toggleLabelColorPicker(labelColorToggle.dataset.labelColorToggle); return; }
+  const labelSetColor = e.target.closest('[data-label-set-color]');
+  if (labelSetColor) { setLabelColor(labelSetColor.dataset.labelSetColor, labelSetColor.dataset.color); return; }
+  const editLabel = e.target.closest('[data-edit-label]');
+  if (editLabel) { startEditLabelName(editLabel.dataset.editLabel); return; }
+  const saveLabelBtn = e.target.closest('[data-save-label]');
+  if (saveLabelBtn) { saveLabelNameEdit(saveLabelBtn.dataset.saveLabel); return; }
+  const cancelLabelBtn = e.target.closest('[data-cancel-label]');
+  if (cancelLabelBtn) { cancelLabelNameEdit(); return; }
+  const delLabelBtn = e.target.closest('[data-del-label]');
+  if (delLabelBtn) { deleteLabel(delLabelBtn.dataset.delLabel); return; }
+  const applyToggle = e.target.closest('[data-label-apply-toggle]');
+  if (applyToggle) { toggleLabelOnPhotos(applyToggle.dataset.labelApplyToggle, applyTargetIds); renderLabelApplyList(); renderPhotos(); return; }
 
   const closeBtn = e.target.closest('[data-close]');
   if (closeBtn) { closeOverlay(closeBtn.dataset.close); return; }
@@ -569,6 +574,12 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('listNameEdit-') === 0 && editingListId) {
     e.preventDefault();
     saveListNameEdit(editingListId);
+    return;
+  }
+  // Лейблы: Enter в поле переименования — сохранить
+  if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('labelNameEdit-') === 0 && editingLabelId) {
+    e.preventDefault();
+    saveLabelNameEdit(editingLabelId);
     return;
   }
   // Календарь: Enter / пробел на дне — как клик по ячейке

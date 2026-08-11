@@ -124,6 +124,10 @@ function lbRender() {
   if (prev) prev.style.display = multi ? '' : 'none';
   if (next) next.style.display = multi ? '' : 'none';
   if (counter) counter.textContent = multi ? (lightboxIdx + 1) + ' / ' + lightboxList.length : '';
+  // Лейблы применимы только к настоящим фото галереи (db.photos) — не к
+  // data-URL (хотелки без сохранённого фото) и не к синтетическим записям.
+  const lblBtn = $('#lbLabelBtn');
+  if (lblBtn) lblBtn.style.display = (src && !lbIsDataUrl(src) && Array.isArray(db.photos) && db.photos.some(p => p.id === src)) ? '' : 'none';
   if (!src) { if (img) img.src = ''; return; }
   if (img) {
     img.style.transform = 'scale(' + lightboxZoom + ')';
@@ -148,6 +152,11 @@ const lbZoomBtn = $('#lbZoomBtn');
 if (lbZoomBtn) lbZoomBtn.addEventListener('click', () => lbZoomToggle());
 const lbDlBtn = $('#lbDownload');
 if (lbDlBtn) lbDlBtn.addEventListener('click', () => downloadCurrentPhoto());
+const lbLabelBtn = $('#lbLabelBtn');
+if (lbLabelBtn) lbLabelBtn.addEventListener('click', () => {
+  const src = lightboxList[lightboxIdx];
+  if (src && typeof openLabelApplyOverlay === 'function') openLabelApplyOverlay([src]);
+});
 const lbImg = $('#lightboxImg');
 if (lbImg) lbImg.addEventListener('dblclick', () => lbZoomToggle());
 if (typeof document !== 'undefined' && document.addEventListener) {

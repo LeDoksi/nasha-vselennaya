@@ -102,9 +102,10 @@ async function aesDec(key, blob) {
 }
 
 /* ===== Схема данных и миграции ===== */
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 const EVENT_LABEL = '📅 События'; // общий лейбл фото, прикреплённых к событиям
 const DATE_LABEL = '💞 Свидания'; // общий лейбл фото, прикреплённых к свиданиям
+const LABEL_COLORS = ['#ec4899', '#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#84cc16'];
 function defaultDB() {
   return {
     version: DB_VERSION,
@@ -113,20 +114,29 @@ function defaultDB() {
     wishlist: [], labels: [], backupDate: null, moods: []
   };
 }
-// Миграции: аккуратно добавляем поля, которых ещё не было в старых версиях
+// Миграции: аккуратно добавляем поля, которых ещё не было в старых версиях.
+// migrateDB() вызывается на КАЖДОЙ загрузке сейфа (не только один раз при
+// смене версии), поэтому каждый шаг обязан быть идемпотентным — версии ниже
+// fromVersion определяют, какие блоки ещё нужно применить.
 function migrateDB(d) {
+  const fromVersion = typeof d.version === 'number' ? d.version : 0;
   const cur = defaultDB();
   for (const k of Object.keys(cur)) {
     if (!(k in d)) d[k] = cur[k]; // событие «Мы начали встречаться» не дублируем, если есть
   }
-  // v3: у фото вместо одного альбома — несколько лейблов
-  if (!Array.isArray(d.labels)) d.labels = [];
-  for (const p of (d.photos || [])) {
-    if (!Array.isArray(p.labels)) p.labels = p.album ? [p.album] : [];
+  // v3: у фото вместо одного альбома — несколько лейблов. Гейт fromVersion<9,
+  // а не Array.isArray: без него на КАЖДОМ повторном вызове set-объединение
+  // db.labels (уже объекты после v9) с p.labels (id-строки) плодило бы
+  // мусорные записи — id фото попадал бы в db.labels как отдельный «лейбл».
+  if (fromVersion < 9) {
+    if (!Array.isArray(d.labels)) d.labels = [];
+    for (const p of (d.photos || [])) {
+      if (!Array.isArray(p.labels)) p.labels = p.album ? [p.album] : [];
+    }
+    const set = new Set(d.labels);
+    for (const p of (d.photos || [])) for (const l of (p.labels || [])) set.add(l);
+    d.labels = [...set];
   }
-  const set = new Set(d.labels);
-  for (const p of (d.photos || [])) for (const l of (p.labels || [])) set.add(l);
-  d.labels = [...set];
   // v4: фото событий — общий лейбл «📅 События» вместо отдельного лейбла-названия
   relabelEventPhotos(d);
   // v5: у заметок появляется порядок для drag&drop (старые — по закреплению и времени)
@@ -157,6 +167,24 @@ function migrateDB(d) {
       if (dt.responses[dt.from] == null) dt.responses[dt.from] = 'yes';
     }
   }
+  // v9: ручные лейблы — объекты {id,name,color} вместо голых строк (нужны
+  // стабильные id для переименования без прохода по всем фото). Служебные
+  // EVENT_LABEL/DATE_LABEL остаются строками-константами — их id всегда
+  // равен имени, в db.labels они не хранятся (только в p.labels).
+  if (fromVersion < 9 && Array.isArray(d.labels) && d.labels.some(l => typeof l === 'string')) {
+    const nameToId = new Map();
+    d.labels = d.labels
+      .filter(name => name !== EVENT_LABEL && name !== DATE_LABEL)
+      .map((name, i) => {
+        const id = uid();
+        nameToId.set(name, id);
+        return { id, name, color: LABEL_COLORS[i % LABEL_COLORS.length] };
+      });
+    for (const p of (d.photos || [])) {
+      if (!Array.isArray(p.labels)) continue;
+      p.labels = p.labels.map(l => nameToId.get(l) || l);
+    }
+  }
   d.version = DB_VERSION;
   return d;
 }
@@ -165,7 +193,6 @@ function migrateDB(d) {
 // Поддерживает ev.photos как data-URL (старые версии) так и id фото (v6+).
 function relabelEventPhotos(d) {
   if (!Array.isArray(d.photos) || !Array.isArray(d.events)) return;
-  let found = false;
   for (const ev of d.events) {
     if (!Array.isArray(ev.photos)) continue;
     for (const data of ev.photos) {
@@ -175,10 +202,8 @@ function relabelEventPhotos(d) {
       if (!Array.isArray(p.labels)) p.labels = [];
       if (!p.labels.includes(EVENT_LABEL)) p.labels.push(EVENT_LABEL);
       if (ev.title && p.labels.includes(ev.title)) p.labels = p.labels.filter(l => l !== ev.title);
-      found = true;
     }
   }
-  if (found && !d.labels.includes(EVENT_LABEL)) d.labels.push(EVENT_LABEL);
 }
 
 /* ===== Состояние сессии — только в памяти, в localStorage не пишется ===== */

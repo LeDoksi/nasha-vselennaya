@@ -500,7 +500,8 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .lb-prev{left:14px}
 .lb-next{right:14px}
 .lb-zoom{position:absolute;right:14px;bottom:18px;width:46px;height:46px;font-size:20px}
-.lb-download{position:absolute;right:70px;bottom:18px;width:46px;height:46px;font-size:20px}
+.lb-label{position:absolute;right:70px;bottom:18px;width:46px;height:46px;font-size:19px}
+.lb-download{position:absolute;right:126px;bottom:18px;width:46px;height:46px;font-size:20px}
 .lb-counter{
   position:absolute;left:50%;bottom:16px;transform:translateX(-50%);
   background:rgba(20,10,40,.55);color:#fff;font-size:13px;font-weight:800;
@@ -547,7 +548,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 
 /* ===== Альбомы ===== */
 .album-bar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
-.album-chip{padding:8px 16px;border-radius:999px;border:1px solid var(--border);background:#fff;font-weight:700;font-size:14px;cursor:pointer;transition:.2s;color:var(--ink)}
+.album-chip{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:999px;border:1px solid var(--border);background:#fff;font-weight:700;font-size:14px;cursor:pointer;transition:.2s;color:var(--ink)}
 .album-chip:hover{border-color:var(--violet2)}
 .album-chip.active{background:var(--grad);color:#fff;border-color:transparent}
 .album-add-btn{font-size:13px;padding:6px 12px}
@@ -555,11 +556,22 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .album-chip.drag-over{border-color:transparent;background:var(--grad);color:#fff;transform:scale(1.06);box-shadow:0 0 0 3px var(--pink2)}
 .album-chip{cursor:grab}
 .album-chip:active{cursor:grabbing}
-/* Режим «Управлять лейблами»: тап по чипу выбирает его для массового удаления
-   вместо переключения фильтра — крестик на чипе (слишком маленькая тап-зона
-   на мобиле) убран, удаление теперь только через выбор + подтверждение. */
-.album-chip.chip-selected{border-color:transparent;background:var(--pink-ink);color:#fff;box-shadow:0 0 0 3px var(--pink2)}
-.album-add-btn.active{background:var(--grad);color:#fff;border-color:transparent}
+.label-apply-chip{cursor:pointer}
+
+/* Цветной маркер лейбла — на чипах фильтра, бейджах фото, в модалках */
+.label-dot{width:8px;height:8px;border-radius:50%;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.12)}
+
+/* ===== Модалка «Лейблы»: список для переименования/цвета/удаления ===== */
+.label-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
+.label-row:last-child{border-bottom:none}
+.label-dot-btn{width:20px;height:20px;border-radius:50%;border:1px solid var(--border);flex:none;cursor:pointer;padding:0}
+.label-row-name{flex:1;font-weight:700;cursor:pointer}
+.label-row-count{color:var(--muted);font-size:12px;font-weight:600;white-space:nowrap}
+.label-name-editor{flex:1}
+.label-color-picker{display:flex;gap:8px;flex-wrap:wrap;padding:4px 0 12px 30px}
+.label-swatch{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
+.label-swatch.active{border-color:var(--ink)}
+.label-apply-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
 
 /* Витрина «📅 События»: селект конкретного события + подпись на фото */
 .ev-album-bar{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
@@ -592,9 +604,11 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
   pointer-events:none;
 }
 .photo-label{
+  display:inline-flex;align-items:center;gap:4px;
   background:rgba(76,29,149,.78);color:#fff;font-size:10px;padding:2px 8px;border-radius:99px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
 }
+.photo-label .label-dot{box-shadow:0 0 0 1px rgba(255,255,255,.5)}
 .photo-label-del{
   margin-left:4px;background:none;border:none;padding:0;font:inherit;font-size:10px;
   color:rgba(255,255,255,.9);font-weight:900;cursor:pointer;pointer-events:auto;vertical-align:baseline;

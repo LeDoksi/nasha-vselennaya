@@ -306,7 +306,8 @@ assert(JSON.stringify(sandbox.db.lists.find(l => l.id === 'l1').items.map(i => i
   'toggleSubtask сохраняет ручной порядок внутри групп (i2 done — в конец)');
 
 // 4) Фото: photosSortEnd — обычный реордер и «отпущено над чипом лейбла»
-sandbox.db = sandbox.migrateDB({ events: [], notes: [], shopping: [], todos: [], dates: [], wishlist: [], labels: ['Поездка'],
+sandbox.db = sandbox.migrateDB({ events: [], notes: [], shopping: [], todos: [], dates: [], wishlist: [],
+  labels: [{ id: 'lTrip', name: 'Поездка', color: '#ec4899' }],
   photos: [
     { id: 'p1', data: 'data:image/jpeg;base64,AA==', title: 'Ф1', pinned: false, order: 0, labels: [] },
     { id: 'p2', data: 'data:image/jpeg;base64,AA==', title: 'Ф2', pinned: false, order: 1, labels: [] }
@@ -315,7 +316,7 @@ sandbox.currentLabel = '';
 sandbox.go('photos');
 const photosGrid = sandbox.document.querySelector('#photosGrid');
 const photo = id => photosGrid.children.find(x => x.dataset.id === id);
-const chip = () => sandbox.document.querySelector('#labelBar').querySelector('.album-chip[data-label="Поездка"]');
+const chip = () => sandbox.document.querySelector('#labelBar').querySelector('.album-chip[data-label="lTrip"]');
 assert(!!photo('p1') && !!photo('p2') && !!chip(), 'фото и чип лейбла отрисованы');
 assert(!!photo('p1').querySelector('[data-photo-drag]'), 'у фото есть драг-ручка ⠿ (data-photo-drag)');
 
@@ -328,7 +329,7 @@ sandbox.photosSortEnd({
 });
 assert(sandbox.db.photos.find(p => p.id === 'p1').order === 1 && sandbox.db.photos.find(p => p.id === 'p2').order === 0,
   'photosSortEnd: обычный реордер пересчитывает order по DOM-порядку (p2=0, p1=1)');
-assert(!sandbox.db.photos.find(p => p.id === 'p1').labels.includes('Поездка'), 'обычный реордер не навешивает лейбл');
+assert(!sandbox.db.photos.find(p => p.id === 'p1').labels.includes('lTrip'), 'обычный реордер не навешивает лейбл');
 
 // 4б) отпустили над чипом: перестановка откатывается назад (evt.from/oldIndex),
 //     вместо order — применяется лейбл (и перетаскиваемому, и всем отмеченным)
@@ -345,8 +346,8 @@ sandbox.photosSortEnd({
   to: fromList, from: fromList, item: photo('p1'), oldIndex: 0,
   originalEvent: { clientX: 10, clientY: 10, target: chip() }
 });
-assert(sandbox.db.photos.find(p => p.id === 'p1').labels.includes('Поездка'), 'photosSortEnd: лейбл навешен на перетащенное фото (p1)');
-assert(sandbox.db.photos.find(p => p.id === 'p2').labels.includes('Поездка'), 'photosSortEnd: лейбл навешен и на отмеченное фото (p2)');
+assert(sandbox.db.photos.find(p => p.id === 'p1').labels.includes('lTrip'), 'photosSortEnd: лейбл навешен на перетащенное фото (p1)');
+assert(sandbox.db.photos.find(p => p.id === 'p2').labels.includes('lTrip'), 'photosSortEnd: лейбл навешен и на отмеченное фото (p2)');
 assert(sandbox.selectedPhotos.size === 0, 'photosSortEnd: после навешивания лейбла выделение снято');
 
 // 5) Чип лейбла → фото (обратное направление) — единственный жест на
@@ -362,7 +363,7 @@ startDrag(chipEl, 5, 5);
 moveDrag(400, 20, photo('p2')); // курсор «над» фото p2 (событие диспатчится прямо на него)
 assert(photo('p2').classList.contains('drag-over'), 'чип-драг: фото подсвечивается при наведении чипа (живая подсветка)');
 endDrag(400, 20, photo('p2'));
-assert(sandbox.db.photos.find(p => p.id === 'p2').labels.includes('Поездка'), 'чип-драг: бросок чипа на фото навешивает лейбл');
+assert(sandbox.db.photos.find(p => p.id === 'p2').labels.includes('lTrip'), 'чип-драг: бросок чипа на фото навешивает лейбл');
 assert(!photo('p2').classList.contains('drag-over'), 'чип-драг: подсветка снята после дропа');
 
 // Esc отменяет чип-драг без применения лейбла
@@ -370,7 +371,7 @@ startDrag(chipEl, 5, 5);
 moveDrag(400, 20, photo('p1'));
 assert(photo('p1').classList.contains('drag-over'), 'чип-драг: подсветка на p1 перед отменой');
 chipEl.dispatchEvent('keydown', { bubbles: true, key: 'Escape' }); // keydown висит на #labelBar (фолбэк для тестов), не на body
-assert(!sandbox.db.photos.find(p => p.id === 'p1').labels.includes('Поездка'), 'чип-драг: Esc отменяет — лейбл не навешен');
+assert(!sandbox.db.photos.find(p => p.id === 'p1').labels.includes('lTrip'), 'чип-драг: Esc отменяет — лейбл не навешен');
 assert(!photo('p1').classList.contains('drag-over'), 'чип-драг: Esc снимает подсветку');
 
 console.log('OK: ' + checks + ' dnd checks passed');

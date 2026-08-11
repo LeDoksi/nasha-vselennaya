@@ -104,9 +104,16 @@ function __TEST__(s){
   s.getMotion = getMotion; s.applyMotion = applyMotion; s.setMotion = setMotion; s.motionReduced = motionReduced;
   Object.defineProperty(s, 'photosRenderQueued', { get: () => photosRenderQueued, set: v => { photosRenderQueued = v; }, configurable: true });
   s.selectedPhotos = selectedPhotos; s.renderLabels = renderLabels;
-  s.deleteLabelSilent = deleteLabelSilent; s.deletePhoto = deletePhoto; s.applyLabelToSelected = applyLabelToSelected; s.openLabelOverlay = openLabelOverlay;
-  s.selectedLabels = selectedLabels; s.toggleLabelManage = toggleLabelManage; s.deleteSelectedLabels = deleteSelectedLabels;
-  Object.defineProperty(s, 'manageLabels', { get: () => manageLabels, configurable: true });
+  s.deleteLabelSilent = deleteLabelSilent; s.deletePhoto = deletePhoto;
+  s.deleteLabel = deleteLabel; s.labelById = labelById;
+  s.openLabelManageOverlay = openLabelManageOverlay; s.renderLabelManageList = renderLabelManageList;
+  s.startEditLabelName = startEditLabelName; s.saveLabelNameEdit = saveLabelNameEdit; s.cancelLabelNameEdit = cancelLabelNameEdit;
+  s.toggleLabelColorPicker = toggleLabelColorPicker; s.setLabelColor = setLabelColor;
+  Object.defineProperty(s, 'editingLabelId', { get: () => editingLabelId, set: v => { editingLabelId = v; }, configurable: true });
+  Object.defineProperty(s, 'colorPickerLabelId', { get: () => colorPickerLabelId, configurable: true });
+  s.openLabelApplyOverlay = openLabelApplyOverlay; s.renderLabelApplyList = renderLabelApplyList;
+  s.toggleLabelOnPhotos = toggleLabelOnPhotos;
+  Object.defineProperty(s, 'applyTargetIds', { get: () => applyTargetIds, configurable: true });
   s.applyLabelToPhotos = applyLabelToPhotos; s.removeLabelFromPhoto = removeLabelFromPhoto;
   s.filteredPhotos = filteredPhotos; s.renderEventBar = renderEventBar; s.eventsForPhoto = eventsForPhoto; s.photoByRef = photoByRef; s.addEventPhotosToGallery = addEventPhotosToGallery; s.evThumbs = evThumbs; s.dtThumbs = dtThumbs;
   s.wishCard = wishCard; s.fmtWishDate = fmtWishDate;
@@ -168,13 +175,14 @@ assert(!vaultRaw.includes('"123456"'), 'пароль не хранится в с
 assert(w('(s)=>s.localStorage.getItem("universe")') === null, 'старый открытый файл удалён после миграции');
 
 // --- Миграция: старые данные получили version и новые поля ---
-assert(w('(s)=>s.db.version') === 8, 'db.version = 8 после миграции');
+assert(w('(s)=>s.db.version') === 9, 'db.version = 9 после миграции');
 assert(Array.isArray(w('(s)=>s.db.wishlist')), 'wishlist добавлен миграцией');
 assert(w('(s)=>s.db.backupDate') === null, 'backupDate добавлен миграцией');
 assert(Array.isArray(w('(s)=>s.db.labels')), 'labels добавлен миграцией');
 assert(Array.isArray(w('(s)=>s.db.lists')), 'lists добавлен миграцией');
-assert(w('(s)=>JSON.stringify(s.db.photos[0].labels)') === '["Поездка"]', 'старый альбом фото стал лейблом');
-assert(w('(s)=>s.db.labels.includes("Поездка")'), 'лейблы собраны в общий список');
+assert(w('(s)=>s.db.labels.length') === 1 && w('(s)=>s.db.labels[0].name') === 'Поездка', 'старый альбом фото стал лейблом-объектом {id,name,color}');
+assert(!!w('(s)=>s.db.labels[0].id'), 'у мигрированного лейбла есть стабильный id');
+assert(w('(s)=>s.db.photos[0].labels[0] === s.db.labels[0].id'), 'фото ссылается на лейбл по id, а не по имени');
 
 // --- Закрываем сессию, чтобы проверить вход с чистого листа ---
 w('(s)=>s.lock()');
@@ -189,7 +197,7 @@ assert(w('(s)=>s.masterKey') === null, 'ключ закрыт при невер�
 assert(await w('(s)=>s.unlockWith("gosha","123456")') === true, 'правильный пароль открывает сейф');
 assert(w('(s)=>s.isLocked()') === false, 'после входа приложение открыто');
 assert(w('(s)=>s.currentUser') === 'gosha', 'система знает: вошёл Гоша');
-assert(w('(s)=>s.db.labels.includes("Поездка")'), 'данные расшифрованы и на месте');
+assert(w('(s)=>s.db.labels.some(l=>l.name==="Поездка")'), 'данные расшифрованы и на месте');
 
 // --- Тема ---
 assert(w('(s)=>s.getTheme()') === 'light', 'тема по умолчанию — светлая');
@@ -493,8 +501,8 @@ assert(lastEv.title === 'Поездка в горы' && Array.isArray(lastEv.pho
   'событие сохранило фото');
 assert(lastEv.endDate === '2026-08-24' && lastEv.repeat === false, 'долгое событие сохраняет диапазон и не повторяется');
 assert(w(`(s)=>s.db.photos.some(p=>p.id==="${evPhId}")`), 'фото события появилось в галерее');
-assert(w('(s)=>s.db.labels.includes("📅 События")'), 'фото события получает общий лейбл «📅 События»');
-assert(w('(s)=>s.db.labels.includes("Поездка в горы")') === false, 'лейбл-название события больше не создаётся');
+assert(w('(s)=>s.db.labels.some(l=>l.name==="📅 События")') === false, 'служебный лейбл «📅 События» не хранится в общем списке ручных лейблов');
+assert(w('(s)=>s.db.labels.some(l=>l.name==="Поездка в горы")') === false, 'лейбл-название события больше не создаётся');
 assert(w(`(s)=>JSON.stringify(s.db.photos.find(p=>p.id==="${evPhId}").labels)`) === '["📅 События"]', 'фото события подписано общим лейблом');
 assert(w(`(s)=>s.db.photos.find(p=>p.id==="${evPhId}").title`) === 'Поездка в горы', 'название события остаётся подписью фото');
 await new Promise(r => setTimeout(r, 20)); // даём фоновой записи в photoStore завершиться
@@ -709,8 +717,13 @@ assert(w('(s)=>s.migrateDB({events:[],notes:[],shopping:[{id:"s1",text:"Хлеб
 assert(w('(s)=>s.migrateDB({events:[],notes:[],shopping:[{id:"s1",text:"Хлеб",done:false}],todos:[{id:"t1",text:"Позвонить",done:false}],photos:[],dates:[],wishlist:[],labels:[]}).shopping.length') === 0,
   'миграция v8: легаси-поле shopping очищено');
 
-// --- Фото: лейблы вместо альбомов, выбор нескольких ---
-w('(s)=>{s.db.photos.push({id:"p2",data:"data:image/jpeg;base64,AA==",title:"море",labels:["Поездка","Семья"],pinned:false,ts:2,order:1});s.db.photos.push({id:"p3",data:"data:image/jpeg;base64,AA==",title:"кафе",labels:["Свидание"],pinned:false,ts:3,order:2});s.db.labels=["Поездка","Семья","Свидание"];s.renderPhotos();}');
+// --- Фото: лейблы — объекты {id,name,color}, выбор нескольких фото ---
+w(`(s)=>{
+  s.db.labels.push({id:'lTrip',name:'Поездка',color:'#ec4899'},{id:'lFamily',name:'Семья',color:'#8b5cf6'},{id:'lDate',name:'Свидание',color:'#3b82f6'});
+  s.db.photos.push({id:'p2',data:'data:image/jpeg;base64,AA==',title:'море',labels:['lTrip','lFamily'],pinned:false,ts:2,order:1});
+  s.db.photos.push({id:'p3',data:'data:image/jpeg;base64,AA==',title:'кафе',labels:['lDate'],pinned:false,ts:3,order:2});
+  s.renderPhotos();
+}`);
 let phHtml = registry['#photosGrid'].innerHTML;
 assert(phHtml.includes('data-photo-drag'), 'у фото есть драг-ручка ⠿ (Pointer Events drag)');
 assert(phHtml.includes('data-sel-photo'), 'у фото есть кнопка выбора');
@@ -719,33 +732,48 @@ assert(/<button[^>]*data-label-off=/.test(phHtml), 'крестик лейбла 
 assert(!phHtml.includes('data-ren-photo'), 'переименование убрано');
 const labHtml = registry['#labelBar'].innerHTML;
 assert(labHtml.includes('Все фото'), 'кнопка «Все фото» в фильтре');
-assert(labHtml.includes('Семья') && labHtml.includes('data-label-manage'), 'лейбл в фильтре, есть кнопка «Управлять лейблами»');
-w('(s)=>{s.currentLabel="Свидание";s.renderPhotos();}');
+assert(labHtml.includes('Семья') && labHtml.includes('data-label-new') && !labHtml.includes('data-label-manage'),
+  'лейбл в фильтре виден; полоса — чистый фильтр, режима «управления» на чипах больше нет');
+w('(s)=>{s.currentLabel="lDate";s.renderPhotos();}');
 phHtml = registry['#photosGrid'].innerHTML;
-assert(phHtml.includes('кафе') && !phHtml.includes('море'), 'фильтр по лейблу (только подходящие)');
+assert(phHtml.includes('кафе') && !phHtml.includes('море'), 'фильтр по лейблу — по id, а не по имени (только подходящие)');
 w('(s)=>{s.currentLabel="";s.renderPhotos();}');
 w('(s)=>{s.selectedPhotos.add("p2");s.renderPhotos();}');
 phHtml = registry['#photosGrid'].innerHTML;
 assert(phHtml.includes('photo selected'), 'выбранное фото подсвечено');
 assert(registry['#photoSelBar'].style.display === 'flex', 'панель выбора показана');
-w('(s)=>{s.applyLabelToSelected("Новое");s.renderPhotos();}');
-assert(registry['#photosGrid'].innerHTML.includes('Новое'), 'лейбл добавлен выбранным фото');
-// Удаление лейбла — только через режим управления: тап по «✎ Управлять»
-// переключает чипы в режим выбора (тап = отметить, не фильтр), «Удалить
-// выбранные» удаляет все отмеченные разом с одним подтверждением.
-w('(s)=>{s.toggleLabelManage();}');
-assert(w('(s)=>s.manageLabels') === true, 'режим управления лейблами включился');
-assert(registry['#labelBar'].innerHTML.includes('data-label-manage') && registry['#labelBar'].innerHTML.includes('Готово'),
-  'в режиме управления кнопка меняется на «✓ Готово»');
-w('(s)=>{s.selectedLabels.add("Семья");s.renderLabels();}');
-assert(registry['#labelBar'].innerHTML.includes('chip-selected'), 'выбранный в режиме управления лейбл подсвечен');
-assert(registry['#labelSelBar'].style.display === 'flex', 'панель массового удаления лейблов показана');
-assert(registry['#labelSelCount'].textContent === 1, 'счётчик выбранных лейблов = 1');
-w('(s)=>{s.deleteSelectedLabels();}');
-assert(!registry['#labelBar'].innerHTML.includes('Семья'), 'лейбл удалён из фильтра');
-assert(!registry['#photosGrid'].innerHTML.includes('Семья'), 'лейбл снят с фото, фото на месте');
-assert(w('(s)=>s.manageLabels') === false, 'после массового удаления режим управления выключается');
+
+// --- Попап «Применить лейблы»: чек-лист + создание нового прямо в попапе ---
+w('(s)=>s.openLabelApplyOverlay(s.selectedPhotos)');
+assert(registry['#labelApplyOverlay'].hidden === false, 'попап применения лейблов открылся');
+assert(registry['#labelApplyList'].innerHTML.includes('Семья'), 'в чек-листе виден существующий лейбл');
+w('(s)=>s.toggleLabelOnPhotos("lDate",s.applyTargetIds)');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("lDate")'), 'тап по лейблу в чек-листе навешивает его на выбранные фото');
+w('(s)=>s.toggleLabelOnPhotos("lDate",s.applyTargetIds)');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("lDate")') === false, 'повторный тап снимает лейбл (тоггл)');
+registry['#labelApplyNewName'].value = 'Новое';
+(registry['#labelApplyNewBtn']._handlers.click || []).forEach(fn => fn());
+assert(registry['#photosGrid'].innerHTML.includes('Новое'), 'создание нового лейбла в попапе сразу применяет его к выбранным фото');
+assert(w('(s)=>s.selectedPhotos.size') === 1, 'выбор фото не сбрасывается автоматически — попап можно использовать для нескольких лейблов подряд');
+registry['#labelApplyOverlay'].hidden = true;
 w('(s)=>{s.selectedPhotos.clear();s.renderPhotos();}');
+
+// --- Модалка «Лейблы»: переименование, цвет, удаление ---
+w('(s)=>s.openLabelManageOverlay()');
+assert(registry['#labelOverlay'].hidden === false, 'модалка управления лейблами открылась');
+assert(registry['#labelManageList'].innerHTML.includes('Семья'), 'лейбл виден в списке управления');
+w('(s)=>s.startEditLabelName("lFamily")');
+assert(registry['#labelManageList'].innerHTML.includes('labelNameEdit-lFamily'), 'поле инлайн-переименования появилось');
+w('(s)=>s.saveLabelNameEdit("lFamily","Родня")');
+assert(w('(s)=>s.labelById("lFamily").name') === 'Родня', 'лейбл переименован без потери id');
+assert(registry['#photosGrid'].innerHTML.includes('Родня'), 'новое имя сразу видно на бейдже фото (ссылка была по id)');
+w('(s)=>s.setLabelColor("lFamily","#10b981")');
+assert(w('(s)=>s.labelById("lFamily").color') === '#10b981', 'цвет лейбла меняется');
+w('(s)=>s.deleteLabel("lDate")');
+assert(!registry['#labelBar'].innerHTML.includes('Свидание'), 'удалённый лейбл пропал из фильтра');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="p3").labels.includes("lDate")') === false, 'лейбл снят с фото при удалении, фото остаётся');
+assert(w('(s)=>s.db.photos.some(p=>p.id==="p3")'), 'фото на месте после удаления его лейбла');
+registry['#labelOverlay'].hidden = true;
 
 // --- Фото: дебаунс рендера (без requestAnimationFrame — синхронно) ---
 w('(s)=>{s.photosRenderQueued=false;s.renderPhotos();}');
@@ -756,19 +784,19 @@ w('(s)=>{s.photosRenderQueued=false;s.renderPhotos();}');
 
 // --- Фото: drag&drop лейблов (логика) + крестик ✕ на бейдже фото ---
 w('(s)=>{s.db.photos.push({id:"p4",data:"data:image/jpeg;base64,AA==",title:"п4",labels:[],pinned:false,ts:4,order:4});}');
-w('(s)=>{s.applyLabelToPhotos("Драго",["p4","p2"]);}');
-assert(w('(s)=>s.db.photos.find(p=>p.id==="p4").labels.includes("Драго")'), 'drag&drop: лейбл получило перетаскиваемое фото');
-assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("Драго")'), 'drag&drop: лейбл получили и отмеченные фото');
-w('(s)=>{s.selectedPhotos.add("p2");s.applyLabelToSelected("Новое");}');
-assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("Новое")'), 'применение лейбла к выбранным работает');
-assert(w('(s)=>s.selectedPhotos.size') === 0, 'после применения лейбла выделение снимается');
-w('(s)=>s.removeLabelFromPhoto("p2","Новое")');
-assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("Новое")') === false, 'крестик ✕ убирает лейбл с конкретного фото');
+w('(s)=>{s.db.labels.push({id:"lDrago",name:"Драго",color:"#ef4444"});s.applyLabelToPhotos("lDrago",["p4","p2"]);}');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="p4").labels.includes("lDrago")'), 'drag&drop: лейбл получило перетаскиваемое фото');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("lDrago")'), 'drag&drop: лейбл получили и отмеченные фото');
+w('(s)=>{s.db.labels.push({id:"lEshe",name:"Ещё",color:"#06b6d4"});s.selectedPhotos.add("p2");s.applyLabelToPhotos("lEshe",[...s.selectedPhotos]);}');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("lEshe")'), 'применение лейбла к выбранным работает');
+w('(s)=>s.removeLabelFromPhoto("p2","lEshe")');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("lEshe")') === false, 'крестик ✕ убирает лейбл с конкретного фото');
 assert(w('(s)=>s.db.photos.some(p=>p.id==="p2")'), 'фото при этом остаётся на месте');
 w('(s)=>{s.db.photos.push({id:"pev",data:"data:image/jpeg;base64,AA==",title:"событие",labels:["📅 События"],pinned:false,ts:5,order:5});s.renderPhotos();}');
 const pOffHtml = registry['#photosGrid'].innerHTML;
-assert(pOffHtml.includes('data-label-off="Драго"'), 'у обычного лейбла на фото есть крестик ✕');
+assert(pOffHtml.includes('data-label-off="lDrago"'), 'у обычного лейбла на фото есть крестик ✕');
 assert(!pOffHtml.includes('data-label-off="📅 События"'), 'у служебного лейбла «События» крестика нет');
+w('(s)=>{s.selectedPhotos.clear();}');
 
 // --- Настройки: резервная копия, место и личный кабинет ---
 w('(s)=>s.go("settings")');
@@ -833,7 +861,7 @@ assert(w('(s)=>s.db.photos.length') === 0, 'данные очищены из п�
 // --- Вход Даши своим паролем ---
 assert(await w('(s)=>s.unlockWith("dasha","654321")') === true, 'Даша входит своим паролем');
 assert(w('(s)=>s.currentUser') === 'dasha', 'система знает: вошла Даша');
-assert(w('(s)=>s.db.labels.includes("Поездка")'), 'Даша видит те же данные');
+assert(w('(s)=>s.db.labels.some(l=>l.name==="Поездка")'), 'Даша видит те же данные');
 
 // --- Экспорт — зашифрованный сейф без открытого текста ---
 const exp = await w('(s)=>s.exportData()');

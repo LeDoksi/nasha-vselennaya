@@ -238,7 +238,6 @@ function evThumbs(e) {
 // на каждую создаётся фото галереи с id, а в событие пишутся эти id.
 function addEventPhotosToGallery(photos, title) {
   if (!photos.length) return [];
-  if (!db.labels.includes(EVENT_LABEL)) db.labels.push(EVENT_LABEL);
   const ids = [];
   for (const item of photos) {
     // Элемент — либо data-URL (строка, как раньше), либо { data: dataURL, file: оригинал }
@@ -299,7 +298,6 @@ function addEventPhotoQuick(evId) {
 // dt.photos хранит id фото. Новые фото приходят как data-URL.
 function addDatePhotosToGallery(photos, title) {
   if (!photos.length) return [];
-  if (!db.labels.includes(DATE_LABEL)) db.labels.push(DATE_LABEL);
   const ids = [];
   for (const item of photos) {
     // Элемент — либо data-URL (строка, как раньше), либо { data: dataURL, file: оригинал }
