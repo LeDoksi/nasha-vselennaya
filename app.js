@@ -2257,7 +2257,6 @@ function renderDayPanel() {
   if (addBtn) addBtn.addEventListener('click', addDayEvent);
   const inp = $('#dayTitle');
   if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') addDayEvent(); });
-  hydratePhotoImgs(panel); // миниатюры из photoStore — заполняем src каркасов после рендера
 }
 function addDayEvent() {
   const title = $('#dayTitle').value.trim();
@@ -2367,22 +2366,25 @@ function photoByRef(ref) {
   return db.photos.find(p => p.id === ref) || null;
 }
 // «Мёртвые» id (фото удалено из галереи) пропускаем — не рисуем битую рамку.
-// Легаси data-URL показываем напрямую.
+// Ещё не докачанные с другого устройства (фото есть в db.photos, но миниатюры
+// в кэше пока нет) — тоже пропускаем, а не рисуем пустой каркас: свой ли,
+// докачавшийся ли — событие/свидание просто не покажет эту миниатюру, пока
+// она реально не готова. Как только докачается — warmThumbCache() дёрнет
+// renderCalendar()/renderDayPanel(), и thumbRefs пропустит её уже как готовую
+// (никакой отдельной дозаливки не нужно — миниатюра появится сразу с src).
+// Легаси data-URL — готовы всегда, показываем напрямую.
 function thumbRefs(refs) {
-  return refs.filter(ref => photoByRef(ref) || (typeof ref === 'string' && ref.startsWith('data:')));
+  return refs.filter(ref => {
+    if (typeof ref === 'string' && ref.startsWith('data:')) return true;
+    const p = photoByRef(ref);
+    return !!(p && photoSrc(p));
+  });
 }
-// Каркас + асинхронная дозаливка src — как у остальной галереи (70-photos.js,
-// 30-home.js, 35-memory.js): пока блоб фото ещё качается из облака,
-// photoSrc(p) пуст — раньше тут безусловно ставился src="" (битая рамка,
-// которая никогда не чинилась, т.к. hydratePhotoImgs здесь не вызывался).
-// Теперь — data-photo-src, дозаливается на ближайшем renderDayPanel().
 function evThumbHTML(ref, altText) {
   const p = photoByRef(ref);
-  if (!p) { // сиротский data-URL из легаси-события — всегда валиден сразу
-    return `<img class="ev-thumb" src="${esc(ref)}" alt="${esc(altText)}" data-photo="${esc(ref)}" loading="lazy">`;
-  }
-  const url = photoSrc(p);
-  return `<img class="ev-thumb"${url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"'} alt="${esc(altText)}" data-photo="${esc(p.id)}" loading="lazy">`;
+  const src = p ? photoSrc(p) : ref; // сиротский data-URL из легаси-события показываем напрямую
+  const attr = p ? p.id : ref;
+  return `<img class="ev-thumb" src="${esc(src)}" alt="${esc(altText)}" data-photo="${esc(attr)}" loading="lazy">`;
 }
 function evThumbs(e) {
   if (!(e.photos && e.photos.length)) return '';
