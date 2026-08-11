@@ -508,7 +508,13 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .lb-close:hover{background:#e11d48;color:#fff;transform:scale(1.08)}
 
 /* ===== Летающие сердечки ===== */
-.heart{position:fixed;bottom:-50px;z-index:0;pointer-events:none;animation:floatUp linear forwards;opacity:var(--heart-opacity)}
+/* z-index:-1 — как у .aurora: декор заднего плана, а не поверх контента.
+   Раньше был z-index:0, тот же уровень, что у обычных (непозиционированных)
+   элементов вроде .hero-card — при равном z-index позже добавленный в DOM
+   выигрывает отрисовку, а сердечки добавляются в body последними, поэтому
+   летели прямо поверх текста карточки (особенно заметно на узких экранах,
+   где текст «с 30 марта 2026» занимает больше относительной ширины). */
+.heart{position:fixed;bottom:-50px;z-index:-1;pointer-events:none;animation:floatUp linear forwards;opacity:var(--heart-opacity)}
 @keyframes floatUp{to{transform:translateY(-115vh) rotate(30deg);opacity:0}}
 
 /* ===== Конфетти ===== */
