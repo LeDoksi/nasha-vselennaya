@@ -172,8 +172,16 @@ function isLocked() { return authLocked; }
 const SESSION_KEY = 'universe_session';
 async function saveSessionKey() {
   if (!masterKey || !currentUser) return;
+  const keyAtStart = masterKey; // ловим гонку с lock() ниже
   try {
     const kraw = new Uint8Array(await crypto.subtle.exportKey('raw', masterKey));
+    // unlockApp() зовёт эту функцию не дожидаясь (fire-and-forget) — пока шёл
+    // асинхронный экспорт ключа, могли успеть lock() (masterKey стал null)
+    // или новый unlock() другим ключом. Пишем в sessionStorage только если
+    // это всё ещё та же сессия — иначе допишем протухшие/чужие данные поверх
+    // уже почищенного clearSessionKey() состояния (гонка, ловится не всегда:
+    // на быстрой машине экспорт обычно успевает раньше, а на CI — нет).
+    if (masterKey !== keyAtStart || !currentUser) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({ who: currentUser, k: b64(kraw) }));
   } catch (e) { console.warn('Не удалось сохранить сессию', e); }
 }
