@@ -32,8 +32,8 @@ let FIREBASE_CONFIG = {
    Ключи подставляются из GitHub Secrets при деплое (window.YANDEX_S3_KEY, window.YANDEX_S3_SECRET). */
 let YANDEX_CLOUD_CONFIG = {
   bucket:  'nasha-vselennaya',       // имя бакета (без https://)
-  key:     window.YANDEX_S3_KEY || '',    // static access key (SA) — из GitHub Secrets
-  secret:  window.YANDEX_S3_SECRET || '', // secret key — из GitHub Secrets
+  key:     (typeof window !== 'undefined' && window.YANDEX_S3_KEY) || '',    // static access key (SA) — из GitHub Secrets
+  secret:  (typeof window !== 'undefined' && window.YANDEX_S3_SECRET) || '', // secret key — из GitHub Secrets
   region:  'ru-central1'             // регион Yandex Cloud
 };
 
