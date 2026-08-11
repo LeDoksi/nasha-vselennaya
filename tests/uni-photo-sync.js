@@ -1,5 +1,7 @@
 /* Юнит-тест синхронизации фото: мок Firebase RTDB (вход/сейф) + мок fetch для
-   Yandex Object Storage (публичный бакет, без ключей — см. src/95-sync.js).
+   Yandex Object Storage (чтение — анонимно напрямую в бакет; запись — через
+   мок Cloud Function photo-sign, которая отдаёт «подписанную» ссылку — см.
+   src/95-sync.js и functions/photo-sign/).
    Проверяет: выгрузку оригинала/показ-версии/миниатюры в облако, скачивание
    на «другом устройстве», докачку фото партнёра, бэкфилл старых фото без
    оригинала, очистку удалённых фото из облака и локального стора,
@@ -45,31 +47,45 @@ const firebase = {
   }
 };
 
-// ===== Мок fetch для Yandex Object Storage (публичный бакет photos/*, без ключей) =====
+// ===== Мок fetch для Yandex Object Storage + мок Cloud Function photo-sign =====
 // mockBucket: '/photos/{part}/{id}' → текст тела (шифртекст-обёртка JSON).
 const mockBucket = {};
+const SIGN_FN_URL = 'https://functions.yandexcloud.net/mock-photo-sign';
+const signCalls = []; // для проверки, что запись реально идёт через функцию
 function xmlList(prefix) {
   const keys = Object.keys(mockBucket).filter(k => k.slice(1).startsWith(prefix));
   return '<ListBucketResult>' + keys.map(k => '<Contents><Key>' + k.slice(1) + '</Key></Contents>').join('') + '</ListBucketResult>';
 }
 async function fetchMock(url, opts) {
   const method = (opts && opts.method) || 'GET';
-  const path = String(url).replace(/^https?:\/\/[^/]+/, '');
-  if (path.indexOf('/?list-type=2') === 0) {
-    const m = /prefix=([^&]+)/.exec(path);
+  const full = String(url).replace(/^https?:\/\/[^/]+/, '');
+  const qIdx = full.indexOf('?');
+  const pathname = qIdx === -1 ? full : full.slice(0, qIdx);
+  if (String(url).indexOf(SIGN_FN_URL) === 0) {
+    // Мок функции подписи: не проверяет секрет (его тут и нет), просто
+    // возвращает «подписанную» ссылку на тот же мок-бакет — signature фиктивна,
+    // мок PUT/DELETE её не проверяет (проверка подписи — забота реального S3,
+    // а не нашего кода; здесь тестируем контракт «функция → presigned URL → PUT»).
+    const qs = new URLSearchParams(full.slice(qIdx + 1));
+    signCalls.push({ method: qs.get('method'), part: qs.get('part'), id: qs.get('id') });
+    const target = 'https://nasha-vselennaya.storage.yandexcloud.net/photos/' + qs.get('part') + '/' + qs.get('id') + '?X-Amz-Signature=mock';
+    return { ok: true, status: 200, json: () => Promise.resolve({ url: target }) };
+  }
+  if (pathname === '/' && full.indexOf('list-type=2') !== -1) {
+    const m = /prefix=([^&]+)/.exec(full);
     const prefix = m ? decodeURIComponent(m[1]) : '';
     return { ok: true, status: 200, text: () => Promise.resolve(xmlList(prefix)) };
   }
   if (method === 'PUT') {
-    mockBucket[path] = opts.body;
+    mockBucket[pathname] = opts.body;
     return { ok: true, status: 200, text: () => Promise.resolve(''), blob: () => Promise.resolve(new Blob([opts.body])) };
   }
   if (method === 'DELETE') {
-    delete mockBucket[path];
+    delete mockBucket[pathname];
     return { ok: true, status: 204, text: () => Promise.resolve('') };
   }
   // GET один объект
-  const body = mockBucket[path];
+  const body = mockBucket[pathname];
   if (body === undefined) return { ok: false, status: 404, text: () => Promise.resolve('NoSuchKey') };
   return { ok: true, status: 200, text: () => Promise.resolve(body), blob: () => Promise.resolve(new Blob([body], { type: 'application/json' })) };
 }
@@ -118,6 +134,7 @@ function __TEST__(s){
   Object.defineProperty(s, 'syncStorage', { get: () => syncStorage, set: v => { syncStorage = v; }, configurable: true });
   Object.defineProperty(s, 'photoSyncing', { get: () => photoSyncing, set: v => { photoSyncing = v; }, configurable: true });
   Object.defineProperty(s, 'FIREBASE_CONFIG', { get: () => FIREBASE_CONFIG, set: v => { FIREBASE_CONFIG = v; }, configurable: true });
+  Object.defineProperty(s, 'YANDEX_CLOUD_CONFIG', { get: () => YANDEX_CLOUD_CONFIG, set: v => { YANDEX_CLOUD_CONFIG = v; }, configurable: true });
   s.createVault = createVault; s.lock = lock; s.save = save; s.loadVault = loadVault;
   s.initSync = initSync; s.stopSync = stopSync;
   s.syncPhotos = syncPhotos; s.schedulePhotoSync = schedulePhotoSync; s.listCloudPhotos = listCloudPhotos;
@@ -137,6 +154,7 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
 (async () => {
   // 1. config + сейф + инициализация (Yandex Object Storage подключился)
   w('(s)=>{s.FIREBASE_CONFIG = { projectId: "mock" }; return 1;}');
+  w(`(s)=>{s.YANDEX_CLOUD_CONFIG = { bucket: "nasha-vselennaya", region: "ru-central1", signFnUrl: "${SIGN_FN_URL}" }; return 1;}`);
   await w('(s)=>s.createVault("gosha","123456")');
   await w('(s)=>s.initSync()');
   assert(w('(s)=>s.syncReady') === true, 'syncReady=true с mock-firebase');
@@ -152,6 +170,8 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   assert(!!mockBucket['/photos/thumb/pA'], 'миниатюра ушла в облако');
   assert(!String(mockBucket['/photos/orig/pA'] || '').includes('ORIG-A') && !String(mockBucket['/photos/full/pA'] || '').includes('FULL-A'),
     'в облаке лежит шифртекст, а не открытое фото (zero-knowledge)');
+  assert(signCalls.some(c => c.method === 'PUT' && c.part === 'orig' && c.id === 'pA'),
+    'запись оригинала запросила подписанную ссылку у функции photo-sign (не голый PUT в бакет)');
 
   // 3. «Второе устройство»: стор пуст, облако уже знает фото — скачиваем всё назад
   await w('(s)=>{s.photoStore.clear(); return 1;}');

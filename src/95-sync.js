@@ -27,18 +27,18 @@ let FIREBASE_CONFIG = {
 }; // ← config из Firebase Console (фаза B1). let — чтобы тесты могли подставить мок.
 
 /* Фото-облако: Yandex Object Storage вместо Firebase Storage (Storage — только
-   на платном Blaze-плане, из России не оплатить). Ключей доступа НЕТ и не
-   должно быть: сайт статический, отдаётся браузеру любого посетителя, поэтому
-   секретный ключ, вписанный в JS/HTML, сразу становится публичным («Просмотр
-   кода страницы»). Вместо подписи запросов бакет настроен как публичный
-   только для префикса photos/ (README → «Настройка бакета Yandex Object
-   Storage») — запросы идут обычным fetch без Authorization. Конфиденциальность
-   держится не на секретности доступа, а на том, что в бакете лежит только
-   AES-GCM шифртекст — тот же принцип, что и у Firebase RTDB (auth != null,
-   доступно любому анониму). */
+   на платном Blaze-плане, из России не оплатить). Чтение — анонимное и без
+   ключей (бакет публичен для префикса photos/, README → «Настройка бакета
+   Yandex Object Storage»). Запись — через Cloud Function `photo-sign`
+   (functions/photo-sign/): Yandex Object Storage не даёт анонимно писать в
+   бакет, даже если политика это разрешает, поэтому секретный ключ живёт
+   только в переменных окружения функции, а клиент получает у неё короткоживущую
+   подписанную ссылку и сам грузит/удаляет файл по ней. `signFnUrl` — не
+   секрет, просто публичный адрес функции. */
 let YANDEX_CLOUD_CONFIG = {
-  bucket: 'nasha-vselennaya', // имя бакета (не секрет)
-  region: 'ru-central1'       // регион Yandex Cloud
+  bucket: 'nasha-vselennaya',    // имя бакета (не секрет)
+  region: 'ru-central1',         // регион Yandex Cloud
+  signFnUrl: 'https://functions.yandexcloud.net/d4empeq0dp76dkug5c9r' // Cloud Function photo-sign (не секрет)
 };
 
 const SYNC_KEY = 'universe_syncTs';  // последний известный syncTs (метаданные, не секрет)
@@ -319,15 +319,18 @@ let photoSyncTimer = null;   // debounce после операций с фото
 let photoSyncing = false;    // защита от параллельных сверок
 
 
-/* ===== Адаптер для Yandex Object Storage (публичный бакет, без ключей) =====
-   Бакет настроен на анонимный доступ ТОЛЬКО к префиксу photos/ (см. README,
-   «Настройка бакета Yandex Object Storage»): GetObject/PutObject/DeleteObject/
-   ListBucket для principal "*", ограничено условием s3:prefix=photos/*.
-   Никакой подписи запросов не требуется — как и с общим `vaults/shared` в
-   Firebase RTDB (auth != null, доступно любому анониму), безопасность держится
-   на том, что в бакете лежит только AES-GCM шифртекст, а не на секретности
-   доступа. Пути: /photos/{part}/{id}. Интерфейс совместим с firebase.storage():
-   ref(path).put/getBlob/delete, ref(folder).listAll(). */
+/* ===== Адаптер для Yandex Object Storage =====
+   Чтение (GetObject/ListBucket) — анонимно и напрямую в бакет: политика
+   бакета разрешает это для префикса photos/ (см. README). Yandex Object
+   Storage НЕ поддерживает анонимную запись (PutObject/DeleteObject), даже
+   если политика формально её разрешает — на практике сервер всё равно
+   отвечает 403 (проверено). Поэтому запись идёт в два шага:
+   1) короткий GET на Cloud Function `photo-sign` (см. functions/photo-sign/) —
+      она держит секретный ключ и отдаёт подписанную (presigned) ссылку на
+      PUT/DELETE с временем жизни 60 секунд;
+   2) сам PUT/DELETE клиент делает напрямую в бакет по этой ссылке — тело
+      файла через функцию не идёт. YANDEX_CLOUD_CONFIG.signFnUrl — не секрет,
+      просто публичный адрес функции (сам секрет — только в её env). */
 
 function makeCloudStorage() {
   const cfg = YANDEX_CLOUD_CONFIG;
@@ -335,15 +338,24 @@ function makeCloudStorage() {
   const endpoint = 'https://' + cfg.bucket + '.storage.yandexcloud.net';
 
   async function s3Fetch(method, path, body) {
-    const opts = { method };
-    if (body !== undefined && body !== null) {
-      opts.body = body;
-      opts.headers = { 'Content-Type': 'application/json' };
-    }
-    const res = await fetch(endpoint + path, opts);
+    const res = await fetch(endpoint + path, { method, body: body ?? undefined });
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
       throw new Error('S3 ' + res.status + ' ' + path + (txt ? ': ' + txt.slice(0, 200) : ''));
+    }
+    return res;
+  }
+
+  async function presignedFetch(method, part, id, body) {
+    if (!cfg.signFnUrl) throw new Error('YANDEX_CLOUD_CONFIG.signFnUrl не задан — запись фото невозможна');
+    const signRes = await fetch(cfg.signFnUrl + '?method=' + method + '&part=' + encodeURIComponent(part) + '&id=' + encodeURIComponent(id));
+    if (!signRes.ok) throw new Error('sign-fn ' + signRes.status);
+    const { url } = await signRes.json();
+    if (!url) throw new Error('sign-fn: пустая ссылка');
+    const res = await fetch(url, { method, body: body ?? undefined });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error('S3 ' + res.status + ' photos/' + part + '/' + id + (txt ? ': ' + txt.slice(0, 200) : ''));
     }
     return res;
   }
@@ -361,7 +373,7 @@ function makeCloudStorage() {
           fullPath: seg.join('/'),
           async put(blob) {
             const txt = (typeof blob === 'string') ? blob : await blob.text();
-            await s3Fetch('PUT', p, txt);
+            await presignedFetch('PUT', part, id, txt);
           },
           async getBlob() {
             try {
@@ -373,7 +385,7 @@ function makeCloudStorage() {
             }
           },
           async delete() {
-            try { await s3Fetch('DELETE', p, null); } catch (e) { if (!/404/.test(String(e))) throw e; }
+            try { await presignedFetch('DELETE', part, id, null); } catch (e) { if (!/404/.test(String(e))) throw e; }
           }
         };
       }
