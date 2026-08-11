@@ -32,6 +32,14 @@ const store = {
     try { localStorage.removeItem(key); } catch (e) { /* не критично */ }
   }
 };
+// Единое подтверждение для необратимых удалений (фото/заметка/свидание/
+// событие/хотелка) — раньше список/лейбл/сброс данных подтверждались, а
+// фото и заметки удалялись сразу по клику без единого «точно?». Для
+// сентиментального контента (памятные фото, заметки друг другу) это был
+// реальный риск случайной потери от одного лишнего тапа.
+function confirmDelete(msg) {
+  return confirm(msg || 'Удалить? Это не отменить.');
+}
 let toastTimer = null;
 function notify(msg, isError) {
   const t = $('#appToast');
@@ -137,6 +145,17 @@ function migrateDB(d) {
     if (Array.isArray(d.todos) && d.todos.length) legacy.push({ id: uid(), name: '✅ Дела', items: d.todos });
     d.lists = legacy.concat(d.lists);
     d.shopping = []; d.todos = [];
+  }
+  // Фикс мёртвой логики «оба ответили да»: раньше responses[from] у создателя
+  // свидания никогда не выставлялся в 'yes' (UI не даёт создателю отвечать —
+  // он и так «уже согласен»), поэтому bothYes/celebrate() требовали 'yes' от
+  // обоих буквально и не срабатывали никогда. Для уже существующих свиданий
+  // с этим багом — подставляем 'yes' создателю задним числом.
+  for (const dt of (d.dates || [])) {
+    if (dt.from === 'gosha' || dt.from === 'dasha') {
+      if (!dt.responses) dt.responses = { gosha: null, dasha: null };
+      if (dt.responses[dt.from] == null) dt.responses[dt.from] = 'yes';
+    }
   }
   d.version = DB_VERSION;
   return d;

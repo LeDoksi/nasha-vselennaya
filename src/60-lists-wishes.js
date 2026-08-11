@@ -213,9 +213,13 @@ function wishToggleHTML(w) {
 }
 function wishCard(w) {
   const doneBy = w.doneBy ? (w.doneBy === 'gosha' ? 'Гошей' : 'Дашей') : '';
+  // Фото хотелки — в photoStore под своим id (не в общей галерее, см. lbPhoto()
+  // в 85-lightbox.js). Каркас + асинхронная дозаливка src — как у остальной
+  // галереи, кэш миниатюр мог ещё не прогреться.
+  const wPhotoSrc = w.photoId ? photoSrc({ id: w.photoId }) : '';
   return `<div class="wish${w.done ? ' done' : ''}">
-    ${w.data
-      ? `<img class="wish-img" src="${esc(w.data)}" alt="${esc(w.text)}" data-photo="${esc(w.data)}" loading="lazy">`
+    ${w.photoId
+      ? `<img class="wish-img"${wPhotoSrc ? ' src="' + esc(wPhotoSrc) + '"' : ' data-photo-src="' + esc(w.photoId) + '"'} alt="${esc(w.text)}" data-photo="${esc(w.photoId)}" loading="lazy">`
       : `<div class="wish-img" style="display:grid;place-items:center;font-size:34px">💝</div>`}
     <div class="wish-body">
       <div class="wish-title">${esc(w.text)}</div>
@@ -239,6 +243,7 @@ function renderWishlist() {
   grid.innerHTML =
     sec('gosha', 'Гоши', '👦', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨') +
     sec('dasha', 'Даши', '👧', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨');
+  if (typeof hydratePhotoImgs === 'function') hydratePhotoImgs(grid);
 }
 function openWishModal() {
   wishPhotoData = null;
@@ -257,15 +262,33 @@ $('#wishPhoto').addEventListener('change', async e => {
   catch (err) { $('#wishPhotoName').textContent = 'не вышло :('; }
 });
 // Хотелка всегда в список вошедшего — выбора «для кого» нет.
-function saveWishFromModal() {
+// Фото хотелки — в photoStore (IndexedDB), как и остальные фото, а не сырым
+// base64 в самом db (зашифрованный сейф в localStorage, лимит ~5 МБ — при
+// нескольких хотелках с фото сохранение могло молча не пройти). В db.photos
+// (общую галерею) НЕ попадает — хотелки показывают своё фото только у себя.
+async function saveWishFromModal() {
   const text = $('#wishText').value.trim();
   if (!text) { alert('Напиши, что хочешь 💜'); return; }
-  db.wishlist.unshift({
+  const wish = {
     id: uid(), text,
     link: $('#wishLink').value.trim() || '',
-    data: wishPhotoData, owner: getUser(), done: false, ts: Date.now()
-  });
+    owner: getUser(), done: false, ts: Date.now()
+  };
+  if (wishPhotoData && photoStore) {
+    try {
+      const blob = dataUrlToBlob(wishPhotoData);
+      if (blob) {
+        const photoId = uid();
+        let thumb = null;
+        try { thumb = await makeThumbBlob(wishPhotoData, 256); } catch (e) {}
+        await photoStore.put(photoId, blob, thumb, { type: blob.type || 'image/webp', title: text, size: blob.size });
+        wish.photoId = photoId;
+      }
+    } catch (e) { console.warn('Не удалось сохранить фото хотелки', e); }
+  }
+  db.wishlist.unshift(wish);
   save(); $('#wishOverlay').hidden = true; renderWishlist();
+  if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
 }
 $('#wishSave').addEventListener('click', saveWishFromModal);
 
@@ -292,7 +315,10 @@ document.addEventListener('click', e => {
   if (day) { selectedDate = day.dataset.day; renderCalendar(); return; }
 
   const delEv = e.target.closest('[data-del-event]');
-  if (delEv) { db.events = db.events.filter(x => x.id !== delEv.dataset.delEvent); save(); renderCalendar(); renderHome(); return; }
+  if (delEv) {
+    if (!confirmDelete('Удалить событие? Это не отменить.')) return;
+    db.events = db.events.filter(x => x.id !== delEv.dataset.delEvent); save(); renderCalendar(); renderHome(); return;
+  }
 
   const editEv = e.target.closest('[data-edit-event]');
   if (editEv) { openEventModal(editEv.dataset.editEvent); return; }
@@ -319,7 +345,10 @@ document.addEventListener('click', e => {
   const doneDate = e.target.closest('[data-done-date]');
   if (doneDate) { toggleDateDone(doneDate.dataset.doneDate); return; }
   const delDate = e.target.closest('[data-del-date]');
-  if (delDate) { db.dates = db.dates.filter(x => x.id !== delDate.dataset.delDate); save(); renderHome(); renderCalendar(); return; }
+  if (delDate) {
+    if (!confirmDelete('Удалить свидание? Это не отменить.')) return;
+    db.dates = db.dates.filter(x => x.id !== delDate.dataset.delDate); save(); renderHome(); renderCalendar(); return;
+  }
 
   const pinNote = e.target.closest('[data-pin-note]');
   if (pinNote) { togglePinNote(pinNote.dataset.pinNote); return; }
@@ -370,7 +399,10 @@ document.addEventListener('click', e => {
     return;
   }
   const wishDel = e.target.closest('[data-wish-del]');
-  if (wishDel) { db.wishlist = db.wishlist.filter(x => x.id !== wishDel.dataset.wishDel); save(); renderWishlist(); return; }
+  if (wishDel) {
+    if (!confirmDelete('Удалить хотелку? Это не отменить.')) return;
+    db.wishlist = db.wishlist.filter(x => x.id !== wishDel.dataset.wishDel); save(); renderWishlist(); return;
+  }
 
   const labelOff = e.target.closest('[data-label-off]');
   if (labelOff) { removeLabelFromPhoto(labelOff.dataset.photoOff, labelOff.dataset.labelOff); return; }

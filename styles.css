@@ -99,6 +99,8 @@ body{
   display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
 }
 .logo{font-size:22px;font-weight:900;letter-spacing:.3px;padding:14px 0}
+.header-actions{display:flex;align-items:center;gap:8px;padding:8px 0}
+.theme-toggle{padding:9px 14px}
 .nav{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0}
 .nav-btn{
   border:1px solid var(--border);background:#fff;color:var(--muted);
@@ -623,6 +625,19 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
   .history-photos{min-width:190px;height:110px} /* коллаж компактнее, но остаётся */
   .history-photo{width:70px !important;height:70px !important}
   .hp-badge{font-size:10px;padding:2px 7px;top:auto;bottom:4%}
+  /* Было minmax(180px,1fr) — на типичном телефоне (~350px после отступов main)
+     помещалась ровно 1 колонка: фото занимало почти весь экран, листать
+     сотни фото по одному неудобно. Три колонки — привычная плотность
+     фотолент (Instagram/Google Photos). */
+  .photos-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px}
+  /* Шапка на мобильном: лого + кнопки темы/пользователя не помещались в одну
+     строку и переносились на вторую — sticky-шапка съедала заметную часть
+     экрана. Уменьшаем и лого, и правую группу, чтобы гарантированно влезали
+     в одну строку на типичных 360-430px. */
+  .header-inner{padding:0 14px;gap:8px}
+  .logo{font-size:16px;padding:10px 0;white-space:nowrap}
+  .theme-toggle{padding:7px 10px;font-size:14px}
+  .user-chip{padding:7px 11px;font-size:13px}
 }
 /* Мобильная навигация: шапка-пилюли уступает закреплённой нижней панели */
 @media(max-width:820px){
@@ -635,9 +650,11 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
   }
   .bottom-nav-btn{
     flex:1;min-width:0;background:none;border:none;color:var(--muted);
-    font-size:11px;font-weight:800;padding:7px 2px 5px;border-radius:12px;cursor:pointer;
+    font-size:20px;line-height:1;font-weight:800;padding:9px 2px;border-radius:12px;cursor:pointer;
     transition:background .2s,color .2s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   }
+  /* «⋯ Ещё» — единственная кнопка с текстом, не иконкой (см. buildBottomNav) — своя разметка */
+  .bottom-nav-more{font-size:11px;padding:7px 2px 5px}
   .bottom-nav-btn:hover{background:var(--pink2);color:var(--violet)}
   .bottom-nav-btn.active{background:var(--grad);color:#fff}
   .bottom-nav-btn.active:hover{background:var(--grad);color:#fff}

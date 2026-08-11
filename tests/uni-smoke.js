@@ -25,7 +25,7 @@ const sandbox = {
     getItem(k) { return sandbox._ss[k] ?? null; },
     setItem(k, v) { sandbox._ss[k] = String(v); }
   },
-  alert() {}, confirm() { return true; },
+  alert() {}, confirm() { return sandbox._confirmResult !== false; }, _confirmResult: true,
   URL: { createObjectURL() { return 'blob:x'; }, revokeObjectURL() {} },
   FileReader: function () { this.result = null; this.readAsDataURL = (f) => { this.result = 'data:image/jpeg;base64,AA=='; if (this.onload) this.onload(); }; },
   Blob: function (parts, opts) {
@@ -88,6 +88,7 @@ function __TEST__(s){
   Object.defineProperty(s, 'currentLabel', { get: () => currentLabel, set: v => { currentLabel = v; }, configurable: true });
   Object.defineProperty(s, 'eventFilter', { get: () => eventFilter, set: v => { eventFilter = v; }, configurable: true });
   Object.defineProperty(s, 'evPhotoData', { get: () => evPhotoData, set: v => { evPhotoData = v; }, configurable: true });
+  Object.defineProperty(s, 'wishPhotoData', { get: () => wishPhotoData, set: v => { wishPhotoData = v; }, configurable: true });
   Object.defineProperty(s, 'dpInput', { get: () => dpInput, set: v => { dpInput = v; }, configurable: true });
   Object.defineProperty(s, 'dpM', { get: () => dpM, set: v => { dpM = v; }, configurable: true });
   Object.defineProperty(s, 'dpY', { get: () => dpY, set: v => { dpY = v; }, configurable: true });
@@ -238,6 +239,16 @@ w('(s)=>{s.setUser("dasha");s.openDateModal();}');
 registry['#dtDate'].value = '2026-08-15';
 w('(s)=>s.saveDateFromModal()');
 assert(w('(s)=>s.db.dates[s.db.dates.length-1].from') === 'dasha', 'под Дашей свидание тоже только от её имени');
+// Фикс мёртвой логики «оба ответили да»: раньше responses[from] у создателя
+// никогда не становился 'yes' (создатель и так «уже согласен» по смыслу UI,
+// но поле оставалось null навсегда) — bothYes/celebrate() требовали 'yes' от
+// обоих буквально и не срабатывали НИ ПРИ КАКОМ сценарии использования.
+const lastDateId = w('(s)=>s.db.dates[s.db.dates.length-1].id');
+assert(w(`(s)=>s.db.dates.find(d=>d.id==="${lastDateId}").responses.dasha`) === 'yes',
+  'создатель свидания (Даша) сразу отмечен согласной при создании');
+w(`(s)=>{const d=s.db.dates.find(x=>x.id==="${lastDateId}"); d.responses.gosha='yes'; s.renderHome(); return 1;}`);
+assert(registry['#dates'].innerHTML.includes('both-yes'),
+  'партнёр тоже ответил «да» → баннер «Мы идём на свидание!» показывается (раньше не срабатывало никогда)');
 // Хотелка всегда в список вошедшего.
 w('(s)=>{s.setUser("gosha");s.openWishModal();}');
 registry['#wishText'].value = 'Новая мечта';
@@ -248,6 +259,20 @@ registry['#wishText'].value = 'Мечта Даши';
 w('(s)=>s.saveWishFromModal()');
 assert(w('(s)=>s.db.wishlist[0].owner') === 'dasha', 'хотелка Даши попадает в её список');
 w('(s)=>s.setUser("gosha")');
+
+// --- Фото хотелки: photoStore (IndexedDB), не сырой base64 в самом db ---
+// Раньше w.data лежал прямо в зашифрованном сейфе (localStorage, лимит ~5 МБ) —
+// при нескольких хотелках с фото сохранение могло молча не пройти. Теперь фото
+// идёт через тот же photoStore, что и остальная галерея, но НЕ добавляется в
+// db.photos (осознанно — хотелки не должны засорять «Наши моменты»).
+w('(s)=>{s.openWishModal(); s.wishPhotoData = "data:image/webp;base64,V0VCUA=="; return 1;}');
+registry['#wishText'].value = 'Хотелка с фото';
+await w('(s)=>s.saveWishFromModal()');
+const wishWithPhoto = w('(s)=>s.db.wishlist[0]');
+assert(!!wishWithPhoto.photoId, 'у хотелки с фото есть photoId');
+assert(wishWithPhoto.data === undefined, 'сырого base64 в самой хотелке больше нет');
+assert(await w(`(s)=>s.photoStore.getMeta("${wishWithPhoto.photoId}")`) !== null, 'фото хотелки реально лежит в photoStore');
+assert(!w(`(s)=>s.db.photos.some(p=>p.id==="${wishWithPhoto.photoId}")`), 'фото хотелки НЕ попадает в общую галерею db.photos');
 
 // --- Коллаж «Наша история»: 2-3 случайных фото с асимметрией в блоке прогресса ---
 w('(s)=>{s.db.photos=[{id:"p1",title:"Лето",data:"data:image/jpeg;base64,AA==",pinned:false,ts:1},{id:"p2",title:"Парк",data:"data:image/jpeg;base64,BB==",pinned:false,ts:2}];s.renderProgressRing();return 1;}');
@@ -301,6 +326,13 @@ assert(registry['#dayPanel'].innerHTML.includes('Свидания'), 'date in da
 
 // --- Редактирование события календаря ---
 w('(s)=>{s.db.events.push({id:"e1",title:"Годовщина",date:s.iso(2026,8,1),emoji:"💜",repeat:true});}');
+// Повторяющееся событие не должно светиться в годах ДО его создания — раньше
+// eventsOn() сравнивал только месяц/день, год вообще не проверялся, и
+// годовщина 2026 года подсвечивалась бы и в календаре 2020-го, до знакомства.
+assert(!w('(s)=>s.eventsOn(s.iso(2020,8,1),8,1).some(e=>e.id==="e1")'),
+  'повторяющееся событие НЕ показывается в году до его создания');
+assert(w('(s)=>s.eventsOn(s.iso(2027,8,1),8,1).some(e=>e.id==="e1")'),
+  'повторяющееся событие показывается в следующем году после создания');
 w('(s)=>s.openEventModal("e1")');
 assert(registry['#evModalTitle'].textContent === '✏️ Изменить дату', 'заголовок модалки для правки');
 assert(registry['#evTitle'].value === 'Годовщина', 'поля модалки заполнены данными события');
@@ -515,8 +547,13 @@ assert(registry['#notesGrid'].innerHTML.includes('note-editor') === false, 'по
 // Удалять и закреплять может любой
 w('(s)=>s.togglePinNote("n1")');
 assert(w('(s)=>s.db.notes.find(x=>x.id==="n1").pinned') === true, 'закрепить заметку может любой');
+// Удаление — с подтверждением (confirm); отказ ничего не удаляет.
+w('(s)=>{s._confirmResult = false; return 1;}');
 w('(s)=>s.deleteNote("n2")');
-assert(!w('(s)=>s.db.notes.some(x=>x.id==="n2")'), 'удалить заметку может любой');
+assert(w('(s)=>s.db.notes.some(x=>x.id==="n2")'), 'отказ от подтверждения не удаляет заметку');
+w('(s)=>{s._confirmResult = true; return 1;}');
+w('(s)=>s.deleteNote("n2")');
+assert(!w('(s)=>s.db.notes.some(x=>x.id==="n2")'), 'удалить заметку может любой (после подтверждения)');
 
 
 
@@ -964,9 +1001,11 @@ w('(s)=>{s.lbZoomToggle(); return 1;}');
 assert(w('(s)=>s.lightboxZoom') === 1, 'повторный зум возвращает к 1');
 w('(s)=>{s.lbZoomTo(8); return 1;}');
 assert(w('(s)=>s.lightboxZoom') === 4, 'зум ограничен максимумом 4');
-// data-URL (хотелки) показывается напрямую
+// Сырой data-URL (легаси/непроиндексированные ссылки) показывается напрямую,
+// без похода в photoStore — хотелки теперь фото так не передают (см. ниже),
+// но общая способность лайтбокса нужна для остальных легаси-путей.
 w('(s)=>{s.openLightbox(["data:image/jpeg;base64,AB=="], 0); return 1;}');
-assert(registry['#lightboxImg'].src === 'data:image/jpeg;base64,AB==', 'светбокс показывает data-URL напрямую (хотелки)');
+assert(registry['#lightboxImg'].src === 'data:image/jpeg;base64,AB==', 'светбокс показывает сырой data-URL напрямую');
 assert(registry['#lbCounter'].textContent === '', 'одно фото — счётчик пуст');
 assert(registry['#lbPrev'].style.display === 'none' && registry['#lbNext'].style.display === 'none', 'одно фото — стрелки скрыты');
 // фото из галереи: миниатюра из кэша ставится сразу

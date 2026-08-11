@@ -20,7 +20,9 @@ function eventsOn(dateStr, m, d) {
   return db.events.filter(ev => {
     if (ev.repeat) {
       const [ey, em, ed] = ev.date.split('-').map(Number);
-      return (em - 1 === m && ed === d);
+      // Повтор — только начиная с года создания события: иначе годовщина,
+      // заведённая в 2026-м, подсвечивалась бы и в календаре 2020 года.
+      return (em - 1 === m && ed === d && dateStr >= ev.date);
     }
     // длительное событие: endDate >= date — попадает на каждый день промежутка
     if (ev.endDate && ev.endDate >= ev.date) return dateStr >= ev.date && dateStr <= ev.endDate;

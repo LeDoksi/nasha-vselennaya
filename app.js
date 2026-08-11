@@ -32,6 +32,14 @@ const store = {
     try { localStorage.removeItem(key); } catch (e) { /* не критично */ }
   }
 };
+// Единое подтверждение для необратимых удалений (фото/заметка/свидание/
+// событие/хотелка) — раньше список/лейбл/сброс данных подтверждались, а
+// фото и заметки удалялись сразу по клику без единого «точно?». Для
+// сентиментального контента (памятные фото, заметки друг другу) это был
+// реальный риск случайной потери от одного лишнего тапа.
+function confirmDelete(msg) {
+  return confirm(msg || 'Удалить? Это не отменить.');
+}
 let toastTimer = null;
 function notify(msg, isError) {
   const t = $('#appToast');
@@ -137,6 +145,17 @@ function migrateDB(d) {
     if (Array.isArray(d.todos) && d.todos.length) legacy.push({ id: uid(), name: '✅ Дела', items: d.todos });
     d.lists = legacy.concat(d.lists);
     d.shopping = []; d.todos = [];
+  }
+  // Фикс мёртвой логики «оба ответили да»: раньше responses[from] у создателя
+  // свидания никогда не выставлялся в 'yes' (UI не даёт создателю отвечать —
+  // он и так «уже согласен»), поэтому bothYes/celebrate() требовали 'yes' от
+  // обоих буквально и не срабатывали никогда. Для уже существующих свиданий
+  // с этим багом — подставляем 'yes' создателю задним числом.
+  for (const dt of (d.dates || [])) {
+    if (dt.from === 'gosha' || dt.from === 'dasha') {
+      if (!dt.responses) dt.responses = { gosha: null, dasha: null };
+      if (dt.responses[dt.from] == null) dt.responses[dt.from] = 'yes';
+    }
   }
   d.version = DB_VERSION;
   return d;
@@ -757,6 +776,28 @@ async function migratePhotosToStore(store, db) {
       ev.photos = ev.photos.map(ref => dataToId.get(ref) || ref);
     }
   }
+  // Фото хотелок: раньше жили как data-URL прямо в db.wishlist (зашифрованный
+  // сейф в localStorage, лимит ~5 МБ) — при нескольких хотелках с фото могли
+  // молча не сохраниться при переполнении квоты. Переносим в photoStore, как
+  // остальные фото, но НЕ добавляем в db.photos — хотелки не должны
+  // засорять общую галерею «Фото» (осознанное решение). photoId — свой,
+  // отдельный от id обычных фото; lbPhoto() в 85-lightbox.js умеет находить
+  // фото хотелки по нему как фолбэк.
+  if (Array.isArray(db.wishlist)) {
+    for (const w of db.wishlist) {
+      if (!w.data) continue;
+      const id = w.photoId || uid();
+      const existing = await store.getMeta(id);
+      if (!existing) {
+        const blob = dataUrlToBlob(w.data);
+        if (!blob) continue;
+        await store.put(id, blob, null, { type: blob.type || 'image/webp', title: w.text || '', size: blob.size });
+      }
+      w.photoId = id;
+      delete w.data;
+      moved++;
+    }
+  }
   return moved;
 }
 
@@ -1191,7 +1232,10 @@ async function hydratePhotoImgs(scope) {
   const imgs = [...scope.querySelectorAll('img[data-photo-src]')];
   for (const im of imgs) {
     const id = im.dataset.photoSrc;
-    const p = db.photos.find(x => x.id === id);
+    // Фото хотелок не входят в db.photos (не показываются в общей галерее),
+    // но живут в том же photoStore под своим id — ищем и там.
+    const p = db.photos.find(x => x.id === id) ||
+      (Array.isArray(db.wishlist) && db.wishlist.find(w => w.photoId === id) ? { id } : null);
     const url = p ? await photoUrl(p, true) : '';
     if (url) {
       im.src = url;
@@ -1585,6 +1629,12 @@ let activeView = 'home'; // текущая вкладка — для hash-роу
 // в «Ещё» — Заметки, Хотелки, Песня, Настройки.
 const BOTTOM_PRIMARY = ['home', 'calendar', 'memory', 'lists', 'photos'];
 const BOTTOM_MORE = ['notes', 'wishlist', 'song', 'settings'];
+// Иконки для нижней панели (мобильные): 6 текстовых подписей физически не
+// помещаются в ряд на узком экране без обрезки («Календ…» — было). Значки
+// повторяют эмодзи, уже используемые в самих разделах (📅 у событий,
+// 📸 у фото, 📋 у списков, 🕰 у «Памяти»), а полный текст остаётся для
+// скринридеров через aria-label.
+const BOTTOM_ICON = { home: '🏠', calendar: '📅', memory: '🕰', lists: '📋', photos: '📸' };
 function showView(view) {
   if (!$('#view-' + view)) return; // неизвестная вкладка — не трогаем экран
   activeView = view;
@@ -1651,6 +1701,12 @@ function buildBottomNav() {
     clone.type = 'button';
     clone.className = 'nav-btn bottom-nav-btn' + (view === activeView ? ' active' : '');
     if (!src) clone.dataset.view = view;
+    // Иконка вместо текста (см. BOTTOM_ICON) — полный текст остаётся в
+    // aria-label для скринридеров и как title для десктопных мышиных наведений.
+    const label = clone.textContent.trim();
+    clone.setAttribute('aria-label', label);
+    clone.title = label;
+    clone.textContent = BOTTOM_ICON[view] || label;
     bar.appendChild(clone);
   });
   const moreBtn = document.createElement('button');
@@ -1920,9 +1976,16 @@ $('#addDateBtn').addEventListener('click', openDateModal);
 function saveDateFromModal() {
   const date = $('#dtDate').value;
   if (!date) { alert('Выбери дату свидания 💘'); return; }
+  const from = getUser();
+  // Пригласивший уже согласен по смыслу (UI показывает «💌 позвал/позвала» без
+  // кнопок ответа — canAnswer это и запрещает), поэтому его responses[from]
+  // должен быть 'yes' сразу. Раньше оба поля стартовали null и приглашающий
+  // никогда не мог ответить сам — bothYes/celebrate() требовали 'yes' от
+  // обоих буквально, из-за чего «Мы идём на свидание!» не срабатывало
+  // НИКОГДА ни при каком сценарии использования.
   db.dates.push({
     id: uid(), date, time: $('#dtTime').value,
-    from: getUser(), responses: { gosha: null, dasha: null },
+    from, responses: { gosha: from === 'gosha' ? 'yes' : null, dasha: from === 'dasha' ? 'yes' : null },
     place: $('#dtPlace').value.trim(), note: $('#dtNote').value.trim(),
     emoji: $('#dtEmoji').value.trim() || '💘', done: false
   });
@@ -2343,7 +2406,9 @@ function eventsOn(dateStr, m, d) {
   return db.events.filter(ev => {
     if (ev.repeat) {
       const [ey, em, ed] = ev.date.split('-').map(Number);
-      return (em - 1 === m && ed === d);
+      // Повтор — только начиная с года создания события: иначе годовщина,
+      // заведённая в 2026-м, подсвечивалась бы и в календаре 2020 года.
+      return (em - 1 === m && ed === d && dateStr >= ev.date);
     }
     // длительное событие: endDate >= date — попадает на каждый день промежутка
     if (ev.endDate && ev.endDate >= ev.date) return dateStr >= ev.date && dateStr <= ev.endDate;
@@ -2985,6 +3050,7 @@ function togglePinNote(id) {
   n.pinned = !n.pinned; save(); renderNotes();
 }
 function deleteNote(id) {
+  if (!confirmDelete('Удалить заметку? Это не отменить.')) return;
   db.notes = db.notes.filter(x => x.id !== id);
   if (editingNoteId === id) editingNoteId = null;
   save(); renderNotes();
@@ -3254,9 +3320,13 @@ function wishToggleHTML(w) {
 }
 function wishCard(w) {
   const doneBy = w.doneBy ? (w.doneBy === 'gosha' ? 'Гошей' : 'Дашей') : '';
+  // Фото хотелки — в photoStore под своим id (не в общей галерее, см. lbPhoto()
+  // в 85-lightbox.js). Каркас + асинхронная дозаливка src — как у остальной
+  // галереи, кэш миниатюр мог ещё не прогреться.
+  const wPhotoSrc = w.photoId ? photoSrc({ id: w.photoId }) : '';
   return `<div class="wish${w.done ? ' done' : ''}">
-    ${w.data
-      ? `<img class="wish-img" src="${esc(w.data)}" alt="${esc(w.text)}" data-photo="${esc(w.data)}" loading="lazy">`
+    ${w.photoId
+      ? `<img class="wish-img"${wPhotoSrc ? ' src="' + esc(wPhotoSrc) + '"' : ' data-photo-src="' + esc(w.photoId) + '"'} alt="${esc(w.text)}" data-photo="${esc(w.photoId)}" loading="lazy">`
       : `<div class="wish-img" style="display:grid;place-items:center;font-size:34px">💝</div>`}
     <div class="wish-body">
       <div class="wish-title">${esc(w.text)}</div>
@@ -3280,6 +3350,7 @@ function renderWishlist() {
   grid.innerHTML =
     sec('gosha', 'Гоши', '👦', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨') +
     sec('dasha', 'Даши', '👧', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨');
+  if (typeof hydratePhotoImgs === 'function') hydratePhotoImgs(grid);
 }
 function openWishModal() {
   wishPhotoData = null;
@@ -3298,15 +3369,33 @@ $('#wishPhoto').addEventListener('change', async e => {
   catch (err) { $('#wishPhotoName').textContent = 'не вышло :('; }
 });
 // Хотелка всегда в список вошедшего — выбора «для кого» нет.
-function saveWishFromModal() {
+// Фото хотелки — в photoStore (IndexedDB), как и остальные фото, а не сырым
+// base64 в самом db (зашифрованный сейф в localStorage, лимит ~5 МБ — при
+// нескольких хотелках с фото сохранение могло молча не пройти). В db.photos
+// (общую галерею) НЕ попадает — хотелки показывают своё фото только у себя.
+async function saveWishFromModal() {
   const text = $('#wishText').value.trim();
   if (!text) { alert('Напиши, что хочешь 💜'); return; }
-  db.wishlist.unshift({
+  const wish = {
     id: uid(), text,
     link: $('#wishLink').value.trim() || '',
-    data: wishPhotoData, owner: getUser(), done: false, ts: Date.now()
-  });
+    owner: getUser(), done: false, ts: Date.now()
+  };
+  if (wishPhotoData && photoStore) {
+    try {
+      const blob = dataUrlToBlob(wishPhotoData);
+      if (blob) {
+        const photoId = uid();
+        let thumb = null;
+        try { thumb = await makeThumbBlob(wishPhotoData, 256); } catch (e) {}
+        await photoStore.put(photoId, blob, thumb, { type: blob.type || 'image/webp', title: text, size: blob.size });
+        wish.photoId = photoId;
+      }
+    } catch (e) { console.warn('Не удалось сохранить фото хотелки', e); }
+  }
+  db.wishlist.unshift(wish);
   save(); $('#wishOverlay').hidden = true; renderWishlist();
+  if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
 }
 $('#wishSave').addEventListener('click', saveWishFromModal);
 
@@ -3333,7 +3422,10 @@ document.addEventListener('click', e => {
   if (day) { selectedDate = day.dataset.day; renderCalendar(); return; }
 
   const delEv = e.target.closest('[data-del-event]');
-  if (delEv) { db.events = db.events.filter(x => x.id !== delEv.dataset.delEvent); save(); renderCalendar(); renderHome(); return; }
+  if (delEv) {
+    if (!confirmDelete('Удалить событие? Это не отменить.')) return;
+    db.events = db.events.filter(x => x.id !== delEv.dataset.delEvent); save(); renderCalendar(); renderHome(); return;
+  }
 
   const editEv = e.target.closest('[data-edit-event]');
   if (editEv) { openEventModal(editEv.dataset.editEvent); return; }
@@ -3360,7 +3452,10 @@ document.addEventListener('click', e => {
   const doneDate = e.target.closest('[data-done-date]');
   if (doneDate) { toggleDateDone(doneDate.dataset.doneDate); return; }
   const delDate = e.target.closest('[data-del-date]');
-  if (delDate) { db.dates = db.dates.filter(x => x.id !== delDate.dataset.delDate); save(); renderHome(); renderCalendar(); return; }
+  if (delDate) {
+    if (!confirmDelete('Удалить свидание? Это не отменить.')) return;
+    db.dates = db.dates.filter(x => x.id !== delDate.dataset.delDate); save(); renderHome(); renderCalendar(); return;
+  }
 
   const pinNote = e.target.closest('[data-pin-note]');
   if (pinNote) { togglePinNote(pinNote.dataset.pinNote); return; }
@@ -3411,7 +3506,10 @@ document.addEventListener('click', e => {
     return;
   }
   const wishDel = e.target.closest('[data-wish-del]');
-  if (wishDel) { db.wishlist = db.wishlist.filter(x => x.id !== wishDel.dataset.wishDel); save(); renderWishlist(); return; }
+  if (wishDel) {
+    if (!confirmDelete('Удалить хотелку? Это не отменить.')) return;
+    db.wishlist = db.wishlist.filter(x => x.id !== wishDel.dataset.wishDel); save(); renderWishlist(); return;
+  }
 
   const labelOff = e.target.closest('[data-label-off]');
   if (labelOff) { removeLabelFromPhoto(labelOff.dataset.photoOff, labelOff.dataset.labelOff); return; }
@@ -3463,7 +3561,12 @@ function readFile(file) {
         const cv = document.createElement('canvas');
         cv.width = w; cv.height = h;
         cv.getContext('2d').drawImage(img, 0, 0, w, h);
-        res(cv.toDataURL('image/jpeg', 0.82));
+        // WebP, не JPEG: JPEG не умеет прозрачность — PNG-стикер/скриншот с
+        // альфа-каналом заливался бы сплошным цветом. WebP её поддерживает;
+        // в браузерах без кодирования в WebP toDataURL() по спецификации сам
+        // откатывается на PNG (тоже с прозрачностью), так что фикс работает
+        // одинаково независимо от поддержки WebP конкретным браузером.
+        res(cv.toDataURL('image/webp', 0.82));
       };
       img.onerror = rej;
       img.src = fr.result;
@@ -3522,6 +3625,7 @@ function renderLabels() {
 }
 function deletePhoto(id) {
   const ph = db.photos.find(x => x.id === id);
+  if (!confirmDelete('Удалить фото' + (ph && ph.title ? ' «' + ph.title + '»' : '') + '? Это не отменить.')) return;
   if (ph) {
     // фото удаляется и из событий, и из свиданий, чтобы в календаре не оставалось «мёртвых» миниатюр
     db.events.forEach(ev => {
@@ -4053,7 +4157,7 @@ function safeFileName(name) {
   const clean = String(name || '').replace(/[^\wа-яёА-ЯЁ\s\-()]+/gi, '_').replace(/\s+/g, ' ').trim().slice(0, 80);
   return clean || 'photo';
 }
-function downloadBlob(blob, name) {
+function downloadBlobAsFile(blob, name) {
   if (!blob || typeof URL === 'undefined' || !URL.createObjectURL || typeof document === 'undefined') return;
   const ext = extFromMime(blob.type);
   const a = document.createElement('a');
@@ -4063,6 +4167,32 @@ function downloadBlob(blob, name) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+// На мобильных обычная ссылка-скачивание кладёт файл в «Файлы»/Загрузки, а не
+// в галерею — не то, что ждёт пользователь от кнопки «скачать фото». Web Share
+// API с файлом открывает системный шэринг, где есть «Сохранить изображение» —
+// это и попадает в галерею. Если API недоступен (десктоп, старый браузер) или
+// шер не удался (например, потерян контекст жеста после await) — тихо
+// откатываемся на обычную ссылку, поведение не хуже прежнего ни в одном случае.
+async function downloadBlob(blob, name) {
+  if (!blob) return;
+  const ext = extFromMime(blob.type);
+  const filename = safeFileName(name) + (ext ? '.' + ext : '');
+  if (typeof navigator !== 'undefined' && navigator.share && navigator.canShare && typeof File !== 'undefined') {
+    try {
+      const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] });
+        return;
+      }
+    } catch (e) {
+      // Пользователь закрыл шер-лист (AbortError) — это не сбой, просто не
+      // скачиваем повторно классической ссылкой поверх; любая другая ошибка —
+      // откатываемся на скачивание файлом.
+      if (e && e.name === 'AbortError') return;
+    }
+  }
+  downloadBlobAsFile(blob, name);
 }
 function downloadDataUrl(dataUrl, name) {
   const blob = dataUrlToBlob(dataUrl);
@@ -4078,11 +4208,19 @@ async function downloadCurrentPhoto() {
   let blob = null;
   try { blob = await photoStore.getOrig(p.id); } catch (e) {}
   if (!blob) { try { blob = await photoStore.getFull(p.id); } catch (e) {} }
-  if (blob) downloadBlob(blob, name);
+  if (blob) await downloadBlob(blob, name);
 }
 
 function lbIsDataUrl(src) { return typeof src === 'string' && src.indexOf('data:') === 0; }
-function lbPhoto(src) { return Array.isArray(db.photos) ? db.photos.find(p => p.id === src) || null : null; }
+function lbPhoto(src) {
+  const p = Array.isArray(db.photos) ? db.photos.find(p => p.id === src) : null;
+  if (p) return p;
+  // Фото хотелок не входят в db.photos (осознанно, см. 60-lists-wishes.js) —
+  // ищем по photoId в db.wishlist; лайтбоксу для рендера/скачивания нужны
+  // только id и title, полноценная запись db.photos не требуется.
+  const w = Array.isArray(db.wishlist) ? db.wishlist.find(w => w.photoId === src) : null;
+  return w ? { id: w.photoId, title: w.text } : null;
+}
 
 function openLightbox(ids, idx) {
   lightboxList = Array.isArray(ids) ? ids.slice() : [];
@@ -4429,14 +4567,22 @@ async function fetchCloudVault() {
 }
 
 // Запись сейфа в облако (общий путь для push и принудительного восстановления).
+// syncTs обновляется ДО записи (не после): Firebase применяет собственную
+// запись клиента к локальному кэшу и будит .on('value') почти мгновенно,
+// раньше, чем резолвится промис set(). Если бы syncTs обновлялся только
+// после await, этот «эхо» собственного пуша в listenRemote() видел бы
+// rts > syncTs (старое значение) и принимал бы наше же изменение за пришедшее
+// с другого устройства — весь vault перезагружался бы и на каждое сохранение
+// (например, отметку подзадачи) вылезал бы тост «Данные обновлены с другого
+// устройства». Обновление заранее закрывает эту гонку.
 async function writeVault() {
   const vault = loadVault();
   if (!vault || !vault.db || typeof vault.db.d !== 'string') return;
   renderSyncStatus('syncing');
   const ts = Date.now();
-  await syncDb.ref(SYNC_PATH).set({ syncTs: ts, vault });
   syncTs = ts;
   store.set(SYNC_KEY, String(ts));
+  await syncDb.ref(SYNC_PATH).set({ syncTs: ts, vault });
   renderSyncStatus('ok', ts);
 }
 
@@ -4893,7 +5039,14 @@ async function syncPhotos() {
     const localList = await photoStore.listIds();
     const localMap = new Map(localList.map(l => [l.id, l]));
     const cloud = await listCloudPhotos();
-    const want = new Set((db.photos || []).map(p => p && p.id).filter(Boolean));
+    // Фото хотелок в галерею (db.photos) не входят (осознанно, чтобы не
+    // засорять «Наши моменты» скриншотами подарков), но синхронизировать их
+    // между устройствами всё равно нужно — иначе партнёр не увидит фото
+    // хотелки на своём телефоне. Добавляем их id в want отдельно.
+    const want = new Set([
+      ...(db.photos || []).map(p => p && p.id).filter(Boolean),
+      ...(db.wishlist || []).map(w => w && w.photoId).filter(Boolean)
+    ]);
     const hasPart = (id, part) => { const l = localMap.get(id); return !!(l && l['has' + part[0].toUpperCase() + part.slice(1)]); };
     // Проверяем расшифровку не для ВСЕХ облачных фото, а только для тех, что
     // ещё не доказаны своими: если id уже в db.photos (want) и все части,

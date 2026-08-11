@@ -226,9 +226,16 @@ $('#addDateBtn').addEventListener('click', openDateModal);
 function saveDateFromModal() {
   const date = $('#dtDate').value;
   if (!date) { alert('Выбери дату свидания 💘'); return; }
+  const from = getUser();
+  // Пригласивший уже согласен по смыслу (UI показывает «💌 позвал/позвала» без
+  // кнопок ответа — canAnswer это и запрещает), поэтому его responses[from]
+  // должен быть 'yes' сразу. Раньше оба поля стартовали null и приглашающий
+  // никогда не мог ответить сам — bothYes/celebrate() требовали 'yes' от
+  // обоих буквально, из-за чего «Мы идём на свидание!» не срабатывало
+  // НИКОГДА ни при каком сценарии использования.
   db.dates.push({
     id: uid(), date, time: $('#dtTime').value,
-    from: getUser(), responses: { gosha: null, dasha: null },
+    from, responses: { gosha: from === 'gosha' ? 'yes' : null, dasha: from === 'dasha' ? 'yes' : null },
     place: $('#dtPlace').value.trim(), note: $('#dtNote').value.trim(),
     emoji: $('#dtEmoji').value.trim() || '💘', done: false
   });

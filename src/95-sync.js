@@ -148,14 +148,22 @@ async function fetchCloudVault() {
 }
 
 // Запись сейфа в облако (общий путь для push и принудительного восстановления).
+// syncTs обновляется ДО записи (не после): Firebase применяет собственную
+// запись клиента к локальному кэшу и будит .on('value') почти мгновенно,
+// раньше, чем резолвится промис set(). Если бы syncTs обновлялся только
+// после await, этот «эхо» собственного пуша в listenRemote() видел бы
+// rts > syncTs (старое значение) и принимал бы наше же изменение за пришедшее
+// с другого устройства — весь vault перезагружался бы и на каждое сохранение
+// (например, отметку подзадачи) вылезал бы тост «Данные обновлены с другого
+// устройства». Обновление заранее закрывает эту гонку.
 async function writeVault() {
   const vault = loadVault();
   if (!vault || !vault.db || typeof vault.db.d !== 'string') return;
   renderSyncStatus('syncing');
   const ts = Date.now();
-  await syncDb.ref(SYNC_PATH).set({ syncTs: ts, vault });
   syncTs = ts;
   store.set(SYNC_KEY, String(ts));
+  await syncDb.ref(SYNC_PATH).set({ syncTs: ts, vault });
   renderSyncStatus('ok', ts);
 }
 
@@ -612,7 +620,14 @@ async function syncPhotos() {
     const localList = await photoStore.listIds();
     const localMap = new Map(localList.map(l => [l.id, l]));
     const cloud = await listCloudPhotos();
-    const want = new Set((db.photos || []).map(p => p && p.id).filter(Boolean));
+    // Фото хотелок в галерею (db.photos) не входят (осознанно, чтобы не
+    // засорять «Наши моменты» скриншотами подарков), но синхронизировать их
+    // между устройствами всё равно нужно — иначе партнёр не увидит фото
+    // хотелки на своём телефоне. Добавляем их id в want отдельно.
+    const want = new Set([
+      ...(db.photos || []).map(p => p && p.id).filter(Boolean),
+      ...(db.wishlist || []).map(w => w && w.photoId).filter(Boolean)
+    ]);
     const hasPart = (id, part) => { const l = localMap.get(id); return !!(l && l['has' + part[0].toUpperCase() + part.slice(1)]); };
     // Проверяем расшифровку не для ВСЕХ облачных фото, а только для тех, что
     // ещё не доказаны своими: если id уже в db.photos (want) и все части,

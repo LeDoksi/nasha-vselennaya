@@ -52,6 +52,12 @@ let activeView = 'home'; // текущая вкладка — для hash-роу
 // в «Ещё» — Заметки, Хотелки, Песня, Настройки.
 const BOTTOM_PRIMARY = ['home', 'calendar', 'memory', 'lists', 'photos'];
 const BOTTOM_MORE = ['notes', 'wishlist', 'song', 'settings'];
+// Иконки для нижней панели (мобильные): 6 текстовых подписей физически не
+// помещаются в ряд на узком экране без обрезки («Календ…» — было). Значки
+// повторяют эмодзи, уже используемые в самих разделах (📅 у событий,
+// 📸 у фото, 📋 у списков, 🕰 у «Памяти»), а полный текст остаётся для
+// скринридеров через aria-label.
+const BOTTOM_ICON = { home: '🏠', calendar: '📅', memory: '🕰', lists: '📋', photos: '📸' };
 function showView(view) {
   if (!$('#view-' + view)) return; // неизвестная вкладка — не трогаем экран
   activeView = view;
@@ -118,6 +124,12 @@ function buildBottomNav() {
     clone.type = 'button';
     clone.className = 'nav-btn bottom-nav-btn' + (view === activeView ? ' active' : '');
     if (!src) clone.dataset.view = view;
+    // Иконка вместо текста (см. BOTTOM_ICON) — полный текст остаётся в
+    // aria-label для скринридеров и как title для десктопных мышиных наведений.
+    const label = clone.textContent.trim();
+    clone.setAttribute('aria-label', label);
+    clone.title = label;
+    clone.textContent = BOTTOM_ICON[view] || label;
     bar.appendChild(clone);
   });
   const moreBtn = document.createElement('button');

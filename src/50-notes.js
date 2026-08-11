@@ -45,6 +45,7 @@ function togglePinNote(id) {
   n.pinned = !n.pinned; save(); renderNotes();
 }
 function deleteNote(id) {
+  if (!confirmDelete('Удалить заметку? Это не отменить.')) return;
   db.notes = db.notes.filter(x => x.id !== id);
   if (editingNoteId === id) editingNoteId = null;
   save(); renderNotes();

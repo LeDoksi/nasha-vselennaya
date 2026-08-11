@@ -164,6 +164,28 @@ async function migratePhotosToStore(store, db) {
       ev.photos = ev.photos.map(ref => dataToId.get(ref) || ref);
     }
   }
+  // Фото хотелок: раньше жили как data-URL прямо в db.wishlist (зашифрованный
+  // сейф в localStorage, лимит ~5 МБ) — при нескольких хотелках с фото могли
+  // молча не сохраниться при переполнении квоты. Переносим в photoStore, как
+  // остальные фото, но НЕ добавляем в db.photos — хотелки не должны
+  // засорять общую галерею «Фото» (осознанное решение). photoId — свой,
+  // отдельный от id обычных фото; lbPhoto() в 85-lightbox.js умеет находить
+  // фото хотелки по нему как фолбэк.
+  if (Array.isArray(db.wishlist)) {
+    for (const w of db.wishlist) {
+      if (!w.data) continue;
+      const id = w.photoId || uid();
+      const existing = await store.getMeta(id);
+      if (!existing) {
+        const blob = dataUrlToBlob(w.data);
+        if (!blob) continue;
+        await store.put(id, blob, null, { type: blob.type || 'image/webp', title: w.text || '', size: blob.size });
+      }
+      w.photoId = id;
+      delete w.data;
+      moved++;
+    }
+  }
   return moved;
 }
 
@@ -598,7 +620,10 @@ async function hydratePhotoImgs(scope) {
   const imgs = [...scope.querySelectorAll('img[data-photo-src]')];
   for (const im of imgs) {
     const id = im.dataset.photoSrc;
-    const p = db.photos.find(x => x.id === id);
+    // Фото хотелок не входят в db.photos (не показываются в общей галерее),
+    // но живут в том же photoStore под своим id — ищем и там.
+    const p = db.photos.find(x => x.id === id) ||
+      (Array.isArray(db.wishlist) && db.wishlist.find(w => w.photoId === id) ? { id } : null);
     const url = p ? await photoUrl(p, true) : '';
     if (url) {
       im.src = url;

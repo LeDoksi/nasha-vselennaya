@@ -11,7 +11,12 @@ function readFile(file) {
         const cv = document.createElement('canvas');
         cv.width = w; cv.height = h;
         cv.getContext('2d').drawImage(img, 0, 0, w, h);
-        res(cv.toDataURL('image/jpeg', 0.82));
+        // WebP, не JPEG: JPEG не умеет прозрачность — PNG-стикер/скриншот с
+        // альфа-каналом заливался бы сплошным цветом. WebP её поддерживает;
+        // в браузерах без кодирования в WebP toDataURL() по спецификации сам
+        // откатывается на PNG (тоже с прозрачностью), так что фикс работает
+        // одинаково независимо от поддержки WebP конкретным браузером.
+        res(cv.toDataURL('image/webp', 0.82));
       };
       img.onerror = rej;
       img.src = fr.result;
@@ -70,6 +75,7 @@ function renderLabels() {
 }
 function deletePhoto(id) {
   const ph = db.photos.find(x => x.id === id);
+  if (!confirmDelete('Удалить фото' + (ph && ph.title ? ' «' + ph.title + '»' : '') + '? Это не отменить.')) return;
   if (ph) {
     // фото удаляется и из событий, и из свиданий, чтобы в календаре не оставалось «мёртвых» миниатюр
     db.events.forEach(ev => {

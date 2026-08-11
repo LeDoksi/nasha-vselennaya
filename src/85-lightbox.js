@@ -15,7 +15,7 @@ function safeFileName(name) {
   const clean = String(name || '').replace(/[^\wа-яёА-ЯЁ\s\-()]+/gi, '_').replace(/\s+/g, ' ').trim().slice(0, 80);
   return clean || 'photo';
 }
-function downloadBlob(blob, name) {
+function downloadBlobAsFile(blob, name) {
   if (!blob || typeof URL === 'undefined' || !URL.createObjectURL || typeof document === 'undefined') return;
   const ext = extFromMime(blob.type);
   const a = document.createElement('a');
@@ -25,6 +25,32 @@ function downloadBlob(blob, name) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+// На мобильных обычная ссылка-скачивание кладёт файл в «Файлы»/Загрузки, а не
+// в галерею — не то, что ждёт пользователь от кнопки «скачать фото». Web Share
+// API с файлом открывает системный шэринг, где есть «Сохранить изображение» —
+// это и попадает в галерею. Если API недоступен (десктоп, старый браузер) или
+// шер не удался (например, потерян контекст жеста после await) — тихо
+// откатываемся на обычную ссылку, поведение не хуже прежнего ни в одном случае.
+async function downloadBlob(blob, name) {
+  if (!blob) return;
+  const ext = extFromMime(blob.type);
+  const filename = safeFileName(name) + (ext ? '.' + ext : '');
+  if (typeof navigator !== 'undefined' && navigator.share && navigator.canShare && typeof File !== 'undefined') {
+    try {
+      const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] });
+        return;
+      }
+    } catch (e) {
+      // Пользователь закрыл шер-лист (AbortError) — это не сбой, просто не
+      // скачиваем повторно классической ссылкой поверх; любая другая ошибка —
+      // откатываемся на скачивание файлом.
+      if (e && e.name === 'AbortError') return;
+    }
+  }
+  downloadBlobAsFile(blob, name);
 }
 function downloadDataUrl(dataUrl, name) {
   const blob = dataUrlToBlob(dataUrl);
@@ -40,11 +66,19 @@ async function downloadCurrentPhoto() {
   let blob = null;
   try { blob = await photoStore.getOrig(p.id); } catch (e) {}
   if (!blob) { try { blob = await photoStore.getFull(p.id); } catch (e) {} }
-  if (blob) downloadBlob(blob, name);
+  if (blob) await downloadBlob(blob, name);
 }
 
 function lbIsDataUrl(src) { return typeof src === 'string' && src.indexOf('data:') === 0; }
-function lbPhoto(src) { return Array.isArray(db.photos) ? db.photos.find(p => p.id === src) || null : null; }
+function lbPhoto(src) {
+  const p = Array.isArray(db.photos) ? db.photos.find(p => p.id === src) : null;
+  if (p) return p;
+  // Фото хотелок не входят в db.photos (осознанно, см. 60-lists-wishes.js) —
+  // ищем по photoId в db.wishlist; лайтбоксу для рендера/скачивания нужны
+  // только id и title, полноценная запись db.photos не требуется.
+  const w = Array.isArray(db.wishlist) ? db.wishlist.find(w => w.photoId === src) : null;
+  return w ? { id: w.photoId, title: w.text } : null;
+}
 
 function openLightbox(ids, idx) {
   lightboxList = Array.isArray(ids) ? ids.slice() : [];
