@@ -60,22 +60,37 @@ $('#photoInput').addEventListener('change', async e => {
   e.target.value = '';
   save(); renderPhotos();
 });
+// Режим «Управлять лейблами»: тап по чипу выбирает лейбл(ы) для массового
+// удаления вместо переключения фильтра — вместо крестика на каждом чипе
+// (на мобиле слишком маленькая тап-зона, легко промахнуться) единая панель
+// «Выбрано: N — 🗑 Удалить» с одним подтверждением на всё, тот же паттерн,
+// что и массовое удаление фото (deleteSelectedPhotos).
+let manageLabels = false;
+const selectedLabels = new Set(); // выбранные имена лейблов (в режиме управления)
+function toggleLabelManage() {
+  manageLabels = !manageLabels;
+  selectedLabels.clear();
+  renderLabels();
+}
 function renderLabels() {
   const bar = $('#labelBar');
   if (!bar) return;
   const evCount = db.photos.filter(p => (p.labels || []).includes(EVENT_LABEL)).length;
   const dtCount = db.photos.filter(p => (p.labels || []).includes(DATE_LABEL)).length;
   const sysLabels = [EVENT_LABEL, DATE_LABEL];
+  const manualLabels = db.labels.filter(l => !sysLabels.includes(l));
   bar.innerHTML =
     `<button class="album-chip${currentLabel === '' ? ' active' : ''}" data-label="">🖼 Все фото (${db.photos.length})</button>` +
     (evCount ? `<button class="album-chip${currentLabel === EVENT_LABEL ? ' active' : ''}" data-label="${esc(EVENT_LABEL)}">📅 События (${evCount})</button>` : '') +
     (dtCount ? `<button class="album-chip${currentLabel === DATE_LABEL ? ' active' : ''}" data-label="${esc(DATE_LABEL)}">💞 Свидания (${dtCount})</button>` : '') +
-    // .label-del — отдельная кнопка-СОСЕД (не вложена в .album-chip): кнопка
-    // внутри кнопки — невалидный HTML, и клавиатурная активация внешней
-    // кнопки не могла «дотянуться» до вложенного крестика — с клавиатуры
-    // удалить лейбл было физически невозможно.
-    db.labels.filter(l => !sysLabels.includes(l)).map(l => `<span class="chip-wrap"><button class="album-chip${currentLabel === l ? ' active' : ''}" data-label="${esc(l)}" title="Перетащи на фото, чтобы навесить лейбл"># ${esc(l)}</button><button type="button" class="label-del" data-label-del="${esc(l)}" title="Удалить лейбл">✕</button></span>`).join('') +
-    `<button class="btn album-add-btn" data-label-new title="Создать лейбл">＋ Лейбл</button>`;
+    manualLabels.map(l => `<button class="album-chip${manageLabels ? (selectedLabels.has(l) ? ' chip-selected' : '') : (currentLabel === l ? ' active' : '')}" data-label="${esc(l)}" title="${manageLabels ? 'Нажми, чтобы выбрать для удаления' : 'Перетащи на фото, чтобы навесить лейбл'}"># ${esc(l)}</button>`).join('') +
+    `<button class="btn album-add-btn" data-label-new title="Создать лейбл">＋ Лейбл</button>` +
+    (manualLabels.length ? `<button class="btn album-add-btn${manageLabels ? ' active' : ''}" data-label-manage title="${manageLabels ? 'Готово' : 'Управлять лейблами (удалить)'}">${manageLabels ? '✓ Готово' : '✎ Управлять'}</button>` : '');
+  const selBar = $('#labelSelBar');
+  if (selBar) {
+    selBar.style.display = manageLabels && selectedLabels.size ? 'flex' : 'none';
+    if (selectedLabels.size) { const c = $('#labelSelCount'); if (c) c.textContent = selectedLabels.size; }
+  }
 }
 // Чистка фото без подтверждения — общая часть deletePhoto()/deleteSelectedPhotos()
 // (при массовом удалении confirm один, на всех отмеченных сразу).
@@ -256,12 +271,23 @@ function renderEventBar() {
   if (reset) reset.style.display = (f.year || f.month || f.title) ? 'inline-block' : 'none';
 }
 // Лейблы: удаление (фото не трогаем), добавление выбранным, создание
-function deleteLabel(name) {
+function deleteLabelSilent(name) {
   if (name === EVENT_LABEL || name === DATE_LABEL) return; // служебные лейблы защищены от удаления
   db.labels = db.labels.filter(l => l !== name);
   db.photos.forEach(p => { if (p.labels) p.labels = p.labels.filter(l => l !== name); });
   if (currentLabel === name) currentLabel = '';
   selectedPhotos.clear();
+  selectedLabels.delete(name);
+}
+// Удаление лейблов — только через режим управления (см. renderLabels выше),
+// один confirm на все выбранные разом, без отдельного диалога на каждый.
+function deleteSelectedLabels() {
+  const names = [...selectedLabels];
+  if (!names.length) return;
+  const word = names.length === 1 ? 'лейбл' : 'лейблов';
+  if (!confirmDelete(`Удалить ${names.length} ${word}? Фото не пострадают.`)) return;
+  names.forEach(deleteLabelSilent);
+  manageLabels = false;
   save(); renderPhotos();
 }
 function applyLabelToPhotos(name, ids) {
@@ -299,6 +325,7 @@ function openLabelOverlay() {
 $('#selAddLabelBtn').addEventListener('click', openLabelOverlay);
 $('#selDeleteBtn').addEventListener('click', deleteSelectedPhotos);
 $('#selClearBtn').addEventListener('click', () => { selectedPhotos.clear(); renderPhotos(); });
+$('#labelSelDeleteBtn').addEventListener('click', deleteSelectedLabels);
 // Фильтр витрины «📅 События»: клик по кнопкам «год → месяц → событие» (повторный клик сбрасывает уровень)
 document.addEventListener('click', e => {
   const yearBtn = e.target.closest('[data-ev-year]');
@@ -362,7 +389,6 @@ function photoDropChip(evt) {
   }
   if (!el) el = oe.target;
   if (!el || !el.closest) return null;
-  if (el.closest('[data-label-del]')) return null;
   const chip = el.closest('.album-chip[data-label]');
   if (!chip || !chip.dataset.label) return null;
   if (chip.dataset.label === EVENT_LABEL || chip.dataset.label === DATE_LABEL) return null;

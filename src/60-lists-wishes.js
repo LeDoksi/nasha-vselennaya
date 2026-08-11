@@ -487,14 +487,20 @@ document.addEventListener('click', e => {
 
   const labelNew = e.target.closest('[data-label-new]');
   if (labelNew) { openLabelOverlay(); return; }
-  const labelDel = e.target.closest('[data-label-del]');
-  if (labelDel) {
-    const name = labelDel.dataset.labelDel;
-    if (confirm(`Удалить лейбл «${name}»? Фото не пострадают.`)) deleteLabel(name);
-    return;
-  }
+  const labelManageBtn = e.target.closest('[data-label-manage]');
+  if (labelManageBtn) { toggleLabelManage(); return; }
   const labelChip = e.target.closest('[data-label]');
-  if (labelChip) { currentLabel = labelChip.dataset.label; eventFilter = { year: '', month: '', title: '' }; renderPhotos(); return; }
+  if (labelChip) {
+    const name = labelChip.dataset.label;
+    // В режиме управления тап по (не системному) чипу выбирает его для
+    // массового удаления вместо переключения фильтра.
+    if (manageLabels && name && name !== EVENT_LABEL && name !== DATE_LABEL) {
+      if (selectedLabels.has(name)) selectedLabels.delete(name); else selectedLabels.add(name);
+      renderLabels();
+      return;
+    }
+    currentLabel = name; eventFilter = { year: '', month: '', title: '' }; renderPhotos(); return;
+  }
 
   const closeBtn = e.target.closest('[data-close]');
   if (closeBtn) { closeOverlay(closeBtn.dataset.close); return; }

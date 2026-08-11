@@ -99,7 +99,9 @@ function __TEST__(s){
   s.getMotion = getMotion; s.applyMotion = applyMotion; s.setMotion = setMotion; s.motionReduced = motionReduced;
   Object.defineProperty(s, 'photosRenderQueued', { get: () => photosRenderQueued, set: v => { photosRenderQueued = v; }, configurable: true });
   s.selectedPhotos = selectedPhotos; s.renderLabels = renderLabels;
-  s.deleteLabel = deleteLabel; s.deletePhoto = deletePhoto; s.applyLabelToSelected = applyLabelToSelected; s.openLabelOverlay = openLabelOverlay;
+  s.deleteLabelSilent = deleteLabelSilent; s.deletePhoto = deletePhoto; s.applyLabelToSelected = applyLabelToSelected; s.openLabelOverlay = openLabelOverlay;
+  s.selectedLabels = selectedLabels; s.toggleLabelManage = toggleLabelManage; s.deleteSelectedLabels = deleteSelectedLabels;
+  Object.defineProperty(s, 'manageLabels', { get: () => manageLabels, configurable: true });
   s.applyLabelToPhotos = applyLabelToPhotos; s.removeLabelFromPhoto = removeLabelFromPhoto;
   s.filteredPhotos = filteredPhotos; s.renderEventBar = renderEventBar; s.eventsForPhoto = eventsForPhoto; s.photoByRef = photoByRef; s.addEventPhotosToGallery = addEventPhotosToGallery; s.evThumbs = evThumbs; s.dtThumbs = dtThumbs;
   s.wishCard = wishCard; s.fmtWishDate = fmtWishDate;
@@ -483,7 +485,7 @@ assert(registry['#eventTitles'].style.display === 'flex' && registry['#eventTitl
 w('(s)=>{s.eventFilter.title="Поездка в горы";s.renderPhotos();}');
 assert(registry['#photosGrid'].innerHTML.includes('Поездка в горы'), 'фильтр по событию внутри витрины работает');
 assert(registry['#eventReset'].style.display === 'inline-block', 'при активном фильтре видна кнопка сброса');
-w('(s)=>s.deleteLabel("📅 События")');
+w('(s)=>s.deleteLabelSilent("📅 События")');
 assert(w(`(s)=>s.db.photos.find(p=>p.id==="${evPhId}").labels.includes("📅 События")`), 'служебный лейбл «События» нельзя удалить');
 w('(s)=>{s.eventFilter={year:"",month:"",title:""};s.currentLabel="";s.renderPhotos();}');
 
@@ -666,11 +668,7 @@ assert(/<button[^>]*data-label-off=/.test(phHtml), 'крестик лейбла 
 assert(!phHtml.includes('data-ren-photo'), 'переименование убрано');
 const labHtml = registry['#labelBar'].innerHTML;
 assert(labHtml.includes('Все фото'), 'кнопка «Все фото» в фильтре');
-assert(labHtml.includes('Семья') && labHtml.includes('data-label-del'), 'лейбл в фильтре с кнопкой удаления');
-// Крестик удаления лейбла — настоящая <button>, не вложенная в другую кнопку
-// (было: <span> внутри .album-chip — невалидный HTML, недоступно с клавиатуры).
-assert(/<button[^>]*data-label-del=/.test(labHtml), 'крестик лейбла — button (доступен с клавиатуры)');
-assert(!/<button class="album-chip[^"]*"[^>]*>[^<]*<span class="label-del"/.test(labHtml), 'крестик лейбла больше не вложен внутрь .album-chip');
+assert(labHtml.includes('Семья') && labHtml.includes('data-label-manage'), 'лейбл в фильтре, есть кнопка «Управлять лейблами»');
 w('(s)=>{s.currentLabel="Свидание";s.renderPhotos();}');
 phHtml = registry['#photosGrid'].innerHTML;
 assert(phHtml.includes('кафе') && !phHtml.includes('море'), 'фильтр по лейблу (только подходящие)');
@@ -681,9 +679,21 @@ assert(phHtml.includes('photo selected'), 'выбранное фото подс�
 assert(registry['#photoSelBar'].style.display === 'flex', 'панель выбора показана');
 w('(s)=>{s.applyLabelToSelected("Новое");s.renderPhotos();}');
 assert(registry['#photosGrid'].innerHTML.includes('Новое'), 'лейбл добавлен выбранным фото');
-w('(s)=>{s.deleteLabel("Семья");}');
+// Удаление лейбла — только через режим управления: тап по «✎ Управлять»
+// переключает чипы в режим выбора (тап = отметить, не фильтр), «Удалить
+// выбранные» удаляет все отмеченные разом с одним подтверждением.
+w('(s)=>{s.toggleLabelManage();}');
+assert(w('(s)=>s.manageLabels') === true, 'режим управления лейблами включился');
+assert(registry['#labelBar'].innerHTML.includes('data-label-manage') && registry['#labelBar'].innerHTML.includes('Готово'),
+  'в режиме управления кнопка меняется на «✓ Готово»');
+w('(s)=>{s.selectedLabels.add("Семья");s.renderLabels();}');
+assert(registry['#labelBar'].innerHTML.includes('chip-selected'), 'выбранный в режиме управления лейбл подсвечен');
+assert(registry['#labelSelBar'].style.display === 'flex', 'панель массового удаления лейблов показана');
+assert(registry['#labelSelCount'].textContent === 1, 'счётчик выбранных лейблов = 1');
+w('(s)=>{s.deleteSelectedLabels();}');
 assert(!registry['#labelBar'].innerHTML.includes('Семья'), 'лейбл удалён из фильтра');
 assert(!registry['#photosGrid'].innerHTML.includes('Семья'), 'лейбл снят с фото, фото на месте');
+assert(w('(s)=>s.manageLabels') === false, 'после массового удаления режим управления выключается');
 w('(s)=>{s.selectedPhotos.clear();s.renderPhotos();}');
 
 // --- Фото: дебаунс рендера (без requestAnimationFrame — синхронно) ---

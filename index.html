@@ -117,6 +117,10 @@
         <label class="btn file-btn">Загрузить фото<input type="file" id="photoInput" accept="image/*" multiple hidden></label>
       </div>
       <div class="album-bar" id="labelBar"></div>
+      <div class="sel-bar" id="labelSelBar" style="display:none">
+        <span class="sel-count">Выбрано: <b id="labelSelCount">0</b></span>
+        <button class="btn btn-danger album-add-btn" id="labelSelDeleteBtn">🗑 Удалить выбранные</button>
+      </div>
       <div class="ev-album-bar" id="eventBar" style="display:none">
         <div class="ev-filter-head">
           <span class="ev-album-hint">📅 Фото, прикреплённые к памятным датам</span>

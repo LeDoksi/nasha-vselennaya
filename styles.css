@@ -552,11 +552,11 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .album-chip.drag-over{border-color:transparent;background:var(--grad);color:#fff;transform:scale(1.06);box-shadow:0 0 0 3px var(--pink2)}
 .album-chip{cursor:grab}
 .album-chip:active{cursor:grabbing}
-/* .label-del — теперь настоящая кнопка-сосед .album-chip (не вложена внутрь
-   неё, см. renderLabels в 70-photos.js), уложена поверх правого края пилюли
-   абсолютным позиционированием — визуально там же, где была раньше. */
-.chip-wrap{position:relative;display:inline-flex;align-items:center}
-.chip-wrap .album-chip{padding-right:26px}
+/* Режим «Управлять лейблами»: тап по чипу выбирает его для массового удаления
+   вместо переключения фильтра — крестик на чипе (слишком маленькая тап-зона
+   на мобиле) убран, удаление теперь только через выбор + подтверждение. */
+.album-chip.chip-selected{border-color:transparent;background:var(--pink-ink);color:#fff;box-shadow:0 0 0 3px var(--pink2)}
+.album-add-btn.active{background:var(--grad);color:#fff;border-color:transparent}
 
 /* Витрина «📅 События»: селект конкретного события + подпись на фото */
 .ev-album-bar{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
@@ -605,13 +605,6 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .sel-bar .btn{box-shadow:none}
 .sel-count{font-weight:800;font-size:14px;margin-right:auto}
 .sel-count b{font-size:16px}
-.label-del{
-  position:absolute;right:6px;top:50%;transform:translateY(-50%);
-  background:none;border:none;padding:2px;margin:0;border-radius:50%;
-  font:inherit;font-size:12px;font-weight:900;line-height:1;color:var(--muted);cursor:pointer;
-}
-.label-del:hover{color:var(--pink);background:rgba(0,0,0,.06)}
-[data-theme="dark"] .label-del:hover{background:rgba(255,255,255,.1)}
 .wish-section{margin-bottom:30px}
 .wish-section h4{margin-bottom:12px;font-size:17px;color:var(--muted)}
 .wish.done{opacity:.55}

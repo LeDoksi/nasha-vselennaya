@@ -30,10 +30,9 @@ function chipDragSetup(container) {
   }
 }
 
-// Только пользовательские лейблы можно тащить — не системные (📅/💞) и не крестик удаления.
+// Только пользовательские лейблы можно тащить — не системные (📅/💞).
 function chipDragTarget(el) {
   if (!el || !el.closest) return null;
-  if (el.closest('[data-label-del]')) return null;
   const chip = el.closest('.album-chip[data-label]');
   if (!chip || !chip.dataset.label) return null;
   if (chip.dataset.label === EVENT_LABEL || chip.dataset.label === DATE_LABEL) return null;
