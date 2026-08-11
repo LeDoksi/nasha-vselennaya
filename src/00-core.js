@@ -189,9 +189,5 @@ let authLocked = true;     // пока замок закрыт — прилож�
 let lastActivity = Date.now();
 
 function getUser() { return currentUser || 'gosha'; }
-function setUser(u) { currentUser = u; renderUserChip(); renderHome(); renderCalendar(); }
-function renderUserChip() {
-  const chip = $('#userChip');
-  if (chip) chip.textContent = getUser() === 'dasha' ? '👧 Даша ▾' : '👦 Гоша ▾';
-}
+function setUser(u) { currentUser = u; renderHome(); renderCalendar(); }
 

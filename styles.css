@@ -109,13 +109,6 @@ body{
 }
 .nav-btn:hover{transform:translateY(-2px);border-color:var(--violet2);color:var(--violet)}
 .nav-btn.active{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 6px 18px rgba(236,72,153,.45);transform:scale(1.06);font-weight:900}
-.user-chip{
-  border:1px solid var(--border);background:var(--grad);color:#fff;padding:9px 16px;
-  border-radius:999px;font-weight:800;font-size:14px;cursor:pointer;
-  box-shadow:0 6px 16px rgba(236,72,153,.3);transition:transform .2s;
-  white-space:nowrap;
-}
-.user-chip:hover{transform:translateY(-2px)}
 
 /* ===== Общее ===== */
 main{max-width:1100px;margin:0 auto;padding:28px 20px 90px}
@@ -313,6 +306,7 @@ h3{font-weight:800}
 .items li .drag-handle{width:26px;height:26px;border-radius:8px;font-size:12px}
 .list-head{display:flex;align-items:flex-start;gap:10px}
 .list-head h3{flex:1}
+.list-name-editor{flex:1;padding:6px 10px;border-radius:10px;border:1px solid var(--border);font-family:inherit;font-size:16px;font-weight:800}
 .photo .drag-handle{
   position:absolute;top:8px;left:44px;width:30px;height:30px;border-radius:10px;
   background:rgba(255,255,255,.92);box-shadow:0 2px 8px rgba(0,0,0,.18);z-index:2;
@@ -666,7 +660,6 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
   .header-inner{padding:0 14px;gap:8px}
   .logo{font-size:16px;padding:10px 0;white-space:nowrap}
   .theme-toggle{padding:7px 10px;font-size:14px}
-  .user-chip{padding:7px 11px;font-size:13px}
 }
 /* Мобильная навигация: шапка-пилюли уступает закреплённой нижней панели */
 @media(max-width:820px){
@@ -959,7 +952,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .view.active .note,.view.active .list-card,.view.active .wish{animation:cardIn .38s ease both}
 .note,.list-card,.wish{transition:transform .22s ease,box-shadow .22s ease,border-color .22s ease}
 .note.dragging,.list-card.dragging{transition:none !important}
-.btn:active,.nav-btn:active,.user-chip:active,.cal-nav:active,.dp-nav:active{transform:scale(.95)}
+.btn:active,.nav-btn:active,.cal-nav:active,.dp-nav:active{transform:scale(.95)}
 .items li.done span{transition:color .25s}
 
 /* ===== Фаза D: View Transitions API — плавная смена вкладок и темы ===== */

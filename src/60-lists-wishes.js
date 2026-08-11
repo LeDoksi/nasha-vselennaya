@@ -1,5 +1,6 @@
 /* ===== Списки ===== */
 let editingSubtask = null; // {listId, itemId} в режиме инлайн-правки, иначе null
+let editingListId = null;  // id списка, у которого сейчас правится название, иначе null
 function listItemHTML(listId, it) {
   const editing = editingSubtask && editingSubtask.listId === listId && editingSubtask.itemId === it.id;
   return `<li class="${it.done ? 'done' : ''}" data-item="${esc(it.id)}">
@@ -26,6 +27,20 @@ function saveSubtaskEdit(listId, itemId, text) {
   if (t) it.text = t;
   save(); renderLists();
 }
+// Редактирование названия списка — в отличие от подзадачи, список пересоздать
+// (удалить+создать) нельзя без потери ВСЕХ подзадач, поэтому у него есть
+// собственное переименование, а не только у подзадач.
+function startEditListName(listId) { editingListId = listId; renderLists(); }
+function cancelListNameEdit() { editingListId = null; renderLists(); }
+function saveListNameEdit(listId, text) {
+  const list = db.lists.find(x => x.id === listId);
+  editingListId = null;
+  if (!list) { renderLists(); return; }
+  const inp = $('#listNameEdit-' + listId);
+  const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
+  if (t) list.name = t;
+  save(); renderLists();
+}
 // Выполненные подзадачи всегда внизу списка: устойчивая сортировка —
 // внутри групп (невыполненные/выполненные) относительный порядок сохраняется.
 function sortListItems(items) {
@@ -40,12 +55,18 @@ function renderLists() {
   }
   wrap.innerHTML = db.lists.map(list => {
     const active = list.items.filter(i => !i.done).length;
+    const editingName = editingListId === list.id;
     const items = list.items.length
       ? sortListItems(list.items).map(it => listItemHTML(list.id, it)).join('')
       : '<li class="empty-li">Пока пусто 🫧</li>';
     return `<div class="list-card" data-id="${list.id}">
       <div class="list-head">
-        <h3>${esc(list.name)} <small class="list-count">${active} в работе</small></h3>
+        ${editingName
+          ? `<input type="text" class="list-name-editor" id="listNameEdit-${esc(list.id)}" value="${esc(list.name)}">
+             <button class="mini-x" data-save-list="${list.id}" title="Сохранить">💜</button>
+             <button class="mini-x" data-cancel-list title="Отмена">✕</button>`
+          : `<h3>${esc(list.name)} <small class="list-count">${active} в работе</small></h3>
+             <button class="mini-x" data-edit-list="${list.id}" title="Переименовать список">✏️</button>`}
         <button class="drag-handle list-drag" data-list-drag="${list.id}" title="Перетащить">⠿</button>
       </div>
       <div class="list-add">
@@ -445,6 +466,12 @@ document.addEventListener('click', e => {
   if (listAdd) { addListSubtask(listAdd.dataset.listAdd, 'listInput-' + listAdd.dataset.listAdd); return; }
   const listDone = e.target.closest('[data-list-complete]');
   if (listDone) { completeList(listDone.dataset.listComplete); return; }
+  const editList = e.target.closest('[data-edit-list]');
+  if (editList) { startEditListName(editList.dataset.editList); return; }
+  const saveListBtn = e.target.closest('[data-save-list]');
+  if (saveListBtn) { saveListNameEdit(saveListBtn.dataset.saveList); return; }
+  const cancelListBtn = e.target.closest('[data-cancel-list]');
+  if (cancelListBtn) { cancelListNameEdit(); return; }
 
   const delPhoto = e.target.closest('[data-del-photo]');
   if (delPhoto) { deletePhoto(delPhoto.dataset.delPhoto); return; }
@@ -530,6 +557,12 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('subtaskEdit-') === 0 && editingSubtask) {
     e.preventDefault();
     saveSubtaskEdit(editingSubtask.listId, editingSubtask.itemId);
+    return;
+  }
+  // Списки: Enter в поле правки названия списка — сохранить
+  if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('listNameEdit-') === 0 && editingListId) {
+    e.preventDefault();
+    saveListNameEdit(editingListId);
     return;
   }
   // Календарь: Enter / пробел на дне — как клик по ячейке

@@ -132,7 +132,6 @@ function unlockApp() {
   document.body.classList.remove('auth');
   $('#authPass').value = '';
   $('#authErr').textContent = '';
-  renderUserChip();
   setTheme(getTheme());
   renderSettings();
   go('home');

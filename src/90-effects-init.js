@@ -17,7 +17,6 @@ $('#settingsThemeBtn').addEventListener('click', toggleTheme);
 /* ===== Запуск: приложение закрыто, пока не вошли ===== */
 async function initAuth() {
   initPhotoStore(); // открываем IndexedDB (или fallback) до первого входа
-  renderUserChip();
   setTheme(getTheme());
   applyMotion(getMotion());
   lastActivity = Date.now();
@@ -62,8 +61,6 @@ async function initAuth() {
 // Вызов initAuth() стоит в конце 95-sync.js (самый последний модуль сборки):
 // initAuth читает FIREBASE_CONFIG (let из 95-sync.js), а он ещё в «мёртвой зоне»
 // во время выполнения 90-effects-init.js.
-// Клик по чипу «Гоша ▾ / Даша ▾» = заблокировать и дать войти другому
-$('#userChip').addEventListener('click', lock);
 
 setInterval(() => {
   // сердечки летают не слишком часто, не под замком и не во время открытых модалок

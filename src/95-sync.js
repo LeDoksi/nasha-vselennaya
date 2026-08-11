@@ -288,7 +288,7 @@ async function applyRemoteVault(remoteVault) {
       warmThumbCache();
     }
     await save(); // закрепить миграции локально (push не запустится: syncApplying)
-    renderUserChip(); renderHome(); renderCalendar(); renderNotes();
+    renderHome(); renderCalendar(); renderNotes();
     renderLists(); renderWishlist(); renderPhotos(); renderMemory(); renderSettings();
     schedulePhotoSync(); // пришли новые/удалённые фото — сверимся с облаком
     return true;

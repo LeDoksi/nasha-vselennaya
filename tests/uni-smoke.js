@@ -73,6 +73,7 @@ function __TEST__(s){
   Object.defineProperty(s, 'calY', { get: () => calY, set: v => { calY = v; }, configurable: true });
   s.renderLists = renderLists; s.renderPhotos = renderPhotos;
   s.createList = createList; s.addListSubtask = addListSubtask;
+  s.startEditListName = startEditListName; s.saveListNameEdit = saveListNameEdit; s.cancelListNameEdit = cancelListNameEdit;
   s.toggleSubtask = toggleSubtask; s.delSubtask = delSubtask; s.completeList = completeList;
   s.startEditSubtask = startEditSubtask; s.saveSubtaskEdit = saveSubtaskEdit; s.cancelSubtaskEdit = cancelSubtaskEdit;
   s.renderWishlist = renderWishlist; s.renderCountdown = renderCountdown; s.tickCountdown = tickCountdown; s.renderSettings = renderSettings;
@@ -207,10 +208,12 @@ assert(String(registry['#daysCount'].textContent) === String(expDays), 'счёт
 
 assert(registry['#dates'].innerHTML.includes('Свиданий пока нет'), 'empty dates state');
 
-// --- Пользователь: чип показывает вошедшего ---
-assert(registry['#userChip'].textContent === '👦 Гоша ▾', 'chip default gosha');
+// --- Пользователь: setUser переключает вошедшего (чипа в шапке больше нет —
+// клик по нему тихо разлогинивал, убран как избыточный: то же действие есть
+// явной кнопкой в настройках) ---
+assert(w('(s)=>s.getUser()') === 'gosha', 'getUser по умолчанию — gosha');
 w('(s)=>s.setUser("dasha")');
-assert(registry['#userChip'].textContent === '👧 Даша ▾', 'chip switches to dasha');
+assert(w('(s)=>s.getUser()') === 'dasha', 'setUser переключает на dasha');
 w('(s)=>s.setUser("gosha")');
 
 // --- Свидание: приглашение от кого + ответы ---
@@ -643,6 +646,18 @@ w('(s)=>{s.document.querySelector("#subtaskEdit-i2").value="Обновлённа
 w('(s)=>s.saveSubtaskEdit("L1","i2")');
 assert(w('(s)=>s.db.lists.find(l=>l.id==="L1").items.find(i=>i.id==="i2").text') === 'Обновлённая подзадача', 'правка сохраняет новый текст подзадачи');
 assert(w('(s)=>s.db.lists.find(l=>l.id==="L1").items.length') === 1, 'правка не создала дубликат подзадачи');
+// Редактирование НАЗВАНИЯ списка (не подзадачи) — раньше список можно было
+// только создать/удалить целиком, а удаление теряло все его подзадачи.
+w('(s)=>{s.startEditListName("L1"); return 1;}');
+assert(registry['#listsWrap'].innerHTML.includes('listNameEdit-L1'), 'режим правки рисует поле ввода для названия списка');
+w('(s)=>{s.document.querySelector("#listNameEdit-L1").value="Подарки на праздник"; return 1;}');
+w('(s)=>s.saveListNameEdit("L1")');
+assert(w('(s)=>s.db.lists.find(l=>l.id==="L1").name') === 'Подарки на праздник', 'правка сохраняет новое название списка');
+assert(w('(s)=>s.db.lists.find(l=>l.id==="L1").items.length') === 1, 'подзадачи списка не пострадали при переименовании');
+w('(s)=>{s.startEditListName("L1"); s.document.querySelector("#listNameEdit-L1").value="   "; s.saveListNameEdit("L1"); return 1;}');
+assert(w('(s)=>s.db.lists.find(l=>l.id==="L1").name') === 'Подарки на праздник', 'пустое название при правке отклоняется, старое остаётся');
+w('(s)=>{s.startEditListName("L1"); s.cancelListNameEdit(); return 1;}');
+assert(!registry['#listsWrap'].innerHTML.includes('listNameEdit-L1'), 'отмена правки убирает поле ввода');
 // выполненные подзадачи улетают вниз списка (порядок в db и в рендере)
 w('(s)=>{const l=s.db.lists.find(x=>x.id==="L1"); l.items=[{id:"a1",text:"Первая",done:false},{id:"b1",text:"Вторая",done:false}]; s.toggleSubtask("L1","b1"); return 1;}');
 assert(w('(s)=>{const l=s.db.lists.find(x=>x.id==="L1"); return l.items.map(i=>i.id).join(",");}') === 'a1,b1', 'выполненная подзадача переезжает в конец списка');
@@ -762,7 +777,6 @@ assert(w('(s)=>s.db.photos.length') === 0, 'данные очищены из п�
 assert(await w('(s)=>s.unlockWith("dasha","654321")') === true, 'Даша входит своим паролем');
 assert(w('(s)=>s.currentUser') === 'dasha', 'система знает: вошла Даша');
 assert(w('(s)=>s.db.labels.includes("Поездка")'), 'Даша видит те же данные');
-assert(registry['#userChip'].textContent === '👧 Даша ▾', 'чип показывает Дашу');
 
 // --- Экспорт — зашифрованный сейф без открытого текста ---
 const exp = await w('(s)=>s.exportData()');

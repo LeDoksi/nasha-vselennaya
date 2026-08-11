@@ -169,7 +169,7 @@ const document = {
 
 // id-элементы, которые приложение запрашивает при загрузке и в обработчиках
 const PREIDS = ['notesGrid', 'photosGrid', 'labelBar', 'calendar', 'dayPanel', 'dragHint', 'photoSelBar', 'selCount',
-  'jumpInfo', 'noteAddBtn', 'noteText', 'userChip', 'themeToggle', 'settingsThemeBtn',
+  'jumpInfo', 'noteAddBtn', 'noteText', 'themeToggle', 'settingsThemeBtn',
   'calPrev', 'calNext', 'calMonthSelect', 'calYearSelect', 'jumpNextBtn', 'addEventBtn',
   'authOverlay', 'evModal', 'evTitle', 'evDate', 'evEnd', 'evRepeat', 'evSave', 'evModalTitle', 'evHeadSub',
   'datePop', 'dpDays', 'dpMonth', 'countdownTick', 'labelOverlay', 'labelNewName', 'labelNewBtn',
