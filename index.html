@@ -407,10 +407,15 @@
   <div id="appToast" class="app-toast" hidden role="status" aria-live="polite"></div>
 
   <!-- Firebase SDK (фаза B1): без интернета/на file:// не загрузятся — сайт останется локальным -->
-  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-storage-compat.js"></script>
+  <script>
+    // Yandex Object Storage (S3) credentials — подставляются из GitHub Secrets при деплое
+    window.YANDEX_S3_KEY = "";
+    window.YANDEX_S3_SECRET = "";
+  </script>
   <script src="app.js"></script>
 </body>
 </html>

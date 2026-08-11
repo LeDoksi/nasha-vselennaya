@@ -24,8 +24,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Собрать app.js из src/
+            - name: Собрать app.js из src/
         run: node build.js
+      - name: Вставить S3-ключи в index.html
+        run: |
+          sed -i 's|window.YANDEX_S3_KEY = ""|window.YANDEX_S3_KEY = "${{ secrets.YANDEX_S3_KEY }}"|' index.html
+          sed -i 's|window.YANDEX_S3_SECRET = ""|window.YANDEX_S3_SECRET = "${{ secrets.YANDEX_S3_SECRET }}"|' index.html
       - name: Собрать публикуемые файлы
         run: |
           mkdir -p _site/fonts

@@ -4279,15 +4279,15 @@ let FIREBASE_CONFIG = {
   measurementId:     "G-JZY24EXCX3"
 }; // ← config из Firebase Console (фаза B1). let — чтобы тесты могли подставить мок.
 
-/* Фото-облако (фаза B3): Яндекс.Диск вместо Firebase Storage (Storage — только на
-   платном Blaze-плане, из России оплатить нельзя). Как получить токен — README,
-   шаг 6: oauth.yandex.ru → «Создать приложение» (Callback https://oauth.yandex.ru/verification_code)
-   → доступ «Яндекс.Диск REST API. Доступ к папке приложения» (cloud_api:disk.app_folder)
-   → «Выпустить токен». Токен видит только папку приложения /Приложения/<имя>/,
-   пути ниже идут относительно неё. */
-let YANDEX_DISK_CONFIG = {
-  token: 'y0__wgBEIepmJ0CGJqORyD9n7LOGDDY3uKSCI0YP0CcYDMHfx8QFUB_zk_nyS9i', // OAuth-токен Яндекса (scope: cloud_api:disk.app_folder)
-  basePath: '/photos' // внутри папки приложения: app:/photos/orig/{id}, app:/photos/full/{id}, app:/photos/thumb/{id}
+/* Фото-облако (фаза B3): Yandex Object Storage (S3-совместимое) вместо Firebase Storage.
+   Storage — только на платном Blaze-плане, из России оплатить нельзя.
+   Yandex Object Storage: нативный S3-протокол, CORS настроен, бесплатный tier.
+   Ключи подставляются из GitHub Secrets при деплое (window.YANDEX_S3_KEY, window.YANDEX_S3_SECRET). */
+let YANDEX_CLOUD_CONFIG = {
+  bucket:  'nasha-vselennaya',       // имя бакета (без https://)
+  key:     window.YANDEX_S3_KEY || '',    // static access key (SA) — из GitHub Secrets
+  secret:  window.YANDEX_S3_SECRET || '', // secret key — из GitHub Secrets
+  region:  'ru-central1'             // регион Yandex Cloud
 };
 
 const SYNC_KEY = 'universe_syncTs';  // последний известный syncTs (метаданные, не секрет)
@@ -4564,130 +4564,126 @@ function stopSync() {
    и скачиваем, лишнее (удалённые фото) чистим и в облаке, и в локальном сторе.
    Так работают и бэкфилл старых фото, и удаление с другого устройства. */
 const PHOTO_PARTS = ['orig', 'full', 'thumb'];
-let syncStorage = null;      // Яндекс.Диск (или firebase.storage() на платном Blaze)
+let syncStorage = null;      // Yandex Object Storage (S3)
 let photoSyncTimer = null;   // debounce после операций с фото
 let photoSyncing = false;    // защита от параллельных сверок
 
-/* ===== Адаптер Яндекс.Диска к интерфейсу фото-логики =====
-   REST API: cloud-api.yandex.net/v1/disk. Загрузка — GET /resources/upload
-   (в ответе href) → PUT на href; скачивание — GET /resources/download (href) →
-   GET на href; удаление — DELETE /resources; список папки — GET /resources
-   (пагинация limit=1000 по offset). CORS поддержан: cloud-api.yandex.net
-   отвечает Access-Control-Allow-Origin и разрешает Authorization. */
-const YD_API = 'https://cloud-api.yandex.net/v1/disk';
-const YD_LIMIT = 1000;
-let ydFetch = (typeof fetch === 'function') ? fetch : null; // let — чтобы тесты могли подменить
 
-async function ydRequest(url, opts, tries) {
-  const attempt = tries || 0;
-  try {
-    if (!ydFetch) throw new Error('fetch недоступен');
-    const res = await ydFetch(url, opts);
-    if (res.status === 429 || res.status >= 500) {
-      const e = new Error('YD ' + res.status);
-      e.retryable = true;
-      throw e;
+/* ===== S3-адаптер для Yandex Object Storage =====
+   AWS Signature v4 из браузера (Web Crypto API). CORS должен быть настроен на бакете.
+   Пути: /photos/{part}/{id}. makeCloudStorage() возвращает объект, совместимый с
+   firebase.storage(): ref(path).put/getBlob/delete, ref(folder).listAll(). */
+
+async function s3Sha256Hex(text) {
+  const buf = new TextEncoder().encode(text);
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function s3Hmac(key, message) {
+  const k = (typeof key === 'string') ? new TextEncoder().encode(key) : key;
+  const msg = new TextEncoder().encode(message);
+  const cryptoKey = await crypto.subtle.importKey('raw', k, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', cryptoKey, msg);
+  return new Uint8Array(sig);
+}
+
+function makeCloudStorage() {
+  const cfg = YANDEX_CLOUD_CONFIG;
+  if (!cfg.bucket || !cfg.key || !cfg.secret) throw new Error('YANDEX_CLOUD_CONFIG: bucket/key/secret не заданы');
+  const host = cfg.bucket + '.storage.yandexcloud.net';
+  const endpoint = 'https://' + host;
+
+  async function signRequest(method, path, body) {
+    const now = new Date();
+    const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    const dateStamp = amzDate.slice(0, 8);
+    const payload = 'UNSIGNED-PAYLOAD';
+    const canonicalHeaders = 'host:' + host + '\nx-amz-content-sha256:' + payload + '\nx-amz-date:' + amzDate + '\n';
+    const signedHeaders = ['host', 'x-amz-content-sha256', 'x-amz-date'];
+    const canonicalReq = method + '\n' + path + '\n\n' + canonicalHeaders + signedHeaders.join(';') + '\n' + await s3Sha256Hex(body !== undefined && body !== null ? body : '');
+    const scope = dateStamp + '/' + cfg.region + '/s3/aws4_request';
+    const stringToSign = 'AWS4-HMAC-SHA256\n' + amzDate + '\n' + scope + '\n' + await s3Sha256Hex(canonicalReq);
+    const kDate = await s3Hmac('AWS4' + cfg.secret, dateStamp);
+    const kRegion = await s3Hmac(kDate, cfg.region);
+    const kService = await s3Hmac(kRegion, 's3');
+    const kSigning = await s3Hmac(kService, 'aws4_request');
+    const sig = await s3Hmac(kSigning, stringToSign);
+    return {
+      'host': host,
+      'x-amz-date': amzDate,
+      'x-amz-content-sha256': payload,
+      'Authorization': 'AWS4-HMAC-SHA256 Credential=' + cfg.key + '/' + scope + ', SignedHeaders=' + signedHeaders.join(';') + ', Signature=' + Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('')
+    };
+  }
+
+  async function s3Fetch(method, path, body) {
+    const headers = await signRequest(method, path, body);
+    const url = endpoint + path;
+    const opts = { method, headers };
+    if (body !== undefined && body !== null) {
+      opts.body = body;
+      if (typeof body === 'string') headers['Content-Type'] = 'application/json';
     }
-    if (!res.ok) throw new Error('YD ' + res.status);
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error('S3 ' + res.status + ' ' + path + (txt ? ': ' + txt.slice(0, 200) : ''));
+    }
     return res;
-  } catch (e) {
-    // Ретраим только временные сбои (429/5xx/сеть). Ошибки 4xx (403, 404, 409)
-    // детерминированы — повторять бессмысленно, а в тестах setTimeout-заглушка
-    // вообще не вызывает колбэк, так что ретрай «завис» бы навсегда.
-    if (e && e.retryable && attempt < 2) {
-      await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
-      return ydRequest(url, opts, attempt + 1);
-    }
-    throw e;
   }
-}
-function ydHeaders() { return { Authorization: 'OAuth ' + YANDEX_DISK_CONFIG.token }; }
-// Токен имеет scope cloud_api:disk.app_folder — видит ТОЛЬКО папку приложения,
-// поэтому все пути обязаны начинаться с app:/ (иначе API отвечает 403 Forbidden).
-function ydPath(part, id) { return 'app:' + YANDEX_DISK_CONFIG.basePath + '/' + part + '/' + id; }
-function ydUploadUrl(part, id) { return YD_API + '/resources/upload?path=' + encodeURIComponent(ydPath(part, id)) + '&overwrite=true'; }
-function ydDownloadUrl(part, id) { return YD_API + '/resources/download?path=' + encodeURIComponent(ydPath(part, id)); }
-function ydDeleteUrl(part, id) { return YD_API + '/resources?path=' + encodeURIComponent(ydPath(part, id)) + '&permanently=true'; }
-function ydListUrl(folder, offset) { return YD_API + '/resources?path=' + encodeURIComponent(folder) + '&limit=' + YD_LIMIT + '&offset=' + offset; }
 
-// Яндекс не создаёт промежуточные папки сам (409 DiskPathDoesntExistsError), поэтому
-// перед загрузкой гарантируем цепочку app:/photos → app:/photos/{part}.
-async function ydEnsureDir(path) {
-  try {
-    await ydRequest(YD_API + '/resources?path=' + encodeURIComponent(path), { method: 'PUT', headers: ydHeaders() });
-  } catch (e) { /* 409 — папка уже есть (или появится после создания родителя): не ошибка */ }
-}
-async function ydEnsureDirs(part) {
-  await ydEnsureDir('app:' + YANDEX_DISK_CONFIG.basePath);
-  await ydEnsureDir('app:' + YANDEX_DISK_CONFIG.basePath + '/' + part);
-}
+  function objectPath(part, id) { return '/photos/' + part + '/' + encodeURIComponent(id); }
 
-async function ydUpload(part, id, blob) {
-  await ydEnsureDirs(part);
-  const r = await ydRequest(ydUploadUrl(part, id), { method: 'GET', headers: ydHeaders() });
-  const j = await r.json();
-  const href = j && j.href;
-  if (!href) throw new Error('YD: нет ссылки для загрузки');
-  const up = await ydFetch(href, { method: j.method || 'PUT', body: blob, headers: { 'Content-Type': 'application/json' } });
-  if (up.status !== 201 && up.status !== 202 && !up.ok) throw new Error('YD upload ' + up.status);
-}
-
-async function ydDownload(part, id) {
-  const r = await ydRequest(ydDownloadUrl(part, id), { method: 'GET', headers: ydHeaders() });
-  const j = await r.json();
-  const href = j && j.href;
-  if (!href) throw new Error('YD: нет ссылки для скачивания');
-  const down = await ydFetch(href, { method: j.method || 'GET' });
-  if (!down.ok) throw new Error('YD download ' + down.status);
-  return down.blob();
-}
-
-async function ydDelete(part, id) {
-  await ydRequest(ydDeleteUrl(part, id), { method: 'DELETE', headers: ydHeaders() });
-}
-
-async function ydList(folder) {
-  const items = [];
-  let offset = 0;
-  for (;;) {
-    let r;
-    try { r = await ydRequest(ydListUrl(folder, offset), { method: 'GET', headers: ydHeaders() }); }
-    catch (e) {
-      // Папки ещё нет (первый запуск до выгрузки) — это пустой список, а не ошибка
-      if (/404|Not Found/i.test(String((e && e.message) || ''))) return { items, prefixes: [] };
-      throw e;
-    }
-    const j = await r.json();
-    const chunk = (j._embedded && j._embedded.items) || [];
-    for (const it of chunk) if (it && it.type === 'file') items.push({ name: it.name });
-    if (chunk.length < YD_LIMIT || offset >= 20000) break;
-    offset += chunk.length;
-  }
-  return { items, prefixes: [] };
-}
-
-// makeYdStorage() — объект в стиле firebase.storage(): ref('photos/thumb/abc') →
-// { put, getBlob, delete }, ref('photos/thumb') → { listAll }. Фото-логика
-// (photoRef, listCloudPhotos, syncPhotos) работает с ним без изменений.
-function makeYdStorage() {
   return {
     ref(path) {
       const seg = String(path || '').split('/').filter(Boolean);
       if (seg.length >= 3) {
         const part = seg[1], id = seg.slice(2).join('/');
+        const p = objectPath(part, id);
         return {
           name: id,
           fullPath: seg.join('/'),
-          put(blob) { return ydUpload(part, id, blob); },
-          getBlob() { return ydDownload(part, id); },
-          delete() { return ydDelete(part, id); }
+          async put(blob) {
+            const txt = (typeof blob === 'string') ? blob : await blob.text();
+            await s3Fetch('PUT', p, txt);
+          },
+          async getBlob() {
+            try {
+              const res = await s3Fetch('GET', p, null);
+              return await res.blob();
+            } catch (e) {
+              if (/404/.test(String(e))) return null;
+              throw e;
+            }
+          },
+          async delete() {
+            try { await s3Fetch('DELETE', p, null); } catch (e) { if (!/404/.test(String(e))) throw e; }
+          }
         };
       }
-      const folder = 'app:/' + seg.join('/'); // 'app:/photos/thumb' — токен видит только папку приложения
-      return { listAll() { return ydList(folder); } };
+      const fp = '/?list-type=2&prefix=photos/' + encodeURIComponent(seg.join('/')) + '/';
+      return {
+        async listAll() {
+          const items = [];
+          try {
+            const res = await s3Fetch('GET', fp, null);
+            const txt = await res.text();
+            const keys = [...txt.matchAll(/<Key>([^<]+)<\/Key>/g)].map(m => m[1]);
+            for (const k of keys) {
+              const tail = k.split('/').pop();
+              if (tail) items.push({ name: tail });
+            }
+          } catch (e) {
+            if (!/404/.test(String(e))) throw e;
+          }
+          return { items, prefixes: [] };
+        }
+      };
     }
   };
 }
+
 
 function photoRef(part, id) { return syncStorage.ref('photos/' + part + '/' + id); }
 
