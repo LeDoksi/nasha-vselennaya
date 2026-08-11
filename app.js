@@ -689,6 +689,25 @@ function u8ToBlob(u8, type) {
   return new Blob([u8], { type });
 }
 
+// ===== Лёгкий индекс метаданных (id → флаги наличия частей + размер) =====
+// Раньше listIds()/refreshSizes() каждый раз читали ВСЕ записи целиком через
+// IndexedDB.getAll() (включая зашифрованные блобы оригиналов) — на каждую
+// сверку с облаком (каждое добавление/удаление фото). При росте библиотеки
+// это стало бы главным тормозом. Теперь индекс строится один раз при init()
+// (единственное полное сканирование за разблокировку) и дальше обновляется
+// точечно в put/putEncrypted/delete — без повторных полных сканов и без
+// расшифровки блобов ради счётчика места.
+function estimateSize(row) {
+  if (row.meta && typeof row.meta.size === 'number') return row.meta.size;
+  // Легаси-записи без meta.size — прикидываем по длине base64 шифртекста,
+  // расшифровывать ради точного числа не нужно (это только для счётчика места).
+  const d = row.full && row.full.d;
+  return d ? Math.ceil(d.length * 3 / 4) : 0;
+}
+function indexEntry(row) {
+  return { id: row.id, hasFull: !!row.full, hasThumb: !!row.thumb, hasOrig: !!row.orig, size: estimateSize(row) };
+}
+
 // Конвертация data-URL → Blob
 function dataUrlToBlob(dataUrl) {
   const idx = dataUrl.indexOf(',');
@@ -744,8 +763,12 @@ async function migratePhotosToStore(store, db) {
 // ===== IDBPhotoStore =====
 const IDBPhotoStore = {
   db: null,
+  _index: null, // Map<id, {hasFull,hasThumb,hasOrig,size}> — см. indexEntry() выше
   async init() {
     this.db = await openPhotoDB();
+    this._index = new Map();
+    const rows = await idbGetAll(this);
+    for (const r of rows) this._index.set(r.id, indexEntry(r));
   },
   async put(id, fullBlob, thumbBlob, meta, origBlob) {
     const fullU8 = fullBlob instanceof Uint8Array ? fullBlob : await blobToU8(fullBlob);
@@ -754,11 +777,15 @@ const IDBPhotoStore = {
     const encFull = await encryptBlob(fullU8);
     const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
     const encOrig = origU8 ? await encryptBlob(origU8) : null;
-    await idbPut(this, { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} });
+    const row = { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} };
+    await idbPut(this, row);
+    this._index.set(id, indexEntry(row));
   },
   // Сохранение уже зашифрованных блобов (пришли из облака) — без повторного шифрования.
   async putEncrypted(id, encFull, encThumb, meta, encOrig) {
-    await idbPut(this, { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} });
+    const row = { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} };
+    await idbPut(this, row);
+    this._index.set(id, indexEntry(row));
   },
   async getFull(id) {
     const row = await idbGet(this, id);
@@ -785,13 +812,14 @@ const IDBPhotoStore = {
     const row = await idbGet(this, id);
     return row?.meta || null;
   },
-  // Лёгкий список того, что лежит в сторе (без дешифровки) — для облачной сверки.
+  // Лёгкий список того, что лежит в сторе (без чтения блобов) — для облачной
+  // сверки. Из индекса, без похода в IndexedDB.
   async listIds() {
-    const rows = await idbGetAll(this);
-    return rows.map(r => ({ id: r.id, hasFull: !!r.full, hasThumb: !!r.thumb, hasOrig: !!r.orig }));
+    return [...this._index.values()].map(({ id, hasFull, hasThumb, hasOrig }) => ({ id, hasFull, hasThumb, hasOrig }));
   },
   async delete(id) {
     await idbDelete(this, id);
+    this._index.delete(id);
   },
   async all() {
     const rows = await idbGetAll(this);
@@ -826,20 +854,22 @@ const IDBPhotoStore = {
       const encFull = await encryptBlob(fullU8);
       const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
       const encOrig = origU8 ? await encryptBlob(origU8) : null;
-      await idbPut(this, { id: item.id, full: encFull, thumb: encThumb, orig: encOrig, meta: item.meta || {} });
-        }
+      const row = { id: item.id, full: encFull, thumb: encThumb, orig: encOrig, meta: item.meta || {} };
+      await idbPut(this, row);
+      this._index.set(item.id, indexEntry(row));
+    }
   },
   async clear() {
     await idbClear(this);
+    this._index.clear();
   },
   async migratePhotos(db) { return migratePhotosToStore(this, db); },
+  // Счётчик места в настройках — из индекса (meta.size/оценка по длине
+  // шифртекста), без расшифровки каждого блоба.
   async refreshSizes() {
-    const rows = await idbGetAll(this);
     let total = 0;
-    for (const r of rows) {
-      try { total += (await decryptBlob(r.full)).byteLength; } catch (e) {}
-    }
-    return { count: rows.length, bytes: total };
+    for (const e of this._index.values()) total += e.size;
+    return { count: this._index.size, bytes: total };
   }
 };
 
@@ -932,9 +962,7 @@ const MemoryPhotoStore = {
   async migratePhotos(db) { return migratePhotosToStore(this, db); },
   async refreshSizes() {
     let total = 0;
-    for (const r of this._map.values()) {
-      try { total += (await decryptBlob(r.full)).byteLength; } catch (e) {}
-    }
+    for (const r of this._map.values()) total += estimateSize(r);
     return { count: this._map.size, bytes: total };
   }
 };
@@ -4303,6 +4331,8 @@ let syncReady = false;     // SDK есть, config есть, анонимный 
 let syncTs = 0;            // последний применённый syncTs
 let syncPushTimer = null;  // debounce push после save()
 let syncApplying = false;  // защита от рекурсии pull→save→push
+let lastRemoteSnapshot;    // последний снимок vaults/shared от живого слушателя;
+                            // undefined = слушатель ещё ничего не прислал (см. pushVault)
 
 /* ===== Инициализация: вызывается из unlockApp() после входа ===== */
 async function initSync() {
@@ -4337,11 +4367,15 @@ async function initSync() {
   }
 }
 
-/* ===== Push: после каждого save() (debounce 1.5с) ===== */
+/* ===== Push: после каждого save() (debounce 0.6с) =====
+   Было 1.5с — держали с запасом, но живой слушатель (listenRemote) и так
+   схлопывает лишние применения по syncTs, а более короткий debounce делает
+   «долетание» правки до другого устройства заметно быстрее без риска забить
+   Firebase лишними записями (быстрые правки всё равно схлопываются в одну). */
 function scheduleSyncPush() {
   if (!syncReady || syncApplying) return;
   clearTimeout(syncPushTimer);
-  syncPushTimer = setTimeout(pushVault, 1500);
+  syncPushTimer = setTimeout(pushVault, 600);
 }
 
 // Защита от затирания чужого сейфа. Облачный сейф не расшифровался текущим
@@ -4410,9 +4444,16 @@ async function pushVault() {
   if (!syncReady || syncApplying) return;
   // Смотрим, что сейчас лежит в облаке. Если сейф другой и не расшифровывается
   // текущим ключом — это чужой сейф: НЕ затираем его автоматически.
+  // Живой слушатель (listenRemote) и так держит последний снимок облака —
+  // раньше здесь был отдельный .once('value') перед КАЖДЫМ push, то есть
+  // каждое сохранение стоило двух походов в Firebase вместо одного. Берём
+  // кэш; за свежим снимком, если слушателя ещё нет, читаем сами.
   try {
-    const snap = await syncDb.ref(SYNC_PATH).once('value');
-    const remote = snap && snap.val ? snap.val() : null;
+    let remote = lastRemoteSnapshot;
+    if (remote === undefined) {
+      const snap = await syncDb.ref(SYNC_PATH).once('value');
+      remote = snap && snap.val ? snap.val() : null;
+    }
     if (remote && remote.vault && remote.vault.db && typeof remote.vault.db.d === 'string' && masterKey) {
       let ok = false;
       try { await aesDec(masterKey, remote.vault.db); ok = true; } catch (e) {}
@@ -4475,8 +4516,9 @@ function listenRemote() {
   if (syncLiveOn || !syncReady || !syncDb) return;
   syncLiveOn = true;
   syncDb.ref(SYNC_PATH).on('value', snap => {
-    if (syncApplying) return;
     const remote = snap && snap.val ? snap.val() : null;
+    lastRemoteSnapshot = remote; // держим свежим для pushVault (не перечитывать заново)
+    if (syncApplying) return;
     if (!remote || !remote.vault || !remote.vault.db || typeof remote.vault.db.d !== 'string') return;
     const rts = remote.syncTs || 0;
     if (rts <= syncTs) return; // свой же push
@@ -4549,23 +4591,29 @@ function stopSync() {
   syncStorage = null;
   syncPushBlocked = false;
   photoSyncing = false;
+  lastRemoteSnapshot = undefined; // следующий initSync() начнёт с чистого кэша
   renderSyncStatus('off');
 }
 
 
-/* ===== Фото в облаке (фаза B3): оригиналы + миниатюры в Яндекс.Диске =====
+/* ===== Фото в облаке: оригиналы + показ-версии + миниатюры в Yandex Object
+   Storage =====
    Пути: photos/orig/{id} (исходный файл), photos/full/{id} (показ-версия),
    photos/thumb/{id} (миниатюра). В облако уезжают САМИ шифртексты из photoStore
    (AES-GCM мастер-ключом) — сервер видит только шифртекст, прочитать фото без
    пароля нельзя (zero-knowledge), а на другом устройстве они расшифровываются тем
-   же мастер-ключом. Реализация — адаптер makeYdStorage() ниже: тот же интерфейс
-   { put, getBlob, delete, listAll }, что у Firebase Storage.
+   же мастер-ключом. Реализация — адаптер makeCloudStorage() ниже: интерфейс
+   { put, getBlob, delete, listAll }, читает анонимно напрямую, пишет через
+   Cloud Function photo-sign (см. комментарий над makeCloudStorage).
 
    Модель — полная сверка (reconciliation): после каждой операции с фото
    (добавление, удаление, применение облачного сейфа) с задержкой сравниваем три
    списка: локальный photoStore, облако Storage и db.photos. Недостающее выгружаем
    и скачиваем, лишнее (удалённые фото) чистим и в облаке, и в локальном сторе.
-   Так работают и бэкфилл старых фото, и удаление с другого устройства. */
+   Так работают и бэкфилл старых фото, и удаление с другого устройства.
+   Загрузка/скачивание нескольких фото идёт параллельно (см. mapLimit) —
+   иначе первый вход на новом устройстве с большой галереей тянул бы фото
+   одно за другим. */
 const PHOTO_PARTS = ['orig', 'full', 'thumb'];
 let syncStorage = null;      // Yandex Object Storage (S3)
 let photoSyncTimer = null;   // debounce после операций с фото
@@ -4644,16 +4692,27 @@ function makeCloudStorage() {
       }
       const fp = '/?list-type=2&prefix=' + encodeURIComponent(seg.join('/') + '/');
       return {
+        // ListObjectsV2 отдаёт максимум 1000 ключей за раз (IsTruncated +
+        // NextContinuationToken) — без пагинации при библиотеке за ~300 фото
+        // (1000 / 3 части) список молча обрывался бы, и «скачать с другого
+        // устройства» переставало бы находить недостающее.
         async listAll() {
           const items = [];
+          let token = null;
           try {
-            const res = await s3Fetch('GET', fp, null);
-            const txt = await res.text();
-            const keys = [...txt.matchAll(/<Key>([^<]+)<\/Key>/g)].map(m => m[1]);
-            for (const k of keys) {
-              const tail = k.split('/').pop();
-              if (tail) items.push({ name: tail });
-            }
+            do {
+              const q = fp + (token ? '&continuation-token=' + encodeURIComponent(token) : '');
+              const res = await s3Fetch('GET', q, null);
+              const txt = await res.text();
+              const keys = [...txt.matchAll(/<Key>([^<]+)<\/Key>/g)].map(m => m[1]);
+              for (const k of keys) {
+                const tail = k.split('/').pop();
+                if (tail) items.push({ name: tail });
+              }
+              const truncated = /<IsTruncated>true<\/IsTruncated>/.test(txt);
+              const tokenMatch = /<NextContinuationToken>([^<]+)<\/NextContinuationToken>/.exec(txt);
+              token = (truncated && tokenMatch) ? tokenMatch[1] : null;
+            } while (token);
           } catch (e) {
             if (!/404/.test(String(e))) throw e;
           }
@@ -4667,12 +4726,15 @@ function makeCloudStorage() {
 
 function photoRef(part, id) { return syncStorage.ref('photos/' + part + '/' + id); }
 
-// Запуск сверки фото (debounce 2.5 с): после добавления/удаления фото и при
-// применении облачного сейфа. Без Storage или до разблокировки — просто ждём.
+// Запуск сверки фото (debounce 1.2 с — было 2.5, снижено вместе с
+// оптимизацией самой сверки: listIds() больше не читает блобы, а probe не
+// перепроверяет уже свои фото, так что каждый прогон стал заметно дешевле):
+// после добавления/удаления фото и при применении облачного сейфа. Без
+// Storage или до разблокировки — просто ждём.
 function schedulePhotoSync() {
   if (!syncStorage || !photoStore || !masterKey || photoSyncing) return;
   clearTimeout(photoSyncTimer);
-  photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 2500);
+  photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 1200);
 }
 
 // Что сейчас лежит в облаке: { id: { orig: true, full: true, thumb: true } }
@@ -4715,24 +4777,31 @@ async function uploadCloudPhoto(id, cloud, local) {
 
 
 // Скачивание недостающих частей фото из облака (без повторного шифрования).
+// Части (orig/full/thumb) качаются параллельно, а не по очереди — раньше
+// одно фото ждало трёх последовательных запросов, теперь одного «раунда».
 async function downloadCloudPhoto(id, cloud, local) {
   try {
     const meta = (local && (await photoStore.getMeta(id).catch(() => null))) || {};
-    const got = {};
-    let gotMeta = null;
-    for (const part of PHOTO_PARTS) {
+    const need = PHOTO_PARTS.filter(part => {
       const hasCloud = cloud[id] && cloud[id][part];
       const hasLocal = local && local['has' + part[0].toUpperCase() + part.slice(1)];
-      if (!hasCloud || hasLocal) continue;
+      return hasCloud && !hasLocal;
+    });
+    const fetched = await Promise.all(need.map(async part => {
       const data = await photoRef(part, id).getBlob();
       const txt = (typeof data === 'string') ? data : await data.text();
       const parsed = JSON.parse(txt);
       // Новый формат { e: шифртекст, m: {t,ft,st,s} } и старый { i, d } — оба понимаем
       const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
                 : (parsed && typeof parsed.d === 'string') ? parsed : null;
-      if (!enc) continue;
-      got[part] = enc;
-      if (parsed && parsed.m && !gotMeta) gotMeta = parsed.m;
+      return { part, enc, m: parsed && parsed.m };
+    }));
+    const got = {};
+    let gotMeta = null;
+    for (const f of fetched) {
+      if (!f.enc) continue;
+      got[f.part] = f.enc;
+      if (f.m && !gotMeta) gotMeta = f.m;
     }
     if (!got.orig && !got.full && !got.thumb) return { ok: false, err: new Error('в облаке нет частей для скачивания') };
     // Сохраняем всё разом, чтобы не потерять уже имеющиеся локальные части
@@ -4758,6 +4827,24 @@ async function downloadCloudPhoto(id, cloud, local) {
     return { ok: false, err: e };
   }
 }
+
+// Параллельно выполняет fn по items, не более limit одновременно — чтобы
+// сверка N фото не шла строго по одному (было так — первый вход на новом
+// устройстве с большой галереей качал бы фото поштучно), но и не открывала
+// сотни запросов разом (лимит бережёт Cloud Function и сеть телефона).
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      results[idx] = await fn(items[idx], idx);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+const SYNC_CONCURRENCY = 4;
 
 // Проверяет облачные фото по одному: расшифровываются ли они текущим ключом.
 // Берём самую «лёгкую» часть (миниатюра < показ-версия < оригинал) и пробуем
@@ -4806,18 +4893,30 @@ async function syncPhotos() {
     const localList = await photoStore.listIds();
     const localMap = new Map(localList.map(l => [l.id, l]));
     const cloud = await listCloudPhotos();
-    // Проверяем каждое облачное фото отдельно. Чужое (другой ключ) НЕ блокирует
-    // синхронизацию остальных: свои фото скачиваем и выгружаем, а чужие просто
-    // не трогаем. Раньше одно «чужое» фото прерывало всю сверку — и свои фото
-    // навсегда оставались невыгруженными и нескачанными (deadlock на телефоне).
-    const probe = Object.keys(cloud).length ? await probeCloudKeys(cloud) : { foreign: new Map(), unknown: new Map() };
+    const want = new Set((db.photos || []).map(p => p && p.id).filter(Boolean));
+    const hasPart = (id, part) => { const l = localMap.get(id); return !!(l && l['has' + part[0].toUpperCase() + part.slice(1)]); };
+    // Проверяем расшифровку не для ВСЕХ облачных фото, а только для тех, что
+    // ещё не доказаны своими: если id уже в db.photos (want) и все части,
+    // которые есть в облаке, уже лежат у нас локально — мы их когда-то сами
+    // расшифровали (создали или уже скачали), повторный запрос+расшифровка
+    // ничего нового не скажут. Проверяем только новое/неполное — кандидатов
+    // на скачивание и на возможную чистку «мусора».
+    const toProbe = {};
+    for (const id of Object.keys(cloud)) {
+      const fullyLocalAndWanted = want.has(id) && PHOTO_PARTS.every(part => !cloud[id][part] || hasPart(id, part));
+      if (!fullyLocalAndWanted) toProbe[id] = cloud[id];
+    }
+    // Чужое (другой ключ) НЕ блокирует синхронизацию остальных: свои фото
+    // скачиваем и выгружаем, а чужие просто не трогаем. Раньше одно «чужое»
+    // фото прерывало всю сверку — и свои фото навсегда оставались
+    // невыгруженными и нескачанными (deadlock на телефоне).
+    const probe = Object.keys(toProbe).length ? await probeCloudKeys(toProbe) : { foreign: new Map(), unknown: new Map() };
     const isSkipped = id => probe.foreign.has(id) || probe.unknown.has(id);
     if (probe.foreign.size) {
       console.warn('[sync] в облаке фото с другим ключом (' + probe.foreign.size + ' шт) — их не трогаю, свои фото синхронизирую');
       notify('В облаке есть фото с другим паролем — я их не трогаю, но свои фото выгружаю 💜', true);
     }
     if (probe.unknown.size) stats.retry = true; // сеть/формат — повторим позже
-    const want = new Set((db.photos || []).map(p => p && p.id).filter(Boolean));
     // 1. Локальный мусор: блоб без фото в db (фото удалено) — чистим store
     for (const id of localMap.keys()) {
       if (want.has(id)) continue;
@@ -4834,24 +4933,25 @@ async function syncPhotos() {
         }
       }
     }
-    // 3. Скачиваем недостающее с облака (кроме чужих и временно недоступных)
-    for (const id of want) {
-      if (isSkipped(id)) continue;
-      const l = localMap.get(id);
-      const need = PHOTO_PARTS.some(part => cloud[id] && cloud[id][part] && (!l || !l['has' + part[0].toUpperCase() + part.slice(1)]));
-      if (!need) continue;
-      const res = await downloadCloudPhoto(id, cloud, l);
+    // 3. Скачиваем недостающее с облака (кроме чужих и временно недоступных) —
+    //    параллельно, не более SYNC_CONCURRENCY фото одновременно.
+    const toDownload = [...want].filter(id => {
+      if (isSkipped(id)) return false;
+      return PHOTO_PARTS.some(part => cloud[id] && cloud[id][part] && !hasPart(id, part));
+    });
+    await mapLimit(toDownload, SYNC_CONCURRENCY, async id => {
+      const res = await downloadCloudPhoto(id, cloud, localMap.get(id));
       if (res && res.ok) stats.downloaded++;
       else { stats.failed++; stats.retry = true; }
-    }
-    // 4. Выгружаем недостающее в облако (новые фото + бэкфилл старых)
-    for (const id of want) {
-      const l = localMap.get(id);
-      if (!l || !l.hasFull) continue; // полного блоба нет — выгружать нечего
-      const res = await uploadCloudPhoto(id, cloud, l);
+    });
+    // 4. Выгружаем недостающее в облако (новые фото + бэкфилл старых) —
+    //    тоже параллельно.
+    const toUpload = [...want].filter(id => { const l = localMap.get(id); return l && l.hasFull; });
+    await mapLimit(toUpload, SYNC_CONCURRENCY, async id => {
+      const res = await uploadCloudPhoto(id, cloud, localMap.get(id));
       if (res && res.ok) stats.uploaded++;
       else { stats.failed++; stats.retry = true; }
-    }
+    });
     if (stats.failed) {
       notify('Часть фото не синхронизировалась — проверь интернет, повторю через минуту 💜', true);
     }

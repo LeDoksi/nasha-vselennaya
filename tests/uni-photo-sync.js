@@ -52,9 +52,20 @@ const firebase = {
 const mockBucket = {};
 const SIGN_FN_URL = 'https://functions.yandexcloud.net/mock-photo-sign';
 const signCalls = []; // для проверки, что запись реально идёт через функцию
-function xmlList(prefix) {
-  const keys = Object.keys(mockBucket).filter(k => k.slice(1).startsWith(prefix));
-  return '<ListBucketResult>' + keys.map(k => '<Contents><Key>' + k.slice(1) + '</Key></Contents>').join('') + '</ListBucketResult>';
+const getCalls = [];  // GET-запросы к конкретным объектам (не список) — для проверки, что уже свои фото не перепроверяются заново
+let paginateLimit = null; // не null в тесте пагинации — режет список на страницы по N ключей
+function xmlList(prefix, token) {
+  const keys = Object.keys(mockBucket).filter(k => k.slice(1).startsWith(prefix)).map(k => k.slice(1)).sort();
+  if (!paginateLimit) {
+    return '<ListBucketResult>' + keys.map(k => '<Contents><Key>' + k + '</Key></Contents>').join('') + '</ListBucketResult>';
+  }
+  const start = token ? keys.indexOf(token) + 1 : 0;
+  const page = keys.slice(start, start + paginateLimit);
+  const truncated = start + paginateLimit < keys.length;
+  return '<ListBucketResult>' + page.map(k => '<Contents><Key>' + k + '</Key></Contents>').join('') +
+    '<IsTruncated>' + (truncated ? 'true' : 'false') + '</IsTruncated>' +
+    (truncated ? '<NextContinuationToken>' + page[page.length - 1] + '</NextContinuationToken>' : '') +
+    '</ListBucketResult>';
 }
 async function fetchMock(url, opts) {
   const method = (opts && opts.method) || 'GET';
@@ -74,7 +85,9 @@ async function fetchMock(url, opts) {
   if (pathname === '/' && full.indexOf('list-type=2') !== -1) {
     const m = /prefix=([^&]+)/.exec(full);
     const prefix = m ? decodeURIComponent(m[1]) : '';
-    return { ok: true, status: 200, text: () => Promise.resolve(xmlList(prefix)) };
+    const tm = /continuation-token=([^&]+)/.exec(full);
+    const token = tm ? decodeURIComponent(tm[1]) : null;
+    return { ok: true, status: 200, text: () => Promise.resolve(xmlList(prefix, token)) };
   }
   if (method === 'PUT') {
     mockBucket[pathname] = opts.body;
@@ -85,6 +98,7 @@ async function fetchMock(url, opts) {
     return { ok: true, status: 204, text: () => Promise.resolve('') };
   }
   // GET один объект
+  getCalls.push(pathname);
   const body = mockBucket[pathname];
   if (body === undefined) return { ok: false, status: 404, text: () => Promise.resolve('NoSuchKey') };
   return { ok: true, status: 200, text: () => Promise.resolve(body), blob: () => Promise.resolve(new Blob([body], { type: 'application/json' })) };
@@ -173,6 +187,15 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   assert(signCalls.some(c => c.method === 'PUT' && c.part === 'orig' && c.id === 'pA'),
     'запись оригинала запросила подписанную ссылку у функции photo-sign (не голый PUT в бакет)');
 
+  // 2b. Повторная сверка без изменений: pA уже полностью локально и всё ещё в
+  // db.photos — повторно проверять его расшифровку (сетевой GET) не нужно,
+  // мы его и так сами зашифровали/скачали. Раньше probeCloudKeys() дёргала
+  // ВСЕ облачные фото при каждой сверке — эта проверка ловит регресс.
+  getCalls.length = 0;
+  await w('(s)=>s.syncPhotos()');
+  assert(!getCalls.some(p => p.indexOf('/pA') !== -1),
+    'уже свои фото (в db.photos + полностью локально) не перепроверяются заново при повторной сверке');
+
   // 3. «Второе устройство»: стор пуст, облако уже знает фото — скачиваем всё назад
   await w('(s)=>{s.photoStore.clear(); return 1;}');
   await w('(s)=>s.syncPhotos()');
@@ -253,6 +276,19 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   assert(await w('(s)=>s.photoStore.getMeta("pN")') !== null,
     'своё фото осталось в локальном сторе');
   assert(w('(s)=>s.photoSyncing') === false, 'syncPhotos завершился штатно');
+
+  // 11. Пагинация листинга: ListObjectsV2 у настоящего Yandex Object Storage
+  // отдаёт максимум 1000 ключей за раз (IsTruncated + NextContinuationToken).
+  // Без пагинации на клиенте список молча обрывался бы. Мок режет страницы
+  // по 2 ключа и проверяет, что клиент сам идёт по continuation-token, пока
+  // не соберёт всё.
+  paginateLimit = 2;
+  for (const n of ['q1', 'q2', 'q3', 'q4', 'q5']) mockBucket['/photos/thumb/' + n] = '{"e":{"i":"x","d":"y"}}';
+  const paged = await w('(s)=>s.listCloudPhotos()');
+  paginateLimit = null;
+  for (const n of ['q1', 'q2', 'q3', 'q4', 'q5']) delete mockBucket['/photos/thumb/' + n];
+  assert(['q1', 'q2', 'q3', 'q4', 'q5'].every(n => paged[n] && paged[n].thumb),
+    'постраничный список (лимит 2 на страницу) всё равно собирает все 5 ключей через continuation-token');
 
   console.log('OK: ' + results.length + ' photo-sync checks passed');
 })().catch(e => { process.stdout.write('FAIL: photo-sync: ' + (e && (e.stack || e.message) || e) + '\n'); process.exit(1); });

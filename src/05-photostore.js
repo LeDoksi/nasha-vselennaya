@@ -96,6 +96,25 @@ function u8ToBlob(u8, type) {
   return new Blob([u8], { type });
 }
 
+// ===== Лёгкий индекс метаданных (id → флаги наличия частей + размер) =====
+// Раньше listIds()/refreshSizes() каждый раз читали ВСЕ записи целиком через
+// IndexedDB.getAll() (включая зашифрованные блобы оригиналов) — на каждую
+// сверку с облаком (каждое добавление/удаление фото). При росте библиотеки
+// это стало бы главным тормозом. Теперь индекс строится один раз при init()
+// (единственное полное сканирование за разблокировку) и дальше обновляется
+// точечно в put/putEncrypted/delete — без повторных полных сканов и без
+// расшифровки блобов ради счётчика места.
+function estimateSize(row) {
+  if (row.meta && typeof row.meta.size === 'number') return row.meta.size;
+  // Легаси-записи без meta.size — прикидываем по длине base64 шифртекста,
+  // расшифровывать ради точного числа не нужно (это только для счётчика места).
+  const d = row.full && row.full.d;
+  return d ? Math.ceil(d.length * 3 / 4) : 0;
+}
+function indexEntry(row) {
+  return { id: row.id, hasFull: !!row.full, hasThumb: !!row.thumb, hasOrig: !!row.orig, size: estimateSize(row) };
+}
+
 // Конвертация data-URL → Blob
 function dataUrlToBlob(dataUrl) {
   const idx = dataUrl.indexOf(',');
@@ -151,8 +170,12 @@ async function migratePhotosToStore(store, db) {
 // ===== IDBPhotoStore =====
 const IDBPhotoStore = {
   db: null,
+  _index: null, // Map<id, {hasFull,hasThumb,hasOrig,size}> — см. indexEntry() выше
   async init() {
     this.db = await openPhotoDB();
+    this._index = new Map();
+    const rows = await idbGetAll(this);
+    for (const r of rows) this._index.set(r.id, indexEntry(r));
   },
   async put(id, fullBlob, thumbBlob, meta, origBlob) {
     const fullU8 = fullBlob instanceof Uint8Array ? fullBlob : await blobToU8(fullBlob);
@@ -161,11 +184,15 @@ const IDBPhotoStore = {
     const encFull = await encryptBlob(fullU8);
     const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
     const encOrig = origU8 ? await encryptBlob(origU8) : null;
-    await idbPut(this, { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} });
+    const row = { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} };
+    await idbPut(this, row);
+    this._index.set(id, indexEntry(row));
   },
   // Сохранение уже зашифрованных блобов (пришли из облака) — без повторного шифрования.
   async putEncrypted(id, encFull, encThumb, meta, encOrig) {
-    await idbPut(this, { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} });
+    const row = { id, full: encFull, thumb: encThumb, orig: encOrig, meta: meta || {} };
+    await idbPut(this, row);
+    this._index.set(id, indexEntry(row));
   },
   async getFull(id) {
     const row = await idbGet(this, id);
@@ -192,13 +219,14 @@ const IDBPhotoStore = {
     const row = await idbGet(this, id);
     return row?.meta || null;
   },
-  // Лёгкий список того, что лежит в сторе (без дешифровки) — для облачной сверки.
+  // Лёгкий список того, что лежит в сторе (без чтения блобов) — для облачной
+  // сверки. Из индекса, без похода в IndexedDB.
   async listIds() {
-    const rows = await idbGetAll(this);
-    return rows.map(r => ({ id: r.id, hasFull: !!r.full, hasThumb: !!r.thumb, hasOrig: !!r.orig }));
+    return [...this._index.values()].map(({ id, hasFull, hasThumb, hasOrig }) => ({ id, hasFull, hasThumb, hasOrig }));
   },
   async delete(id) {
     await idbDelete(this, id);
+    this._index.delete(id);
   },
   async all() {
     const rows = await idbGetAll(this);
@@ -233,20 +261,22 @@ const IDBPhotoStore = {
       const encFull = await encryptBlob(fullU8);
       const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
       const encOrig = origU8 ? await encryptBlob(origU8) : null;
-      await idbPut(this, { id: item.id, full: encFull, thumb: encThumb, orig: encOrig, meta: item.meta || {} });
-        }
+      const row = { id: item.id, full: encFull, thumb: encThumb, orig: encOrig, meta: item.meta || {} };
+      await idbPut(this, row);
+      this._index.set(item.id, indexEntry(row));
+    }
   },
   async clear() {
     await idbClear(this);
+    this._index.clear();
   },
   async migratePhotos(db) { return migratePhotosToStore(this, db); },
+  // Счётчик места в настройках — из индекса (meta.size/оценка по длине
+  // шифртекста), без расшифровки каждого блоба.
   async refreshSizes() {
-    const rows = await idbGetAll(this);
     let total = 0;
-    for (const r of rows) {
-      try { total += (await decryptBlob(r.full)).byteLength; } catch (e) {}
-    }
-    return { count: rows.length, bytes: total };
+    for (const e of this._index.values()) total += e.size;
+    return { count: this._index.size, bytes: total };
   }
 };
 
@@ -339,9 +369,7 @@ const MemoryPhotoStore = {
   async migratePhotos(db) { return migratePhotosToStore(this, db); },
   async refreshSizes() {
     let total = 0;
-    for (const r of this._map.values()) {
-      try { total += (await decryptBlob(r.full)).byteLength; } catch (e) {}
-    }
+    for (const r of this._map.values()) total += estimateSize(r);
     return { count: this._map.size, bytes: total };
   }
 };
