@@ -17,7 +17,7 @@ const bounds = [
   { name: 'Заметки',          file: '50-notes.js' },
   { name: 'Списки',           file: '60-lists-wishes.js' },
   { name: 'Фото',             file: '70-photos.js' },
-  { name: 'Песня',            file: '80-settings.js' },
+  { name: 'Настройки',        file: '80-settings.js' },
   { name: 'Летающие сердечки', file: '90-effects-init.js' },
 ];
 

@@ -1364,27 +1364,26 @@ function toggleTheme() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
 
 /* ===== Навигация ===== */
 let activeView = 'home'; // текущая вкладка — для hash-роутинга и кнопки «назад»
-// Наборы вкладок нижней навигации «5 + Ещё». Объявлены ДО showView: он смотрит
-// BOTTOM_MORE, когда вкладка открывается по прямой ссылке (#/wishlist) — если бы
-// const стоял ниже, в этот момент была бы TDZ-ошибка.
-// Состав «5 + Ещё»: главные вкладки — Главная, Календарь, Память, Списки, Фото;
-// в «Ещё» — Заметки, Хотелки, Песня, Настройки.
-const BOTTOM_PRIMARY = ['home', 'calendar', 'memory', 'lists', 'photos'];
-const BOTTOM_MORE = ['notes', 'wishlist', 'song', 'settings'];
-// Иконки для нижней панели (мобильные): 6 текстовых подписей физически не
+// Вкладки нижней навигации — раньше было «5 + Ещё» (шторка с оставшимися 4),
+// пользователь попросил убрать шторку: «Песня» снесена отдельно, «Настройки»
+// переехали в шапку отдельной иконкой (.settings-btn) — остаётся 7 вкладок,
+// все помещаются в один ряд на типичных 360-430px (иконки без текста, ~20px
+// каждая). BOTTOM_PRIMARY объявлен ДО showView: он на него смотрит при
+// открытии по прямой ссылке (#/wishlist) — если бы const стоял ниже, в этот
+// момент была бы TDZ-ошибка.
+const BOTTOM_PRIMARY = ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'memory'];
+// Иконки для нижней панели (мобильные): текстовые подписи физически не
 // помещаются в ряд на узком экране без обрезки («Календ…» — было). Значки
 // повторяют эмодзи, уже используемые в самих разделах (📅 у событий,
-// 📸 у фото, 📋 у списков, 🕰 у «Памяти»), а полный текст остаётся для
-// скринридеров через aria-label.
-const BOTTOM_ICON = { home: '🏠', calendar: '📅', memory: '🕰', lists: '📋', photos: '📸' };
+// 📸 у фото, 📋 у списков, 🕰 у «Памяти», 💌 у заметок, 🎁 у хотелок), а
+// полный текст остаётся для скринридеров через aria-label.
+const BOTTOM_ICON = { home: '🏠', calendar: '📅', notes: '💌', lists: '📋', wishlist: '🎁', photos: '📸', memory: '🕰' };
 function showView(view) {
   if (!$('#view-' + view)) return; // неизвестная вкладка — не трогаем экран
   activeView = view;
   const apply = () => {
     $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
     $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-    const moreBtn = $('#navMoreBtn');
-    if (moreBtn) moreBtn.classList.toggle('active', BOTTOM_MORE.indexOf(view) >= 0); // вкладка из «Ещё» — подсвечиваем кнопку
     if (view === 'home') renderHome();
     if (view === 'calendar') { calY = new Date().getFullYear(); calM = new Date().getMonth(); selectedDate = null; renderCalendar(); }
     if (view === 'notes') renderNotes();
@@ -1425,16 +1424,16 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 }
 $$('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-/* ===== Нижняя навигация на мобильных: 5 главных + «Ещё» =====
-   Решение (утв.): на узких экранах вместо пилюль в шапке — закреплённая нижняя
-   панель «Главная, Календарь, Память, Списки, Фото» и кнопкой «Ещё» (шторка:
-   Заметки, Хотелки, Песня, Настройки). Кнопки
-   клонируются из шапки, поэтому active-подсветка и клики работают как у оригинала. */
+/* ===== Нижняя навигация на мобильных: все вкладки в одном ряду =====
+   Раньше было «5 + Ещё» (шторка с оставшимися 4 вкладками) — пользователь
+   попросил убрать шторку. «Песня» снесена отдельно, «Настройки» переехали в
+   шапку отдельной иконкой (.settings-btn, вне BOTTOM_PRIMARY), поэтому
+   оставшиеся 7 вкладок помещаются в один ряд без «Ещё». Кнопки клонируются
+   из шапки, поэтому active-подсветка и клики работают как у оригинала. */
 
 function buildBottomNav() {
   const bar = $('#bottomNav');
-  const grid = $('#navSheetGrid');
-  if (!bar || !grid || !bar.querySelectorAll) return;
+  if (!bar || !bar.querySelectorAll) return;
   const navBtn = view => [...document.querySelectorAll('.nav-btn')].find(b => b.dataset && b.dataset.view === view);
   bar.innerHTML = '';
   BOTTOM_PRIMARY.forEach(view => {
@@ -1451,42 +1450,15 @@ function buildBottomNav() {
     clone.textContent = BOTTOM_ICON[view] || label;
     bar.appendChild(clone);
   });
-  const moreBtn = document.createElement('button');
-  moreBtn.type = 'button';
-  moreBtn.className = 'nav-btn bottom-nav-btn bottom-nav-more' + (BOTTOM_MORE.indexOf(activeView) >= 0 ? ' active' : '');
-  moreBtn.id = 'navMoreBtn';
-  moreBtn.textContent = '⋯ Ещё';
-  moreBtn.setAttribute('aria-haspopup', 'dialog');
-  moreBtn.setAttribute('aria-expanded', 'false');
-  moreBtn.addEventListener('click', () => openNavSheet()); // «Ещё» не имеет data-view — открываем шторку напрямую
-  bar.appendChild(moreBtn);
-  grid.innerHTML = '';
-  BOTTOM_MORE.forEach(view => {
-    const src = navBtn(view);
-    const clone = src ? src.cloneNode(true) : document.createElement('button');
-    clone.type = 'button';
-    clone.className = 'nav-btn nav-sheet-btn' + (view === activeView ? ' active' : '');
-    if (!src) clone.dataset.view = view;
-    grid.appendChild(clone);
-  });
 }
-function openNavSheet() { const s = $('#navSheet'); if (s) s.hidden = false; const o = $('#navSheetOverlay'); if (o) o.hidden = false; const b = $('#navMoreBtn'); if (b) b.setAttribute('aria-expanded', 'true'); }
-function closeNavSheet() { const s = $('#navSheet'); if (s) s.hidden = true; const o = $('#navSheetOverlay'); if (o) o.hidden = true; const b = $('#navMoreBtn'); if (b) b.setAttribute('aria-expanded', 'false'); }
 
-// Клики по нижней панели и шторке (кнопки созданы клонированием — делегируем на document).
-// Вынесено в именованную функцию: «Ещё» без data-view открывает шторку своей веткой.
+// Клики по нижней панели (кнопки созданы клонированием — делегируем на document).
 function onNavDocClick(e) {
-  const nb = e.target && e.target.closest && e.target.closest('#bottomNav .nav-btn, #navSheet .nav-btn');
-  if (nb && nb.dataset && nb.dataset.view) { closeNavSheet(); go(nb.dataset.view); return; }
-  const moreBtn = e.target && e.target.closest && e.target.closest('#navMoreBtn');
-  if (moreBtn) { openNavSheet(); return; }
-  const sheetX = e.target && e.target.closest && e.target.closest('[data-close-sheet]');
-  if (sheetX) { closeNavSheet(); return; }
-  if (e.target && e.target.classList && e.target.classList.contains('sheet-overlay')) closeNavSheet();
+  const nb = e.target && e.target.closest && e.target.closest('#bottomNav .nav-btn');
+  if (nb && nb.dataset && nb.dataset.view) go(nb.dataset.view);
 }
 if (typeof document !== 'undefined' && document.addEventListener) {
   document.addEventListener('click', onNavDocClick);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeNavSheet(); });
 }
 buildBottomNav();
 
@@ -3898,14 +3870,6 @@ if (typeof Sortable !== 'undefined') {
 }
 // Чип лейбла → фото (обратное направление) — см. 05-dnd.js/chipDragSetup.
 chipDragSetup($('#labelBar'));
-
-/* ===== Песня ===== */
-$('#songAudio').addEventListener('error', () => {
-  $('#songHint').textContent = 'Файл пока не найден. Положи mp3 в папку music/ с именем nasha-pesnya.mp3 — и нажми ▶';
-});
-$('#songAudio').addEventListener('canplay', () => {
-  $('#songHint').textContent = '▶ Нажми play — и заиграет наша песня! 💜';
-});
 
 /* ===== Настройки ===== */
 /* ===== Настройки: резервная копия и место в браузере ===== */

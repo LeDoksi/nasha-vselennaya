@@ -1,11 +1,3 @@
-/* ===== Песня ===== */
-$('#songAudio').addEventListener('error', () => {
-  $('#songHint').textContent = 'Файл пока не найден. Положи mp3 в папку music/ с именем nasha-pesnya.mp3 — и нажми ▶';
-});
-$('#songAudio').addEventListener('canplay', () => {
-  $('#songHint').textContent = '▶ Нажми play — и заиграет наша песня! 💜';
-});
-
 /* ===== Настройки ===== */
 /* ===== Настройки: резервная копия и место в браузере ===== */
 function renderSettings() {

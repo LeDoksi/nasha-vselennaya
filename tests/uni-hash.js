@@ -1,6 +1,8 @@
-// Регрессионный тест: app.js стартует по прямой ссылке #/wishlist (вкладка из «Ещё»).
-// Раньше BOTTOM_MORE был объявлен после showView → при старте по ссылке была
+// Регрессионный тест: app.js стартует по прямой ссылке #/wishlist.
+// Раньше BOTTOM_MORE (сейчас упразднён — шторка «Ещё» убрана, все вкладки в
+// BOTTOM_PRIMARY) был объявлен после showView → при старте по ссылке была
 // TDZ-ошибка (ReferenceError: Cannot access 'BOTTOM_MORE' before initialization).
+// Проверяем тот же сценарий на BOTTOM_PRIMARY, который занял его место.
 // Запуск: node tests/uni-hash.js app.js
 const fs = require('fs');
 const vm = require('vm');
@@ -35,12 +37,12 @@ const ctx = {
 vm.createContext(ctx);
 try {
   vm.runInContext(src, ctx);
-  // как это делал window-блок на старте — открываем вкладку из «Ещё»
+  // как это делал window-блок на старте — открываем вкладку по прямой ссылке
   vm.runInContext('showView("wishlist")', ctx);
   const av = vm.runInContext('activeView', ctx);
-  const more = vm.runInContext('BOTTOM_MORE.indexOf("wishlist")', ctx);
-  if (av !== 'wishlist' || more < 0) { console.log('FAIL: активная вкладка не «wishlist», BOTTOM_MORE не на месте'); process.exit(1); }
-  console.log('OK: старт по ссылке #/wishlist без TDZ-ошибки; activeView = ' + av + '; BOTTOM_MORE.indexOf(wishlist) = ' + more);
+  const idx = vm.runInContext('BOTTOM_PRIMARY.indexOf("wishlist")', ctx);
+  if (av !== 'wishlist' || idx < 0) { console.log('FAIL: активная вкладка не «wishlist», BOTTOM_PRIMARY не на месте'); process.exit(1); }
+  console.log('OK: старт по ссылке #/wishlist без TDZ-ошибки; activeView = ' + av + '; BOTTOM_PRIMARY.indexOf(wishlist) = ' + idx);
 } catch (e) {
   console.log('FAIL: ' + e.message);
   process.exit(1);

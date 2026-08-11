@@ -101,6 +101,10 @@ body{
 .logo{font-size:22px;font-weight:900;letter-spacing:.3px;padding:14px 0}
 .header-actions{display:flex;align-items:center;gap:8px;padding:8px 0}
 .theme-toggle{padding:9px 14px}
+/* Настройки переехали из ряда вкладок сюда, рядом с переключателем темы —
+   .nav-btn даёт бесплатно active-подсветку и клик-делегат (см. 20-theme-nav.js),
+   но пилюля из одного эмодзи выглядела бы слишком широкой — сузили padding. */
+.settings-btn{padding:9px 12px}
 .nav{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0}
 .nav-btn{
   border:1px solid var(--border);background:#fff;color:var(--muted);
@@ -370,22 +374,6 @@ body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
 .pin-photo:hover{transform:scale(1.15)}
 .del-photo:hover{background:#ffe4e6;transform:scale(1.15)}
 
-/* ===== Песня ===== */
-.song-card{
-  text-align:center;background:#fff;border:1px solid var(--border);border-radius:28px;
-  padding:48px 24px;box-shadow:var(--shadow);
-}
-.song-disc{
-  width:96px;height:96px;margin:0 auto 20px;border-radius:50%;
-  background:radial-gradient(circle,#fff 28%,#f3e8ff 30%,var(--violet) 55%,var(--pink));
-  display:grid;place-items:center;font-size:40px;animation:spin 9s linear infinite;
-}
-@keyframes spin{to{transform:rotate(360deg)}}
-.song-card h3{font-size:26px;margin-bottom:6px}
-.song-name{color:var(--pink);font-weight:800;font-size:19px;margin-bottom:20px}
-.song-card audio{width:min(360px,100%);margin:0 auto 6px;outline:none}
-.song-hint{color:var(--muted);font-size:14px;margin:10px 0 18px}
-
 /* ===== Настройки ===== */
 .settings-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow);margin-bottom:20px}
 .settings-card h3{font-size:19px;margin-bottom:10px}
@@ -611,31 +599,12 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .wish.done .wish-title{text-decoration:line-through}
 .drag-hint{color:var(--muted);font-size:13px;margin:-6px 0 14px}
 
-/* ===== Нижняя навигация (мобильные): 5 главных + «Ещё» =====
+/* ===== Нижняя навигация (мобильные): все вкладки в одном ряду =====
    На десктопе панель скрыта (работает шапка-пилюли); на <=820px шапка-пилюли
-   прячется, появляется закреплённая нижняя панель с 5 вкладками и «Ещё»-шторкой. */
+   прячется, появляется закреплённая нижняя панель. Раньше было «5 + Ещё»
+   (шторка с оставшимися вкладками) — убрана, все вкладки теперь помещаются
+   в один ряд (см. src/20-theme-nav.js). */
 .bottom-nav{display:none}
-.sheet-overlay{position:fixed;inset:0;z-index:90;background:rgba(76,29,149,.3);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
-.sheet-overlay[hidden]{display:none}
-.nav-sheet{
-  position:fixed;left:0;right:0;bottom:0;z-index:91;background:#fff;border-top:1px solid var(--border);
-  border-radius:22px 22px 0 0;padding:18px 16px calc(22px + env(safe-area-inset-bottom));
-  box-shadow:0 -12px 40px rgba(0,0,0,.18);animation:sheetUp .25s ease;
-}
-.nav-sheet[hidden]{display:none}
-@keyframes sheetUp{from{transform:translateY(60%);opacity:.6}to{transform:none;opacity:1}}
-.nav-sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:16px;font-weight:900}
-.nav-sheet-x{position:static;flex:none}
-.nav-sheet-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-.nav-sheet-btn{
-  border:1px solid var(--border);background:#fff;color:var(--ink);border-radius:16px;
-  padding:14px 10px;font-size:14px;font-weight:800;cursor:pointer;transition:.2s;
-}
-.nav-sheet-btn:hover{border-color:var(--violet2);background:#fbf5ff}
-.nav-sheet-btn.active{background:var(--grad);color:#fff;border-color:transparent}
-[data-theme="dark"] .nav-sheet{background:var(--card)}
-[data-theme="dark"] .nav-sheet-btn{background:var(--card);color:var(--ink)}
-[data-theme="dark"] .nav-sheet-btn:hover{background:#3d2a50}
 
 /* ===== Адаптив ===== */
 @media(max-width:820px){
@@ -673,16 +642,16 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
   .bottom-nav{
     display:flex;position:fixed;left:0;right:0;bottom:0;z-index:60;
     background:rgba(255,255,255,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-    border-top:1px solid var(--border);padding:6px 6px calc(6px + env(safe-area-inset-bottom));
-    gap:4px;justify-content:space-around;
+    border-top:1px solid var(--border);padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+    gap:2px;justify-content:space-around;
   }
+  /* Раньше — 5 вкладок + «Ещё»; теперь все 7 вкладок в один ряд без шторки,
+     кнопки чуть уже (padding/gap), чтобы плотнее сидели на узких экранах. */
   .bottom-nav-btn{
     flex:1;min-width:0;background:none;border:none;color:var(--muted);
-    font-size:20px;line-height:1;font-weight:800;padding:9px 2px;border-radius:12px;cursor:pointer;
+    font-size:19px;line-height:1;font-weight:800;padding:8px 1px;border-radius:12px;cursor:pointer;
     transition:background .2s,color .2s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   }
-  /* «⋯ Ещё» — единственная кнопка с текстом, не иконкой (см. buildBottomNav) — своя разметка */
-  .bottom-nav-more{font-size:11px;padding:7px 2px 5px}
   .bottom-nav-btn:hover{background:var(--pink2);color:var(--violet)}
   .bottom-nav-btn.active{background:var(--grad);color:#fff}
   .bottom-nav-btn.active:hover{background:var(--grad);color:#fff}
@@ -714,7 +683,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 [data-theme="dark"] .nav-btn.active{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 6px 18px rgba(236,72,153,.45);transform:scale(1.06);font-weight:900}
 [data-theme="dark"] .modal{background:var(--card)}
 [data-theme="dark"] input,[data-theme="dark"] textarea,[data-theme="dark"] select{background:var(--card);color:var(--ink)}
-[data-theme="dark"] .date-card,[data-theme="dark"] .note,[data-theme="dark"] .list-card,[data-theme="dark"] .calendar,[data-theme="dark"] .day-panel,[data-theme="dark"] .settings-card,[data-theme="dark"] .song-card,[data-theme="dark"] .photo,[data-theme="dark"] .wish{background:var(--card)}
+[data-theme="dark"] .date-card,[data-theme="dark"] .note,[data-theme="dark"] .list-card,[data-theme="dark"] .calendar,[data-theme="dark"] .day-panel,[data-theme="dark"] .settings-card,[data-theme="dark"] .photo,[data-theme="dark"] .wish{background:var(--card)}
 [data-theme="dark"] .cal-cell:not(.selected):hover{background:#3d2a50}
 [data-theme="dark"] .cal-cell.in-span{background:linear-gradient(180deg,#2e1b42,#3d2a50)}
 [data-theme="dark"] .cal-cell.in-span .cal-num{color:#c4b5fd}
@@ -779,7 +748,6 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
   outline:2px solid var(--violet2);outline-offset:2px;border-color:var(--violet2)
 }
 .dp-select:focus-visible,.dp-nav:focus-visible{outline:2px solid var(--violet2);outline-offset:1px}
-.song-card audio:focus-visible{outline:2px solid var(--violet2);outline-offset:2px}
 [data-theme="dark"] :focus-visible{outline-color:#c4b5fd}
 
 /* ===== Тост: ненавязчивые уведомления (ошибки хранилища и т.п.) ===== */
@@ -916,8 +884,8 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 /* ===== Фаза D: Glass-карточки — полупрозрачные + размытие фона =====
    Блок в конце файла: перекрывает сплошные фоны выше (и светлые, и тёмные),
    чтобы aurora мягко просвечивала сквозь карточки. */
-.hero-card,.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.song-card,.wish,.photo,.progress-ring,.dates-empty,.rem-empty,.tl-card,.modal,.date-pop,.auth-card,.nav-sheet,
-[data-theme="dark"] .hero-card,[data-theme="dark"] .date-card,[data-theme="dark"] .note,[data-theme="dark"] .list-card,[data-theme="dark"] .calendar,[data-theme="dark"] .day-panel,[data-theme="dark"] .settings-card,[data-theme="dark"] .song-card,[data-theme="dark"] .wish,[data-theme="dark"] .photo,[data-theme="dark"] .progress-ring,[data-theme="dark"] .dates-empty,[data-theme="dark"] .rem-empty,[data-theme="dark"] .tl-card,[data-theme="dark"] .modal,[data-theme="dark"] .date-pop,[data-theme="dark"] .auth-card,[data-theme="dark"] .nav-sheet{
+.hero-card,.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.progress-ring,.dates-empty,.rem-empty,.tl-card,.modal,.date-pop,.auth-card,
+[data-theme="dark"] .hero-card,[data-theme="dark"] .date-card,[data-theme="dark"] .note,[data-theme="dark"] .list-card,[data-theme="dark"] .calendar,[data-theme="dark"] .day-panel,[data-theme="dark"] .settings-card,[data-theme="dark"] .wish,[data-theme="dark"] .photo,[data-theme="dark"] .progress-ring,[data-theme="dark"] .dates-empty,[data-theme="dark"] .rem-empty,[data-theme="dark"] .tl-card,[data-theme="dark"] .modal,[data-theme="dark"] .date-pop,[data-theme="dark"] .auth-card{
   background:var(--glass-bg);
   -webkit-backdrop-filter:blur(var(--blur));
   backdrop-filter:blur(var(--blur));
@@ -932,7 +900,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 [data-theme="dark"] .note.pinned{background:linear-gradient(160deg,rgba(61,42,80,.76),rgba(42,31,58,.76))}
 [data-theme="dark"] .auth-card{background:var(--glass-strong)}
 /* Тонкая светлая кромка — как блик на стекле */
-.hero-card,.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.song-card,.wish,.photo,.progress-ring,.tl-card,.modal,.date-pop,.auth-card{
+.hero-card,.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.progress-ring,.tl-card,.modal,.date-pop,.auth-card{
   border-color:var(--glass-brd);
 }
 .note.pinned{border-color:var(--pink2)}

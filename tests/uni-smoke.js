@@ -126,8 +126,8 @@ function __TEST__(s){
   s.shuffleHistoryPhotos = shuffleHistoryPhotos; s.historyPhotosHtml = historyPhotosHtml;
   Object.defineProperty(s, 'historyCollage', { get: () => historyCollage, set: v => { historyCollage = v; }, configurable: true });
   s.closeOverlay = closeOverlay;
-  s.buildBottomNav = buildBottomNav; s.openNavSheet = openNavSheet; s.closeNavSheet = closeNavSheet; s.onNavDocClick = onNavDocClick;
-  s.BOTTOM_PRIMARY = BOTTOM_PRIMARY; s.BOTTOM_MORE = BOTTOM_MORE;
+  s.buildBottomNav = buildBottomNav; s.onNavDocClick = onNavDocClick;
+  s.BOTTOM_PRIMARY = BOTTOM_PRIMARY;
   Object.defineProperty(s, 'activeView', { get: () => activeView, set: v => { activeView = v; }, configurable: true });
   Object.defineProperty(s, 'lightboxList', { get: () => lightboxList, set: v => { lightboxList = v; }, configurable: true });
   Object.defineProperty(s, 'lightboxIdx', { get: () => lightboxIdx, set: v => { lightboxIdx = v; }, configurable: true });
@@ -797,7 +797,7 @@ w('(s)=>s.celebrate()');
 assert(true, 'celebrate не бросает исключений');
 
 // --- Все вкладки рендерятся ---
-for (const v of ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'song', 'settings']) {
+for (const v of ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'memory', 'settings']) {
   w('(s)=>s.go(' + JSON.stringify(v) + ')');
 }
 assert(true, 'all views rendered without errors');
@@ -1014,29 +1014,18 @@ w('(s)=>{s.db.dates=[]; return 1;}');
 const mbDeleted = w('(s)=>s.memoryByDay()');
 assert(!mbDeleted.some(d => d.dates && d.dates.length > 0), 'память: после удаления свиданий — пусто');
 
-// --- Фаза C: нижняя навигация «5 + Ещё» ---
-assert(w('(s)=>s.BOTTOM_PRIMARY.length') === 5, 'навигация: 5 главных вкладок');
-assert(w('(s)=>s.BOTTOM_MORE.length') === 4, 'навигация: 4 вкладки в «Ещё»');
-assert(JSON.stringify(w('(s)=>s.BOTTOM_PRIMARY')) === '["home","calendar","memory","lists","photos"]',
-  'навигация: главные вкладки — Главная, Календарь, Память, Списки, Фото');
-assert(JSON.stringify(w('(s)=>s.BOTTOM_MORE')) === '["notes","wishlist","song","settings"]',
-  'навигация: в «Ещё» — Заметки, Хотелки, Песня, Настройки');
-const navAll = [...w('(s)=>s.BOTTOM_PRIMARY'), ...w('(s)=>s.BOTTOM_MORE')];
-assert(navAll.length === new Set(navAll).size && navAll.length === 9, 'навигация: все 9 вкладок, без повторов');
+// --- Фаза C: нижняя навигация — раньше «5 + Ещё», теперь все вкладки в один
+// ряд (шторка убрана, «Песня» снесена, «Настройки» переехали в шапку) ---
+assert(w('(s)=>s.BOTTOM_PRIMARY.length') === 7, 'навигация: 7 вкладок в нижней панели (без «Ещё»)');
+assert(JSON.stringify(w('(s)=>s.BOTTOM_PRIMARY')) === '["home","calendar","notes","lists","wishlist","photos","memory"]',
+  'навигация: состав нижней панели — Главная, Календарь, Заметки, Списки, Хотелки, Фото, Память');
+assert(w('(s)=>s.BOTTOM_PRIMARY').length === new Set(w('(s)=>s.BOTTOM_PRIMARY')).size, 'навигация: вкладки без повторов');
+assert(w('(s)=>typeof s.BOTTOM_MORE') === 'undefined', 'навигация: BOTTOM_MORE и шторка «Ещё» убраны совсем');
 w('(s)=>{s.buildBottomNav(); return 1;}');
 assert(true, 'buildBottomNav не падает в песочнице');
-w('(s)=>{s.openNavSheet(); return 1;}');
-assert(registry['#navSheet'].hidden === false && registry['#navSheetOverlay'].hidden === false, '«Ещё»-шторка открывается');
-w('(s)=>{s.closeNavSheet(); return 1;}');
-assert(registry['#navSheet'].hidden === true && registry['#navSheetOverlay'].hidden === true, '«Ещё»-шторка закрывается');
-// Регрессия: клик по «⋯ Ещё» (у кнопки нет data-view) должен открывать шторку
-w('(s)=>{const ev = { target: { closest(sel) { return sel === "#navMoreBtn" ? { dataset: {} } : null; } } }; s.onNavDocClick(ev); return 1;}');
-assert(registry['#navSheet'].hidden === false, 'клик по «⋯ Ещё» открывает шторку');
-assert(w('(s)=>{const b = s.document.querySelector("#navMoreBtn"); return b.getAttribute ? b.getAttribute("aria-expanded") : null;}') === 'true', 'у «⋯ Ещё» выставляется aria-expanded=true');
-// Клик по вкладке внутри шторки закрывает её и переходит (Заметки теперь в «Ещё»)
-w('(s)=>{const ev = { target: { closest(sel) { return sel === "#bottomNav .nav-btn, #navSheet .nav-btn" ? { dataset: { view: "notes" } } : null; } } }; s.onNavDocClick(ev); return 1;}');
-assert(registry['#navSheet'].hidden === true, 'клик по вкладке в шторке закрывает шторку');
-assert(w('(s)=>s.activeView') === 'notes', 'клик по вкладке в шторке переходит на вкладку');
+// Клик по вкладке в нижней панели переходит на неё (шторки для этого больше не нужно)
+w('(s)=>{const ev = { target: { closest(sel) { return sel === "#bottomNav .nav-btn" ? { dataset: { view: "notes" } } : null; } } }; s.onNavDocClick(ev); return 1;}');
+assert(w('(s)=>s.activeView') === 'notes', 'клик по вкладке нижней панели переходит на неё');
 
 // --- Фаза D: View Transitions API — переключение вкладок и темы через startViewTransition ---
 w('(s)=>{s.document.startViewTransition = cb => { cb(); return { finished: Promise.resolve() }; }; return 1;}');

@@ -174,7 +174,7 @@ const PREIDS = ['notesGrid', 'photosGrid', 'labelBar', 'calendar', 'dayPanel', '
   'authOverlay', 'evModal', 'evTitle', 'evDate', 'evEnd', 'evRepeat', 'evSave', 'evModalTitle', 'evHeadSub',
   'datePop', 'dpDays', 'dpMonth', 'countdownTick', 'labelOverlay', 'labelNewName', 'labelNewBtn',
   'eventYears', 'eventMonths', 'eventTitles', 'eventReset', 'view-home', 'view-calendar', 'view-notes',
-  'view-lists', 'view-wishlist', 'view-photos', 'view-song', 'view-settings', 'listsWrap'];
+  'view-lists', 'view-wishlist', 'view-photos', 'view-settings', 'listsWrap'];
 for (const id of PREIDS) { const el = makeEl('div'); el.id = id; registry['#' + id] = el; body.appendChild(el); }
 
 const sandbox = {
