@@ -20,7 +20,6 @@ function nextOcc(ev) {
   return c;
 }
 function renderHome() {
-  $('#daysCount').textContent = daysTogether();
   const now0 = new Date();
   now0.setHours(0, 0, 0, 0);
   const rem = db.events

@@ -206,7 +206,10 @@ const startD = new Date(2026, 2, 30); startD.setHours(0, 0, 0, 0);
 const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
 const expDays = Math.round((todayD - startD) / 86400000);
 assert(w('(s)=>s.daysTogether()') === expDays, 'daysTogether совпадает с календарём');
-assert(String(registry['#daysCount'].textContent) === String(expDays), 'счётчик дней на месте');
+// Счётчик дней раньше дублировался: отдельно в hero-card (#daysCount) и в
+// .ring-info блока «Наша история» — блоки объединены, показывается один раз
+// внутри #progressRing (теперь живёт прямо в hero-card, см. index.html).
+assert(registry['#progressRing'].innerHTML.includes(String(expDays) + ' '), 'счётчик дней виден в объединённом hero-блоке');
 
 assert(registry['#dates'].innerHTML.includes('Свиданий пока нет'), 'empty dates state');
 

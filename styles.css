@@ -152,13 +152,6 @@ h3{font-weight:800}
 .hero-names span{color:var(--violet);margin:0 8px}
 .hero-deco{position:absolute;font-size:28px;opacity:.5;animation:float 5s ease-in-out infinite;pointer-events:none}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
-.counter{display:flex;flex-direction:column;align-items:center;margin-top:26px}
-.counter b{
-  font-size:56px;font-weight:900;line-height:1;
-  background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;
-}
-.counter span{color:var(--muted);font-weight:700;margin-top:8px}
-.counter small{color:var(--muted);margin-top:2px}
 
 /* ===== Главная: герой ===== */
 .hero-zone{position:relative;margin-bottom:6px}
@@ -790,13 +783,13 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 
 /* ===== Фаза B: кольцо прогресса, настроение, память ===== */
 
-/* Блок «Наша история»: кольцо прогресса + коллаж фото + статистика */
-.progress-ring{
-  margin:14px auto 0;padding:16px 18px;
-  background:#fff;border:1px solid var(--border);border-radius:16px;
-  box-shadow:0 6px 18px rgba(139,92,246,.08)
-}
-[data-theme="dark"] .progress-ring{background:var(--card)}
+/* Блок «Наша история»: кольцо прогресса + коллаж фото + статистика.
+   Раньше был отдельной карточкой под hero-card (тот же счётчик дней вместе,
+   что уже показывал hero — дублирование). Теперь живёт ВНУТРИ hero-card
+   (см. index.html), поэтому без своего фона/рамки/тени — просто секция,
+   отделённая тонкой чертой, как уже разделены .history-stats/.history-otd
+   ниже тем же приёмом. */
+.progress-ring{margin-top:22px;padding-top:20px;border-top:1px dashed var(--border);text-align:left}
 .history-main{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
 .ring-wrap{position:relative;width:104px;height:104px;flex:0 0 auto}
 .ring-svg{width:104px;height:104px;transform:rotate(-90deg)}
@@ -884,8 +877,8 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 /* ===== Фаза D: Glass-карточки — полупрозрачные + размытие фона =====
    Блок в конце файла: перекрывает сплошные фоны выше (и светлые, и тёмные),
    чтобы aurora мягко просвечивала сквозь карточки. */
-.hero-card,.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.progress-ring,.dates-empty,.rem-empty,.tl-card,.modal,.date-pop,.auth-card,
-[data-theme="dark"] .hero-card,[data-theme="dark"] .date-card,[data-theme="dark"] .note,[data-theme="dark"] .list-card,[data-theme="dark"] .calendar,[data-theme="dark"] .day-panel,[data-theme="dark"] .settings-card,[data-theme="dark"] .wish,[data-theme="dark"] .photo,[data-theme="dark"] .progress-ring,[data-theme="dark"] .dates-empty,[data-theme="dark"] .rem-empty,[data-theme="dark"] .tl-card,[data-theme="dark"] .modal,[data-theme="dark"] .date-pop,[data-theme="dark"] .auth-card{
+.hero-card,.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.dates-empty,.rem-empty,.tl-card,.modal,.date-pop,.auth-card,
+[data-theme="dark"] .hero-card,[data-theme="dark"] .date-card,[data-theme="dark"] .note,[data-theme="dark"] .list-card,[data-theme="dark"] .calendar,[data-theme="dark"] .day-panel,[data-theme="dark"] .settings-card,[data-theme="dark"] .wish,[data-theme="dark"] .photo,[data-theme="dark"] .dates-empty,[data-theme="dark"] .rem-empty,[data-theme="dark"] .tl-card,[data-theme="dark"] .modal,[data-theme="dark"] .date-pop,[data-theme="dark"] .auth-card{
   background:var(--glass-bg);
   -webkit-backdrop-filter:blur(var(--blur));
   backdrop-filter:blur(var(--blur));
@@ -900,7 +893,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 [data-theme="dark"] .note.pinned{background:linear-gradient(160deg,rgba(61,42,80,.76),rgba(42,31,58,.76))}
 [data-theme="dark"] .auth-card{background:var(--glass-strong)}
 /* Тонкая светлая кромка — как блик на стекле */
-.hero-card,.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.progress-ring,.tl-card,.modal,.date-pop,.auth-card{
+.hero-card,.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.tl-card,.modal,.date-pop,.auth-card{
   border-color:var(--glass-brd);
 }
 .note.pinned{border-color:var(--pink2)}

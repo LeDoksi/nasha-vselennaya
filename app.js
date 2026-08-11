@@ -1534,7 +1534,6 @@ function nextOcc(ev) {
   return c;
 }
 function renderHome() {
-  $('#daysCount').textContent = daysTogether();
   const now0 = new Date();
   now0.setHours(0, 0, 0, 0);
   const rem = db.events
@@ -1979,7 +1978,7 @@ function renderProgressRing(at) {
   const start = new Date(sy, sm - 1, sd);
   const now = new Date();
   const cur = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const days = Math.round((cur - start) / 86400000);
+  const days = daysTogether(); // та же формула, что и раньше — не дублируем расчёт
   let anniv = new Date(start);
   while (anniv.getTime() <= cur.getTime()) anniv.setFullYear(anniv.getFullYear() + 1);
   const prev = new Date(anniv); prev.setFullYear(prev.getFullYear() - 1);
