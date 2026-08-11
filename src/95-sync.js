@@ -9,9 +9,9 @@
    (см. README). Конфликты: «последняя правка выигрывает» по syncTs.
 
    Фаза B1: вставь config из Firebase Console в FIREBASE_CONFIG ниже.
-   Фаза B3 (фото): оригиналы+миниатюры синхронизируются через Яндекс.Диск —
-   вставь токен в YANDEX_DISK_CONFIG ниже (Firebase Storage — только на платном
-   Blaze-плане, из России его не оплатить).
+   Фаза B3 (фото): оригиналы+показ-версии+миниатюры синхронизируются через
+   Yandex Object Storage (см. YANDEX_CLOUD_CONFIG и makeCloudStorage ниже) —
+   бакет публичный (без секретных ключей на клиенте), см. README.
    Без config (или без интернета) приложение работает как раньше — локально.
    Работает на http(s); на file:// SDK может не загрузиться — тоже локально. */
 
@@ -26,15 +26,19 @@ let FIREBASE_CONFIG = {
   measurementId:     "G-JZY24EXCX3"
 }; // ← config из Firebase Console (фаза B1). let — чтобы тесты могли подставить мок.
 
-/* Фото-облако (фаза B3): Yandex Object Storage (S3-совместимое) вместо Firebase Storage.
-   Storage — только на платном Blaze-плане, из России оплатить нельзя.
-   Yandex Object Storage: нативный S3-протокол, CORS настроен, бесплатный tier.
-   Ключи подставляются из GitHub Secrets при деплое (window.YANDEX_S3_KEY, window.YANDEX_S3_SECRET). */
+/* Фото-облако: Yandex Object Storage вместо Firebase Storage (Storage — только
+   на платном Blaze-плане, из России не оплатить). Ключей доступа НЕТ и не
+   должно быть: сайт статический, отдаётся браузеру любого посетителя, поэтому
+   секретный ключ, вписанный в JS/HTML, сразу становится публичным («Просмотр
+   кода страницы»). Вместо подписи запросов бакет настроен как публичный
+   только для префикса photos/ (README → «Настройка бакета Yandex Object
+   Storage») — запросы идут обычным fetch без Authorization. Конфиденциальность
+   держится не на секретности доступа, а на том, что в бакете лежит только
+   AES-GCM шифртекст — тот же принцип, что и у Firebase RTDB (auth != null,
+   доступно любому анониму). */
 let YANDEX_CLOUD_CONFIG = {
-  bucket:  'nasha-vselennaya',       // имя бакета (без https://)
-  key:     (typeof window !== 'undefined' && window.YANDEX_S3_KEY) || '',    // static access key (SA) — из GitHub Secrets
-  secret:  (typeof window !== 'undefined' && window.YANDEX_S3_SECRET) || '', // secret key — из GitHub Secrets
-  region:  'ru-central1'             // регион Yandex Cloud
+  bucket: 'nasha-vselennaya', // имя бакета (не секрет)
+  region: 'ru-central1'       // регион Yandex Cloud
 };
 
 const SYNC_KEY = 'universe_syncTs';  // последний известный syncTs (метаданные, не секрет)
@@ -46,56 +50,6 @@ let syncReady = false;     // SDK есть, config есть, анонимный 
 let syncTs = 0;            // последний применённый syncTs
 let syncPushTimer = null;  // debounce push после save()
 let syncApplying = false;  // защита от рекурсии pull→save→push
-
-/* ===== RTDB-адаптер для фото (миниатюры + показ-версии в Firebase RTDB) =====
-   Совместимый с firebase.storage() интерфейс: ref(path).put/getBlob/delete, ref(folder).listAll().
-   Используется как бесплатная альтернатива Firebase Storage (Spark plan). */
-function makeRtdbPhotoStorage() {
-  if (!syncDb) return null;
-  return {
-    ref(path) {
-      const seg = String(path || '').split('/').filter(Boolean);
-      if (seg.length >= 3) {
-        const part = seg[1], id = seg.slice(2).join('/');
-        const p = 'photos/' + part + '/' + encodeURIComponent(id);
-        return {
-          name: id,
-          fullPath: seg.join('/'),
-          async put(blob) {
-            const txt = (typeof blob === 'string') ? blob : await blob.text();
-            await syncDb.ref(p).set(txt);
-          },
-          async getBlob() {
-            try {
-              const snap = await syncDb.ref(p).once('value');
-              const txt = snap.val();
-              if (txt === null) return null;
-              return new Blob([txt], { type: 'application/json' });
-            } catch (e) {
-              return null;
-            }
-          },
-          async delete() {
-            try { await syncDb.ref(p).remove(); } catch (e) {}
-          }
-        };
-      }
-      const prefix = 'photos/' + encodeURIComponent(seg.join('/')) + '/';
-      return {
-        async listAll() {
-          try {
-            const snap = await syncDb.ref(prefix).once('value');
-            const data = snap.val() || {};
-            const items = Object.keys(data).map(k => ({ name: k }));
-            return { items, prefixes: [] };
-          } catch (e) {
-            return { items: [], prefixes: [] };
-          }
-        }
-      };
-    }
-  };
-}
 
 /* ===== Инициализация: вызывается из unlockApp() после входа ===== */
 async function initSync() {
@@ -109,11 +63,10 @@ async function initSync() {
   try {
         syncFirebase = firebase.initializeApp(FIREBASE_CONFIG, 'nasha_sync');
     syncDb = firebase.database(syncFirebase);
-    // Хранилище фото (фаза B6): миниатюры + показ-версии синхронизируются через
-    // Firebase RTDB — браузерная передача работает нативно, без CORS-прокси.
-    // Оригиналы бэкапятся в Yandex Object Storage upload-only (см. makeCloudStorage).
-    if (typeof firebase.database === 'function' && syncDb) syncStorage = makeRtdbPhotoStorage();
-    else if (typeof firebase.storage === 'function') syncStorage = firebase.storage(syncFirebase);
+    // Хранилище фото: Yandex Object Storage (публичный бакет, без секретов на
+    // клиенте — см. YANDEX_CLOUD_CONFIG выше и README). Firebase используется
+    // только для крошечного зашифрованного сейфа (vaults/shared), не для фото.
+    syncStorage = makeCloudStorage();
     // Anonymous Auth: оба устройства — «гости», доступ к общему vaults/shared.
     // UID нигде не храним: правила разрешают любому анониму, данные зашифрованы.
     const cred = await firebase.auth(syncFirebase).signInAnonymously();
@@ -366,63 +319,28 @@ let photoSyncTimer = null;   // debounce после операций с фото
 let photoSyncing = false;    // защита от параллельных сверок
 
 
-/* ===== S3-адаптер для Yandex Object Storage =====
-   AWS Signature v4 из браузера (Web Crypto API). CORS должен быть настроен на бакете.
-   Пути: /photos/{part}/{id}. makeCloudStorage() возвращает объект, совместимый с
-   firebase.storage(): ref(path).put/getBlob/delete, ref(folder).listAll(). */
-
-async function s3Sha256Hex(text) {
-  const buf = new TextEncoder().encode(text);
-  const hash = await crypto.subtle.digest('SHA-256', buf);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function s3Hmac(key, message) {
-  const k = (typeof key === 'string') ? new TextEncoder().encode(key) : key;
-  const msg = new TextEncoder().encode(message);
-  const cryptoKey = await crypto.subtle.importKey('raw', k, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', cryptoKey, msg);
-  return new Uint8Array(sig);
-}
+/* ===== Адаптер для Yandex Object Storage (публичный бакет, без ключей) =====
+   Бакет настроен на анонимный доступ ТОЛЬКО к префиксу photos/ (см. README,
+   «Настройка бакета Yandex Object Storage»): GetObject/PutObject/DeleteObject/
+   ListBucket для principal "*", ограничено условием s3:prefix=photos/*.
+   Никакой подписи запросов не требуется — как и с общим `vaults/shared` в
+   Firebase RTDB (auth != null, доступно любому анониму), безопасность держится
+   на том, что в бакете лежит только AES-GCM шифртекст, а не на секретности
+   доступа. Пути: /photos/{part}/{id}. Интерфейс совместим с firebase.storage():
+   ref(path).put/getBlob/delete, ref(folder).listAll(). */
 
 function makeCloudStorage() {
   const cfg = YANDEX_CLOUD_CONFIG;
-  if (!cfg.bucket || !cfg.key || !cfg.secret) throw new Error('YANDEX_CLOUD_CONFIG: bucket/key/secret не заданы');
-  const host = cfg.bucket + '.storage.yandexcloud.net';
-  const endpoint = 'https://' + host;
-
-  async function signRequest(method, path, body) {
-    const now = new Date();
-    const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-    const dateStamp = amzDate.slice(0, 8);
-    const payload = 'UNSIGNED-PAYLOAD';
-    const canonicalHeaders = 'host:' + host + '\nx-amz-content-sha256:' + payload + '\nx-amz-date:' + amzDate + '\n';
-    const signedHeaders = ['host', 'x-amz-content-sha256', 'x-amz-date'];
-    const canonicalReq = method + '\n' + path + '\n\n' + canonicalHeaders + signedHeaders.join(';') + '\n' + await s3Sha256Hex(body !== undefined && body !== null ? body : '');
-    const scope = dateStamp + '/' + cfg.region + '/s3/aws4_request';
-    const stringToSign = 'AWS4-HMAC-SHA256\n' + amzDate + '\n' + scope + '\n' + await s3Sha256Hex(canonicalReq);
-    const kDate = await s3Hmac('AWS4' + cfg.secret, dateStamp);
-    const kRegion = await s3Hmac(kDate, cfg.region);
-    const kService = await s3Hmac(kRegion, 's3');
-    const kSigning = await s3Hmac(kService, 'aws4_request');
-    const sig = await s3Hmac(kSigning, stringToSign);
-    return {
-      'host': host,
-      'x-amz-date': amzDate,
-      'x-amz-content-sha256': payload,
-      'Authorization': 'AWS4-HMAC-SHA256 Credential=' + cfg.key + '/' + scope + ', SignedHeaders=' + signedHeaders.join(';') + ', Signature=' + Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('')
-    };
-  }
+  if (!cfg.bucket) return null;
+  const endpoint = 'https://' + cfg.bucket + '.storage.yandexcloud.net';
 
   async function s3Fetch(method, path, body) {
-    const headers = await signRequest(method, path, body);
-    const url = endpoint + path;
-    const opts = { method, headers };
+    const opts = { method };
     if (body !== undefined && body !== null) {
       opts.body = body;
-      if (typeof body === 'string') headers['Content-Type'] = 'application/json';
+      opts.headers = { 'Content-Type': 'application/json' };
     }
-    const res = await fetch(url, opts);
+    const res = await fetch(endpoint + path, opts);
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
       throw new Error('S3 ' + res.status + ' ' + path + (txt ? ': ' + txt.slice(0, 200) : ''));
@@ -459,7 +377,7 @@ function makeCloudStorage() {
           }
         };
       }
-      const fp = '/?list-type=2&prefix=photos/' + encodeURIComponent(seg.join('/')) + '/';
+      const fp = '/?list-type=2&prefix=' + encodeURIComponent(seg.join('/') + '/');
       return {
         async listAll() {
           const items = [];
@@ -740,7 +658,7 @@ async function runCloudDiagnostics() {
   const add = s => lines.push(s);
   try {
     add('syncReady: ' + syncReady);
-    add('syncStorage: ' + (syncStorage ? 'яндекс.диск' : 'нет'));
+    add('syncStorage: ' + (syncStorage ? 'Yandex Object Storage' : 'нет'));
     add('masterKey: ' + (masterKey ? 'есть' : 'НЕТ'));
     add('photos в db: ' + ((db.photos || []).length));
     add('syncTs: локально=' + syncTs + ', в облаке=' + (await getCloudSyncTs()));

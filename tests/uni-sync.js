@@ -46,7 +46,6 @@ const sandbox = {
     querySelector(sel) { return registry[sel] || (registry[sel] = makeEl()); },
     querySelectorAll() { return []; }
   },
-  window: { YANDEX_S3_KEY: '', YANDEX_S3_SECRET: '' }, // mock for cloud storage config
   localStorage: { getItem(k) { return sandbox._store[k] ?? null; }, setItem(k, v) { sandbox._store[k] = String(v); }, removeItem(k) { delete sandbox._store[k]; } },
   sessionStorage: { getItem(k) { return sandbox._ss[k] ?? null; }, setItem(k, v) { sandbox._ss[k] = String(v); } },
   alert() {}, confirm() { return true; },

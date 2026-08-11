@@ -19,3 +19,8 @@ tools/serve.js
 
 # Temporary debug scripts (not for the repo)
 tmp-*.js
+
+# Секреты — никогда не коммитить
+secrets.js
+.env
+.env.*
