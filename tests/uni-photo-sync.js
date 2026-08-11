@@ -53,6 +53,7 @@ const mockBucket = {};
 const SIGN_FN_URL = 'https://functions.yandexcloud.net/mock-photo-sign';
 const signCalls = []; // для проверки, что запись реально идёт через функцию
 const getCalls = [];  // GET-запросы к конкретным объектам (не список) — для проверки, что уже свои фото не перепроверяются заново
+const timeoutCalls = []; // задержки setTimeout из sync-модуля — проверить, что «висящее» фото планирует быстрый повтор (3с), а не 20с
 let paginateLimit = null; // не null в тесте пагинации — режет список на страницы по N ключей
 function xmlList(prefix, token) {
   const keys = Object.keys(mockBucket).filter(k => k.slice(1).startsWith(prefix)).map(k => k.slice(1)).sort();
@@ -128,7 +129,7 @@ const sandbox = {
     this.text = () => Promise.resolve(this._text);
   },
   HTMLAudioElement: function () {}, Image: function () {},
-  setTimeout() { return 0; }, setInterval() { return 1; }, addEventListener() {},
+  setTimeout(fn, ms) { timeoutCalls.push(ms); return 0; }, setInterval() { return 1; }, addEventListener() {},
   isNaN, console, Date, Math, JSON, Object, Array, Number, String, RegExp,
   firebase, fetch: fetchMock,
   _store: {}, _ss: {}
@@ -195,6 +196,24 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   await w('(s)=>s.syncPhotos()');
   assert(!getCalls.some(p => p.indexOf('/pA') !== -1),
     'уже свои фото (в db.photos + полностью локально) не перепроверяются заново при повторной сверке');
+
+  // 2c. Гонка с другим устройством: сейф (через живой слушатель) уже принёс
+  // запись о новом фото pRace в db.photos, а сам файл другое устройство ещё
+  // грузит — в облаке его пока нет, локально тоже. Без фикса sync тихо
+  // завершался бы «успешно», ничего не скачав, и не повторялся бы — фото
+  // оставалось бы «битым», пока кто-то не нажмёт «Синхронизировать сейчас»
+  // вручную. С фиксом — должен запланировать быстрый повтор (3с), а не
+  // молчать и не ждать 20с, как при настоящей ошибке сети.
+  w('(s)=>{s.db.photos.unshift({id:"pRace",title:"Гонка",labels:[],pinned:false,ts:9,order:0});return 1;}');
+  timeoutCalls.length = 0;
+  await w('(s)=>s.syncPhotos()');
+  assert(timeoutCalls.includes(3000), '«висящее» (ещё нигде не появившееся) фото планирует быстрый повтор через 3с');
+  assert(!timeoutCalls.includes(20000), 'быстрый повтор не путается с 20-секундным (это не сбой, а ожидание)');
+  // Другое устройство наконец докачало файл — при следующей сверке подхватываем.
+  await w('(s)=>s.photoStore.put("pRace", new Blob(["FULL-RACE"]), new Blob(["THUMB-RACE"]), {type:"image/jpeg",thumbType:"image/webp",title:"Гонка"}, null)');
+  await w('(s)=>s.syncPhotos()');
+  w('(s)=>{s.db.photos = s.db.photos.filter(p => p.id !== "pRace"); return 1;}');
+  await w('(s)=>s.syncPhotos()'); // чистим за собой, чтобы не мешать следующим сценариям
 
   // 3. «Второе устройство»: стор пуст, облако уже знает фото — скачиваем всё назад
   await w('(s)=>{s.photoStore.clear(); return 1;}');

@@ -607,7 +607,7 @@ async function probeCloudKeys(cloud) {
 async function syncPhotos() {
   if (!syncStorage || !photoStore || !masterKey || photoSyncing) return;
   photoSyncing = true;
-  const stats = { downloaded: 0, uploaded: 0, failed: 0, retry: false };
+  const stats = { downloaded: 0, uploaded: 0, failed: 0, retry: false, retrySoon: false };
   try {
     const localList = await photoStore.listIds();
     const localMap = new Map(localList.map(l => [l.id, l]));
@@ -658,6 +658,21 @@ async function syncPhotos() {
       if (isSkipped(id)) return false;
       return PHOTO_PARTS.some(part => cloud[id] && cloud[id][part] && !hasPart(id, part));
     });
+    // Гонка с другим устройством: запись о фото (в сейфе) обычно долетает
+    // быстрее, чем сам файл (у сейфа debounce короче + файл ещё грузится
+    // presign+PUT). Если id есть в db.photos, но НИ локально, НИ в облаке
+    // пока ничего нет — это не «нечего скачивать», а «другое устройство ещё
+    // грузит», и без специальной обработки sync тихо завершался бы успешно,
+    // ничего не скачав, и не повторялся бы — фото так и оставалось «битым»,
+    // пока кто-то не нажмёт «Синхронизировать сейчас» вручную. Планируем
+    // быстрый повтор (см. finally), а не 20-секундный, как при настоящих сбоях.
+    const pendingElsewhere = [...want].some(id => {
+      const l = localMap.get(id);
+      const hasAnyLocal = !!(l && (l.hasFull || l.hasThumb || l.hasOrig));
+      const hasAnyCloud = !!(cloud[id] && PHOTO_PARTS.some(p => cloud[id][p]));
+      return !hasAnyLocal && !hasAnyCloud;
+    });
+    if (pendingElsewhere) stats.retrySoon = true;
     await mapLimit(toDownload, SYNC_CONCURRENCY, async id => {
       const res = await downloadCloudPhoto(id, cloud, localMap.get(id));
       if (res && res.ok) stats.downloaded++;
@@ -681,8 +696,13 @@ async function syncPhotos() {
     // Докачали блобы из облака — прогреваем кэш миниатюр и перерисовываем вьюхи,
     // иначе миниатюры, приехавшие после первого рендера, не появятся в галерее.
     if (typeof warmThumbCache === 'function') warmThumbCache();
-    // Были временные сбои — попробуем ещё раз через 20 секунд.
-    if (stats.retry) {
+    // Ждём файл, который вот-вот появится (другое устройство ещё грузит) —
+    // проверяем часто и недолго, а не 20 секунд, как при настоящих сбоях.
+    if (stats.retrySoon) {
+      clearTimeout(photoSyncTimer);
+      photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 3000);
+    } else if (stats.retry) {
+      // Были временные сбои (сеть, чужой формат и т.п.) — попробуем ещё раз через 20 секунд.
       clearTimeout(photoSyncTimer);
       photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 20000);
     }
