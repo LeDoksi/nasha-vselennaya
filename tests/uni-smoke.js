@@ -71,7 +71,6 @@ function __TEST__(s){
   s.nextUpcoming = nextUpcoming; s.jumpToNearestEvent = jumpToNearestEvent; s.updateNearestJump = updateNearestJump;
   Object.defineProperty(s, 'calM', { get: () => calM, set: v => { calM = v; }, configurable: true });
   Object.defineProperty(s, 'calY', { get: () => calY, set: v => { calY = v; }, configurable: true });
-  s.reorderNoteIds = reorderNoteIds;
   s.renderLists = renderLists; s.renderPhotos = renderPhotos;
   s.createList = createList; s.addListSubtask = addListSubtask;
   s.toggleSubtask = toggleSubtask; s.delSubtask = delSubtask; s.completeList = completeList;
@@ -547,11 +546,6 @@ w('(s)=>{s.jumpCalendar(0,2020);s.go("calendar");}');
 const nowCal = new Date();
 assert(w('(s)=>s.calM') === nowCal.getMonth() && w('(s)=>s.calY') === nowCal.getFullYear(), 'открытие календаря показывает текущий месяц (без прыжка)');
 assert(w('(s)=>s.selectedDate') === null, 'открытие календаря не выделяет день ближайшего события');
-
-// --- drag&drop заметок: чистая логика перестановки (порядок ids) ---
-assert(JSON.stringify(w('(s)=>s.reorderNoteIds(["a","b","c"],"a","c",true)')) === '["b","c","a"]', 'reorderNoteIds: перенос в конец');
-assert(JSON.stringify(w('(s)=>s.reorderNoteIds(["a","b","c"],"c","a",false)')) === '["c","a","b"]', 'reorderNoteIds: перенос в начало');
-assert(JSON.stringify(w('(s)=>s.reorderNoteIds(["a","b","c"],"b","c",true)')) === '["a","c","b"]', 'reorderNoteIds: перенос в середину');
 
 // --- Заметки: автор, редактирование, drag&drop ---
 w('(s)=>{s.db.notes.length=0;s.db.notes.push({id:"n1",text:"Заметка Гоши",ts:1,pinned:false,author:"gosha",order:1});s.db.notes.push({id:"n2",text:"Заметка Даши",ts:2,pinned:true,author:"dasha",order:0});s.go("notes");}');

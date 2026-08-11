@@ -195,208 +195,109 @@ function renderUserChip() {
   if (chip) chip.textContent = getUser() === 'dasha' ? '👧 Даша ▾' : '👦 Гоша ▾';
 }
 
-/* ===== Универсальный drag на Pointer Events (схема A+D) =====
-   Один движок для всех перетаскиваний (заметки, списки, фото, чипы лейблов):
-   - Pointer Events + setPointerCapture — работает и мышью, и тачем;
-   - «драг-ручки» (.drag-handle) как точки захвата, где нужны;
-   - живое превью порядка: перестановка DOM + FLIP-анимация соседей —
-     карточки плавно «разъезжаются» вокруг перетаскиваемой (без прыжков);
-   - призрак (ghost) клона следует за курсором;
-   - drop-цели вне контейнера (фото → чип лейбла и обратно);
-   - отмена: Esc / pointercancel / потеря фокуса окна.
-   Работает и в браузере, и в мини-DOM тестов (без window/rAF/cloneNode). */
+/* ===== Перетаскивание чипа лейбла на фото (навесить лейбл броском) =====
+   Единственный кросс-контейнерный жест, оставшийся вне SortableJS. Чипы лежат
+   в #labelBar — контейнере, на котором Sortable нигде не создаётся, так что
+   с реордером заметок/списков/подзадач/фото (SortableJS, forceFallback) этот
+   обработчик конфликтовать не может: общих ручек/контейнеров нет.
+   Обратное направление (фото → чип) живёт в самом SortableJS-инстансе
+   #photosGrid — хит-тест по координатам отпускания прямо в его onEnd
+   (см. src/70-photos.js), отдельного движка для него не нужно. */
 'use strict';
 
-const UNI_DRAG_THRESHOLD = 6;    // px движения до начала перетаскивания
-const UNI_DRAG_DUR = 240;        // ms FLIP-переезда соседей
-const UNI_DRAG_EASE = 'cubic-bezier(.2,.7,.3,1)';
-const UNI_DRAG_SCROLL_EDGE = 80; // px от края окна — автоскролл
-const UNI_DRAG_SCROLL_STEP = 20; // px за шаг автоскролла
+const CHIP_DRAG_THRESHOLD = 6; // px движения до начала перетаскивания
 
-const uniDrag = {
-  state: null,   // текущий драг или null
-  setups: [],    // конфиги драг-зон
-  _global: false // глобальные слушатели привязаны
-};
+const chipDrag = { state: null };
 
-function uniDragSetup(opts) {
-  uniDrag.setups.push(opts);
-  const root = opts.container;
-  if (root && root.addEventListener) {
-    root.addEventListener('pointerdown', uniDragPointerDown);
-    root.addEventListener('keydown', uniDragKeyDown); // Esc (фолбэк для тестов)
-  }
-  if (uniDrag._global) return;
-  uniDrag._global = true;
+function chipDragSetup(container) {
+  if (!container || !container.addEventListener) return;
+  container.addEventListener('pointerdown', chipDragPointerDown);
+  container.addEventListener('keydown', chipDragKeyDown); // Esc — фолбэк для тестов (мини-DOM без document/window)
   if (typeof window !== 'undefined' && window.addEventListener) {
-    // браузер: события всплывают до document, а при уходе курсора за окно —
-    // setPointerCapture перенаправляет их на захваченный элемент
-    document.addEventListener('pointermove', uniDragPointerMove);
-    document.addEventListener('pointerup', uniDragPointerUp);
-    document.addEventListener('pointercancel', uniDragPointerCancel);
-    document.addEventListener('keydown', uniDragKeyDown);
-    window.addEventListener('blur', uniDragCancelSafe);
+    document.addEventListener('pointermove', chipDragPointerMove);
+    document.addEventListener('pointerup', chipDragPointerUp);
+    document.addEventListener('pointercancel', chipDragPointerCancel);
+    document.addEventListener('keydown', chipDragKeyDown);
+    window.addEventListener('blur', chipDragCancelSafe);
   } else if (document.body && document.body.addEventListener) {
-    // мини-DOM тестов: события всплывают до body
-    document.body.addEventListener('pointermove', uniDragPointerMove);
-    document.body.addEventListener('pointerup', uniDragPointerUp);
-    document.body.addEventListener('pointercancel', uniDragPointerCancel);
+    // мини-DOM тестов: события всплывают до body, window/blur нет
+    document.body.addEventListener('pointermove', chipDragPointerMove);
+    document.body.addEventListener('pointerup', chipDragPointerUp);
+    document.body.addEventListener('pointercancel', chipDragPointerCancel);
   }
 }
 
-function uniDragIdOf(el, setup) {
-  if (setup.idOf) return setup.idOf(el);
-  return el && el.dataset ? (el.dataset.id || el.dataset.label || '') : '';
-}
-
-function uniDragItemOf(el, setup) {
+// Только пользовательские лейблы можно тащить — не системные (📅/💞) и не крестик удаления.
+function chipDragTarget(el) {
   if (!el || !el.closest) return null;
-  let item = null;
-  if (setup.handleSel) {
-    const h = el.closest(setup.handleSel);
-    if (!h || !h.closest) return null;
-    item = h.closest(setup.itemSel);
-  } else {
-    if (setup.ignoreSel && el.closest(setup.ignoreSel)) return null;
-    item = el.closest(setup.itemSel);
-  }
-  if (!item) return null;
-  if (setup.allow && !setup.allow(item)) return null;
-  return item;
+  if (el.closest('[data-label-del]')) return null;
+  const chip = el.closest('.album-chip[data-label]');
+  if (!chip || !chip.dataset.label) return null;
+  if (chip.dataset.label === EVENT_LABEL || chip.dataset.label === DATE_LABEL) return null;
+  return chip;
 }
 
-// Реальный элемент под курсором: при pointer capture e.target — это ручка,
-// поэтому в браузере спрашиваем document.elementFromPoint (в тестах — e.target).
-function uniDragEventTarget(e) {
-  if (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function' &&
-      e && e.clientX !== undefined) {
-    try {
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      if (el) return el;
-    } catch (err) {}
-  }
-  return e && e.target;
-}
-
-function uniDragPointerDown(e) {
-  if (uniDrag.state) return;
+function chipDragPointerDown(e) {
+  if (chipDrag.state) return;
   if (e.button !== undefined && e.button !== 0) return; // только левая кнопка
-  const setup = uniDrag.setups.find(s => !!uniDragItemOf(e.target, s));
-  if (!setup) return;
-  const el = uniDragItemOf(e.target, setup);
-  if (!el) return;
-  uniDrag.state = {
-    setup, el,
-    id: uniDragIdOf(el, setup),
-    started: false,
-    px: e.clientX || 0, py: e.clientY || 0,
-    x: e.clientX || 0, y: e.clientY || 0,
-    grabDX: 0, grabDY: 0,
-    ghost: null, ids: [], origin: [], hoverT: null, reorderRAF: null,
-    scrollRAF: null, scrollX: 0, scrollY: 0
+  const chip = chipDragTarget(e.target);
+  if (!chip) return;
+  chipDrag.state = {
+    chip, label: chip.dataset.label, started: false,
+    px: e.clientX || 0, py: e.clientY || 0, x: e.clientX || 0, y: e.clientY || 0,
+    grabDX: 0, grabDY: 0, ghost: null, hoverPhoto: null
   };
-  if (setup.handleSel) {
-    // ручка — драг-поверхность: гасим выделение/скролл и держим указатель
-    if (e.preventDefault) e.preventDefault();
-    if (e.pointerId !== undefined && el.setPointerCapture) {
-      try { el.setPointerCapture(e.pointerId); } catch (err) {}
-    }
-  }
 }
 
-
-
-function uniDragPointerMove(e) {
-  const st = uniDrag.state;
+function chipDragPointerMove(e) {
+  const st = chipDrag.state;
   if (!st) return;
   const x = e.clientX || 0, y = e.clientY || 0;
   st.x = x; st.y = y;
   if (!st.started) {
-    if (Math.abs(x - st.px) < UNI_DRAG_THRESHOLD && Math.abs(y - st.py) < UNI_DRAG_THRESHOLD) return;
-    uniDragBegin(st);
+    if (Math.abs(x - st.px) < CHIP_DRAG_THRESHOLD && Math.abs(y - st.py) < CHIP_DRAG_THRESHOLD) return;
+    chipDragBegin(st, e);
   }
   if (!st.started) return;
   if (st.ghost && st.ghost.style) {
     st.ghost.style.left = Math.round(x - st.grabDX) + 'px';
     st.ghost.style.top = Math.round(y - st.grabDY) + 'px';
   }
-  uniDragScrollSchedule(st, x, y);
-  // подсветка живых drop-целей под курсором
-  const tgt = uniDragTargetAt(uniDragEventTarget(e), st.setup.targets, st);
-  if (tgt !== st.hoverT) {
-    if (st.hoverT) st.hoverT.target.highlight(st.hoverT.el, false);
-    if (tgt) tgt.target.highlight(tgt.el, true);
-    st.hoverT = tgt;
-  }
-  // живое превью порядка: не чаще раза в кадр — pointermove приходит чаще, чем
-  // rAF, и каждый перезапуск 240ms-«разъезда» рвёт анимацию соседей (дёргано).
-  // Троттлим: за кадр применяем последнюю позицию курсора, FLIP успевает играть.
-  if (st.setup.reorder !== false && st.setup.container) uniDragScheduleReorder(st);
-}
-
-function uniDragPointerUp(e) { uniDragEnd(uniDrag.state, e, true); }
-function uniDragPointerCancel(e) { uniDragEnd(uniDrag.state, e, false); }
-function uniDragCancelSafe() { // потеря фокуса окна
-  const st = uniDrag.state;
-  if (!st) return;
-  if (st.started) uniDragEnd(st, null, false);
-  else uniDrag.state = null;
-}
-function uniDragKeyDown(e) {
-  if (e.key === 'Escape' && uniDrag.state && uniDrag.state.started) uniDragEnd(uniDrag.state, null, false);
-}
-
-// Запланировать живую перестановку порядка: один раз в кадр, по последним координатам.
-// В мини-DOM тестов rAF нет — применяем сразу (тесты ждут синхронный порядок).
-function uniDragScheduleReorder(st) {
-  if (st.reorderRAF) return;
-  if (typeof requestAnimationFrame !== 'function') { uniDragDoReorder(st); return; }
-  st.reorderRAF = requestAnimationFrame(() => {
-    st.reorderRAF = null;
-    if (uniDrag.state === st && st.started) uniDragDoReorder(st);
-  });
-}
-
-function uniDragDoReorder(st) {
-  const idx = uniDragInsertIndex(st.setup.container, st.setup.itemSel, st.x, st.y, st.el);
-  const ids = st.ids.slice();
-  const from = ids.indexOf(st.id);
-  if (from < 0) return;
-  ids.splice(from, 1);
-  ids.splice(Math.max(0, Math.min(idx, ids.length)), 0, st.id);
-  if (ids.join('|') !== st.ids.join('|')) {
-    uniDragFlipReorder(st.setup.container, st.setup.itemSel, ids, st.setup);
-    st.ids = ids;
+  const photo = chipDragPhotoAt(x, y, e.target);
+  if (photo !== st.hoverPhoto) {
+    if (st.hoverPhoto && st.hoverPhoto.classList) st.hoverPhoto.classList.remove('drag-over');
+    if (photo && photo.classList) photo.classList.add('drag-over');
+    st.hoverPhoto = photo;
   }
 }
 
+// elementFromPoint — точнее под реальным курсором; e.target (fallbackEl) —
+// запасной вариант, когда elementFromPoint недоступен (напр. в тестах: события
+// там диспатчатся прямо на нужный элемент, e.target и есть искомая цель).
+function chipDragPhotoAt(x, y, fallbackEl) {
+  let el = null;
+  if (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function') {
+    try { el = document.elementFromPoint(x, y); } catch (err) {}
+  }
+  if (!el) el = fallbackEl;
+  return el && el.closest ? el.closest('.photo') : null;
+}
 
-function uniDragBegin(st) {
+function chipDragBegin(st, e) {
   st.started = true;
-  if (st.setup.reorder !== false && st.setup.container) {
-    st.ids = uniDragCards(st.setup.container, st.setup.itemSel).map(c => uniDragIdOf(c, st.setup));
-  } else {
-    st.ids = [st.id];
+  if (e && e.pointerId !== undefined && st.chip.setPointerCapture) {
+    try { st.chip.setPointerCapture(e.pointerId); } catch (err) {}
   }
-  st.origin = st.ids.slice();
-  // сбрасываем незавершённые inline-трансформы (соседи могли «доезжать» с прошлого драга)
-  uniDragCards(st.setup.container, st.setup.itemSel).forEach(c => {
-    if (c.style) { c.style.transition = ''; c.style.transform = ''; }
-  });
-  const el = st.el;
-  const r = el.getBoundingClientRect();
-  st.grabDX = st.x - r.left;
-  st.grabDY = st.y - r.top;
-  // призрак — клон карточки (в мини-DOM cloneNode нет — пропускаем)
-  if (el.cloneNode) {
-    const ghost = el.cloneNode(true);
+  const r = st.chip.getBoundingClientRect ? st.chip.getBoundingClientRect() : { left: st.x, top: st.y, width: 0 };
+  st.grabDX = st.x - r.left; st.grabDY = st.y - r.top;
+  if (st.chip.cloneNode) {
+    const ghost = st.chip.cloneNode(true);
     ghost.classList.add('drag-ghost');
     if (ghost.style) {
       ghost.style.position = 'fixed';
       ghost.style.left = Math.round(r.left) + 'px';
       ghost.style.top = Math.round(r.top) + 'px';
       ghost.style.width = (r.width || 0) + 'px';
-      ghost.style.height = (r.height || 0) + 'px';
       ghost.style.pointerEvents = 'none';
       ghost.style.zIndex = '9999';
       ghost.style.transition = 'none';
@@ -406,55 +307,46 @@ function uniDragBegin(st) {
     if (document.body && document.body.appendChild) document.body.appendChild(ghost);
     st.ghost = ghost;
   }
-  if (el.classList) el.classList.add('dragging');
   if (document.body && document.body.classList) document.body.classList.add('uni-dragging');
-  if (st.setup.onStart) st.setup.onStart(st);
 }
 
-
-function uniDragEnd(st, e, ok) {
+function chipDragPointerUp(e) { chipDragEnd(chipDrag.state, e, true); }
+function chipDragPointerCancel() { chipDragEnd(chipDrag.state, null, false); }
+function chipDragCancelSafe() { // потеря фокуса окна
+  const st = chipDrag.state;
   if (!st) return;
-  if (uniDrag.state === st) uniDrag.state = null;
-  const started = !!st.started;
-  // дожимаем последнюю живую перестановку, если она не успела попасть в кадр
-  if (st.reorderRAF) {
-    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(st.reorderRAF);
-    st.reorderRAF = null;
-    if (started && st.setup.reorder !== false && st.setup.container) uniDragDoReorder(st);
-  }
-  if (st.scrollRAF) {
-    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(st.scrollRAF);
-    st.scrollRAF = null;
-  }
-  if (st.hoverT) { st.hoverT.target.highlight(st.hoverT.el, false); st.hoverT = null; }
-  if (st.ghost && st.ghost.remove) st.ghost.remove();
-  st.ghost = null;
-  if (st.el && st.el.classList) st.el.classList.remove('dragging');
-  if (document.body && document.body.classList) document.body.classList.remove('uni-dragging');
-  if (!started) return; // это был обычный клик — ничего не делаем
-  if (ok && e) {
-    const target = uniDragTargetAt(uniDragEventTarget(e), st.setup.targets, st);
-    if (target) {
-      // дроп на drop-цель (например, чип лейбла): порядок в DOM возвращаем к исходному
-      if (st.setup.reorder !== false && st.setup.container) {
-        uniDragApplyOrder(st.setup.container, st.setup.itemSel, st.origin, st.setup);
-      }
-      target.target.drop(st, target.el);
-    } else if (st.setup.onDrop) {
-      st.setup.onDrop(st);
-    }
-  } else {
-    if (st.setup.reorder !== false && st.setup.container) {
-      uniDragApplyOrder(st.setup.container, st.setup.itemSel, st.origin, st.setup);
-    }
-    if (st.setup.onCancel) st.setup.onCancel(st);
-  }
-  uniDragSuppressClick();
+  if (st.started) chipDragEnd(st, null, false);
+  else chipDrag.state = null;
+}
+function chipDragKeyDown(e) {
+  if (e.key === 'Escape' && chipDrag.state && chipDrag.state.started) chipDragEnd(chipDrag.state, null, false);
 }
 
-// После реального драга браузер шлёт «клик» (например, по ручке фото) —
-// гасим его, чтобы не сработали выбор/лайтбокс/фильтр.
-function uniDragSuppressClick() {
+function chipDragEnd(st, e, ok) {
+  if (!st) return;
+  chipDrag.state = null;
+  const started = st.started;
+  if (st.hoverPhoto && st.hoverPhoto.classList) st.hoverPhoto.classList.remove('drag-over');
+  if (st.ghost && st.ghost.remove) st.ghost.remove();
+  if (document.body && document.body.classList) document.body.classList.remove('uni-dragging');
+  if (!started) return; // обычный клик по чипу — фильтр переключит обычный делегат клика
+  if (!ok) { chipDragSuppressClick(); return; } // Esc/cancel/blur — без применения лейбла
+  const photo = e && (e.clientX !== undefined || e.clientY !== undefined)
+    ? chipDragPhotoAt(e.clientX || st.x, e.clientY || st.y, e.target)
+    : st.hoverPhoto;
+  if (photo && photo.dataset && photo.dataset.id) {
+    const targets = new Set(selectedPhotos); // всем отмеченным…
+    targets.add(photo.dataset.id);           // …и фото под курсором
+    applyLabelToPhotos(st.label, targets);
+    selectedPhotos.clear();
+    save(); renderPhotos();
+  }
+  chipDragSuppressClick();
+}
+
+// После реального драга браузер шлёт «клик» по чипу — гасим его, чтобы не
+// переключился фильтр вместо применения лейбла.
+function chipDragSuppressClick() {
   if (typeof window === 'undefined' || typeof document === 'undefined' || !document.addEventListener) return;
   const suppress = e => {
     if (e.preventDefault) e.preventDefault();
@@ -465,150 +357,6 @@ function uniDragSuppressClick() {
   if (typeof setTimeout === 'function') {
     setTimeout(() => document.removeEventListener('click', suppress, true), 120);
   }
-}
-
-function uniDragCards(container, itemSel) {
-  if (!container) return [];
-  if (container.querySelectorAll) {
-    try { return [...container.querySelectorAll(itemSel)]; } catch (e) {}
-  }
-  if (container.children) {
-    const cls = (itemSel.match(/\.([a-zA-Z0-9_-]+)/) || [])[1];
-    return [...container.children].filter(c => c.classList && (!cls || c.classList.contains(cls)));
-  }
-  return [];
-}
-
-
-
-// Индекс вставки перетаскиваемой карточки среди остальных (0..cards.length).
-// НЕ «ближайшая граница»: для сетки границы между строками/колонками равноудалены,
-// индекс осциллирует между далёкими слотами (курсор «прыгает» с 1 на 4).
-// Правило — по ближайшей КАРТОЧКЕ; индекс меняется только при пересечении её
-// центра/края (монотонно):
-//   - курсор ВНУТРИ карточки → сразу ПОСЛЕ неё («навёл на фото» = оно уехало);
-//   - ниже центра карточки → после неё; выше центра → до неё;
-//   - на уровне центра → по горизонтали (в строке: левее/правее центра).
-function uniDragInsertIndex(container, itemSel, x, y, excludeEl) {
-  // Курсор над САМИМ перетаскиваемым (тот стоит в текущем слоте вставки) —
-  // возвращаем его текущий индекс: иначе «ближайшая» карточка из соседнего
-  // ряда сдвигает слот в противоположный конец сетки (осцилляция 1↔4).
-  if (excludeEl && excludeEl.getBoundingClientRect) {
-    const rr = excludeEl.getBoundingClientRect();
-    if (x >= rr.left && x <= rr.right && y >= rr.top && y <= rr.bottom) {
-      const cur = uniDragCards(container, itemSel).indexOf(excludeEl);
-      return cur < 0 ? 0 : cur;
-    }
-  }
-  const cards = uniDragCards(container, itemSel).filter(c => c !== excludeEl);
-  if (!cards.length) return 0;
-  // 1) карточка, в которой курсор — приоритет («навёл» важнее «ближе»)
-  for (let i = 0; i < cards.length; i++) {
-    const r = cards[i].getBoundingClientRect();
-    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return i + 1;
-  }
-  // 2) иначе — ближайшая по центру (при равенстве — раньше по потоку)
-  let best = 0, bestD = Infinity;
-  for (let i = 0; i < cards.length; i++) {
-    const r = cards[i].getBoundingClientRect();
-    const cx = r.left + (r.width || 0) / 2, cy = r.top + (r.height || 0) / 2;
-    const d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
-    if (d < bestD) { bestD = d; best = i; }
-  }
-  const r = cards[best].getBoundingClientRect();
-  const cx = r.left + (r.width || 0) / 2, cy = r.top + (r.height || 0) / 2;
-  if (y > cy) return best + 1;
-  if (y < cy) return best;
-  return x > cx ? best + 1 : best;
-}
-
-function uniDragReflow(items) {
-  if (!items || !items.length) return;
-  try { items[0].getBoundingClientRect(); } catch (e) {} // чтение layout применяет ожидающие стили
-}
-
-// FLIP «разъезд»: переставляем DOM, затем каждый сосед доезжает на новое место
-// через transform+transition. before замеряется ДО перестановки (с учётом ещё
-// идущих анимаций), после — «чисто», с принудительно снятыми трансформами
-// (синхронно, до отрисовки — промежуточное состояние не видно). Без прыжков.
-function uniDragFlipReorder(container, itemSel, wantIds, setup) {
-  const items = uniDragCards(container, itemSel);
-  if (!items.length) return;
-  const idOf = c => uniDragIdOf(c, setup);
-  const before = new Map(items.map(c => [c, c.getBoundingClientRect()]));
-  const order = new Map(wantIds.map((id, i) => [id, i]));
-  [...items]
-    .sort((a, b) => (order.get(idOf(a)) ?? 1e9) - (order.get(idOf(b)) ?? 1e9))
-    .forEach(c => { if (c.remove) c.remove(); container.appendChild(c); });
-  items.forEach(c => { if (c.style) { c.style.transition = 'none'; c.style.transform = ''; } });
-  uniDragReflow(items);
-  const after = new Map(items.map(c => [c, c.getBoundingClientRect()]));
-  const moving = [];
-  items.forEach(c => {
-    if (c.classList && c.classList.contains && c.classList.contains('dragging')) return; // перетаскиваемую не анимируем
-    const r1 = before.get(c), r2 = after.get(c);
-    const dx = r1.left - r2.left, dy = r1.top - r2.top;
-    if ((dx || dy) && c.style) {
-      c.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
-      moving.push(c);
-    }
-  });
-  uniDragReflow(items);
-  if (moving.length) {
-    // Стартуем transition СРАЗУ, в этом же кадре: translate уже «закоммичен»
-    // принудительным reflow выше — браузер анимирует из позиции «до» в «после».
-    // Отдельный rAF нельзя: следующий reorder-кадр снял бы transition раньше,
-    // чем отрисовался бы хоть один кадр анимации — соседи «застывали» бы,
-    // а при дропе всё прыгало скачком (именно так и было в браузере).
-    moving.forEach(c => {
-      if (c.style) {
-        c.style.transition = 'transform ' + UNI_DRAG_DUR + 'ms ' + UNI_DRAG_EASE;
-        c.style.transform = '';
-      }
-    });
-  }
-}
-
-// Мгновенная перестановка DOM (без анимации) — для отмены драга.
-function uniDragApplyOrder(container, itemSel, ids, setup) {
-  const items = uniDragCards(container, itemSel);
-  if (!items.length) return;
-  const idOf = c => uniDragIdOf(c, setup);
-  const order = new Map(ids.map((id, i) => [id, i]));
-  [...items]
-    .sort((a, b) => (order.get(idOf(a)) ?? 1e9) - (order.get(idOf(b)) ?? 1e9))
-    .forEach(c => { if (c.remove) c.remove(); container.appendChild(c); });
-  items.forEach(c => { if (c.style) { c.style.transition = ''; c.style.transform = ''; } });
-}
-
-function uniDragTargetAt(el, targets, st) {
-  if (!el || !el.closest || !targets || !targets.length) return null;
-  for (const t of targets) {
-    const hit = el.closest(t.sel);
-    if (hit && (!t.canDrop || t.canDrop(st, hit, el))) return { target: t, el: hit };
-  }
-  return null;
-}
-
-// Автоскролл страницы, когда курсор у края окна (списки длиннее экрана).
-// Троттлим до раза в кадр: scrollBy на каждый pointermove рвёт FLIP и layout.
-function uniDragScrollSchedule(st, x, y) {
-  st.scrollX = x; st.scrollY = y;
-  if (st.scrollRAF) return;
-  if (typeof requestAnimationFrame !== 'function') { uniDragAutoScroll(x, y); return; }
-  st.scrollRAF = requestAnimationFrame(() => {
-    st.scrollRAF = null;
-    if (uniDrag.state === st && st.started) uniDragAutoScroll(st.scrollX, st.scrollY);
-  });
-}
-
-function uniDragAutoScroll(x, y) {
-  if (typeof window === 'undefined' || typeof window.scrollBy !== 'function') return;
-  const h = window.innerHeight || 0, w = window.innerWidth || 0;
-  if (y < UNI_DRAG_SCROLL_EDGE) window.scrollBy(0, -UNI_DRAG_SCROLL_STEP);
-  else if (y > h - UNI_DRAG_SCROLL_EDGE) window.scrollBy(0, UNI_DRAG_SCROLL_STEP);
-  else if (x < UNI_DRAG_SCROLL_EDGE) window.scrollBy(-UNI_DRAG_SCROLL_STEP, 0);
-  else if (x > w - UNI_DRAG_SCROLL_EDGE) window.scrollBy(UNI_DRAG_SCROLL_STEP, 0);
 }
 /* ===== Фото-хранилище: IndexedDB с шифрованием ===== */
 // Два бэкенда: IDBPhotoStore (браузер) и MemoryPhotoStore (тесты/нет IndexedDB).
@@ -3044,7 +2792,6 @@ $('#evSave').addEventListener('click', saveEventFromModal);
 
 /* ===== Заметки ===== */
 let editingNoteId = null; // id заметки в режиме инлайн-правки (null — не редактируем)
-let dragNoteId = null;    // id заметки, которую сейчас перетаскиваем
 function noteAuthorName(n) {
   return n.author === 'dasha' ? '👧 Даша' : n.author === 'gosha' ? '👦 Гоша' : '💜 Наши';
 }
@@ -3112,36 +2859,27 @@ $('#notesGrid').addEventListener('dblclick', e => {
   startEditNote(card.dataset.id);
 });
 
-// Перетаскивание заметок — универсальный Pointer Events-движок (05-dnd.js).
-// Порядок меняется «вживую»: соседние заметки FLIP-анимацией разъезжаются,
-// на дропе пересчитываем order всем заметкам.
-function reorderNoteIds(ids, dragId, targetId, after) {
-  const from = ids.indexOf(dragId);
-  if (from < 0) return ids.slice();
-  const out = ids.slice();
-  out.splice(from, 1);
-  const to = out.indexOf(targetId);
-  if (to < 0) return out;
-  out.splice(after ? to + 1 : to, 0, dragId);
-  return out;
+// Перетаскивание заметок — SortableJS (forceFallback: нативный HTML5 DnD не
+// поддерживает тач, а телефон — основной сценарий этого сайта). На дропе
+// пересчитываем order всем заметкам; renderNotes() всегда ставит закреплённые
+// сверху — стабильно отсортируем итоговый DOM-порядок по pin, чтобы список не
+// «перепрыгивал» сразу после перерисовки.
+function notesSortEnd(evt) {
+  const ids = [...evt.to.children]
+    .filter(c => c.classList && c.classList.contains('note'))
+    .map(c => c.dataset.id);
+  const pinOf = id => { const n = db.notes.find(x => x.id === id); return n && n.pinned ? 0 : 1; };
+  ids.sort((a, b) => pinOf(a) - pinOf(b))
+    .forEach((id, i) => { const n = db.notes.find(x => x.id === id); if (n) n.order = i; });
+  save(); renderNotes();
 }
-uniDragSetup({
-  container: $('#notesGrid'),
-  itemSel: '.note',
-  handleSel: '.note-drag',
-  idOf: c => c.dataset.id,
-  onStart(st) { dragNoteId = st.id; },
-  onDrop(st) {
-    // renderNotes() всегда ставит закреплённые сверху — стабильно отсортируем ids
-    // по pin до записи order, чтобы DOM после дропа не «перепрыгивал».
-    const pinOf = id => { const n = db.notes.find(x => x.id === id); return n && n.pinned ? 0 : 1; };
-    const ids = st.ids.slice().sort((a, b) => pinOf(a) - pinOf(b));
-    ids.forEach((id, i) => { const n = db.notes.find(x => x.id === id); if (n) n.order = i; });
-    save(); renderNotes();
-    dragNoteId = null;
-  },
-  onCancel() { dragNoteId = null; }
-});
+if (typeof Sortable !== 'undefined') {
+  Sortable.create($('#notesGrid'), {
+    handle: '.note-drag', forceFallback: true, fallbackOnBody: true, animation: 150,
+    scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
+    onEnd: notesSortEnd
+  });
+}
 
 
 /* ===== Списки ===== */
@@ -3149,6 +2887,7 @@ let editingSubtask = null; // {listId, itemId} в режиме инлайн-пр
 function listItemHTML(listId, it) {
   const editing = editingSubtask && editingSubtask.listId === listId && editingSubtask.itemId === it.id;
   return `<li class="${it.done ? 'done' : ''}" data-item="${esc(it.id)}">
+    <button class="drag-handle subtask-drag" data-item-drag="${esc(it.id)}" title="Перетащить">⠿</button>
     <button class="check" data-toggle-item="${listId}" data-id="${it.id}" title="Готово">${it.done ? '✅' : '○'}</button>
     ${editing
       ? `<input type="text" class="subtask-editor" id="subtaskEdit-${esc(it.id)}" value="${esc(it.text)}">
@@ -3203,6 +2942,7 @@ function renderLists() {
       </div>
     </div>`;
   }).join('');
+  initSubtaskSortables();
 }
 // Точечное обновление подзадач ОДНОГО списка (без перерисовки всех карточек): в DOM
 // переезжают только существующие <li> — FLIP-анимация плавно показывает, как
@@ -3336,24 +3076,57 @@ function completeList(listId) {
   return true;
 }
 
-// Перетаскивание списков — универсальный Pointer Events-движок (05-dnd.js).
-// Порядок — сам массив db.lists. Во время перетаскивания карточки «разъезжаются»
-// по-живому (FLIP): видно, куда встанет перетаскиваемая. Отмена (Esc/пропуск
-// броска) возвращает исходный порядок.
-let dragListId = null; // id карточки, которую сейчас перетаскиваем
-uniDragSetup({
-  container: $('#listsWrap'),
-  itemSel: '.list-card',
-  handleSel: '.list-drag',
-  idOf: c => c.dataset.id,
-  onStart(st) { dragListId = st.id; },
-  onDrop(st) {
-    db.lists = st.ids.map(id => db.lists.find(l => l.id === id)).filter(Boolean);
-    save();
-    dragListId = null;
-  },
-  onCancel() { dragListId = null; }
-});
+// Перетаскивание карточек списков — SortableJS (forceFallback: нативный HTML5
+// DnD не поддерживает тач). Порядок — сам массив db.lists (без отдельного
+// order-поля), как и раньше.
+function listsSortEnd(evt) {
+  db.lists = [...evt.to.children]
+    .filter(c => c.classList && c.classList.contains('list-card'))
+    .map(c => db.lists.find(l => l.id === c.dataset.id)).filter(Boolean);
+  save();
+}
+if (typeof Sortable !== 'undefined') {
+  Sortable.create($('#listsWrap'), {
+    handle: '.list-drag', forceFallback: true, fallbackOnBody: true, animation: 150,
+    scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
+    onEnd: listsSortEnd
+  });
+}
+
+// Перетаскивание подзадач внутри списка — новая фича (раньше подзадачи можно
+// было только переключать/удалять, ручного порядка не было). Порядок — позиция
+// в list.items, тот же паттерн, что у db.lists выше: отдельного order-поля нет,
+// схему/DB_VERSION трогать не нужно. sortListItems() (стабильная сортировка по
+// done) применяется поверх при каждом рендере — ручной порядок внутри групп
+// «не выполнено»/«выполнено» стабильностью сортировки не портится.
+// Один Sortable-инстанс на каждую карточку списка — своя <ul>, свой Map-реестр,
+// чтобы при полной перерисовке #listsWrap (renderLists) не плодить дубли.
+const subtaskSortables = new Map(); // listId -> Sortable instance
+function subtaskSortEnd(listId, evt) {
+  const list = db.lists.find(l => l.id === listId);
+  if (!list) return;
+  const items = [...evt.to.children]
+    .filter(li => li.dataset && li.dataset.item)
+    .map(li => list.items.find(it => it.id === li.dataset.item))
+    .filter(Boolean);
+  if (items.length === list.items.length) list.items = items;
+  save();
+}
+function initSubtaskSortables() {
+  if (typeof Sortable === 'undefined') return;
+  subtaskSortables.forEach(inst => { if (inst && inst.destroy) inst.destroy(); });
+  subtaskSortables.clear();
+  document.querySelectorAll('.list-card').forEach(card => {
+    const listId = card.dataset.id;
+    const ul = card.querySelector ? card.querySelector('.items') : null;
+    if (!listId || !ul) return;
+    subtaskSortables.set(listId, Sortable.create(ul, {
+      handle: '.subtask-drag', filter: '.empty-li', forceFallback: true, fallbackOnBody: true, animation: 150,
+      scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
+      onEnd: evt => subtaskSortEnd(listId, evt)
+    }));
+  });
+}
 
 $('#listCreateBtn').addEventListener('click', () => createList($('#listNameInput').value));
 $('#listNameInput').addEventListener('keydown', e => { if (e.key === 'Enter') createList($('#listNameInput').value); });
@@ -3723,9 +3496,10 @@ function renderLabels() {
     db.labels.filter(l => !sysLabels.includes(l)).map(l => `<span class="chip-wrap"><button class="album-chip${currentLabel === l ? ' active' : ''}" data-label="${esc(l)}" title="Перетащи на фото, чтобы навесить лейбл"># ${esc(l)}</button><button type="button" class="label-del" data-label-del="${esc(l)}" title="Удалить лейбл">✕</button></span>`).join('') +
     `<button class="btn album-add-btn" data-label-new title="Создать лейбл">＋ Лейбл</button>`;
 }
-function deletePhoto(id) {
+// Чистка фото без подтверждения — общая часть deletePhoto()/deleteSelectedPhotos()
+// (при массовом удалении confirm один, на всех отмеченных сразу).
+function deletePhotoSilent(id) {
   const ph = db.photos.find(x => x.id === id);
-  if (!confirmDelete('Удалить фото' + (ph && ph.title ? ' «' + ph.title + '»' : '') + '? Это не отменить.')) return;
   if (ph) {
     // фото удаляется и из событий, и из свиданий, чтобы в календаре не оставалось «мёртвых» миниатюр
     db.events.forEach(ev => {
@@ -3744,8 +3518,23 @@ function deletePhoto(id) {
   selectedPhotos.delete(id);
   // Удаляем из кэша только удалённое фото — остальные миниатюры остаются
   if (id) thumbCache.delete(id);
+}
+function deletePhoto(id) {
+  const ph = db.photos.find(x => x.id === id);
+  if (!confirmDelete('Удалить фото' + (ph && ph.title ? ' «' + ph.title + '»' : '') + '? Это не отменить.')) return;
+  deletePhotoSilent(id);
   save(); renderPhotos(); renderCalendar(); renderHome();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // уберём и из облака
+}
+// Массовое удаление отмеченных фото (панель выбора «🗑 Удалить выбранные») —
+// один confirm на все, без повторного диалога на каждое.
+function deleteSelectedPhotos() {
+  const ids = [...selectedPhotos];
+  if (!ids.length) return;
+  if (!confirmDelete(`Удалить ${ids.length} фото? Это не отменить.`)) return;
+  ids.forEach(deletePhotoSilent);
+  save(); renderPhotos(); renderCalendar(); renderHome();
+  if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
 }
 // К каким событиям привязано фото — для фильтра «год → месяц → событие».
 // ev.photos хранит id фото (v6+).
@@ -3927,6 +3716,7 @@ function openLabelOverlay() {
   $('#labelNewName').focus();
 }
 $('#selAddLabelBtn').addEventListener('click', openLabelOverlay);
+$('#selDeleteBtn').addEventListener('click', deleteSelectedPhotos);
 $('#selClearBtn').addEventListener('click', () => { selectedPhotos.clear(); renderPhotos(); });
 // Фильтр витрины «📅 События»: клик по кнопкам «год → месяц → событие» (повторный клик сбрасывает уровень)
 document.addEventListener('click', e => {
@@ -3970,74 +3760,79 @@ $('#labelApplyBtn').addEventListener('click', () => {
   save(); $('#labelOverlay').hidden = true; renderPhotos();
 });
 $('#labelNewName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#labelNewBtn').click(); });
-// Перетаскивание — универсальный Pointer Events-движок (05-dnd.js):
-// 1) внутри сетки меняем порядок фото текущего фильтра (живое превью с FLIP);
-// 2) фото, брошенное на чип лейбла, навешивает лейбл (и всем отмеченным);
-// 3) чип лейбла, брошенный на фото, навешивает лейбл.
-let dragPhotoId = null;
-let dragLabel = null; // название лейбла, чип которого сейчас тащим
-uniDragSetup({
-  container: $('#photosGrid'),
-  itemSel: '.photo',
-  handleSel: '.photo-drag',
-  idOf: c => c.dataset.id,
-  targets: [{
-    sel: '.album-chip[data-label]',
-    canDrop(st, chip, el) {
-      return !!chip.dataset.label && chip.dataset.label !== EVENT_LABEL && chip.dataset.label !== DATE_LABEL
-        && !(el && el.closest && el.closest('[data-label-del]'));
-    },
-    highlight(chip, on) { chip.classList.toggle('drag-over', on); },
-    drop(st, chip) {
-      const name = chip.dataset.label;
-      const targets = new Set(selectedPhotos); // массовое назначение: всем отмеченным…
-      targets.add(st.id);                      // …и перетаскиваемому фото
-      applyLabelToPhotos(name, targets);
-      selectedPhotos.clear(); // действие выполнено — выделение снимаем
-      save(); renderPhotos();
-      dragPhotoId = null;
-    }
-  }],
-  onStart(st) { dragPhotoId = st.id; },
-  onDrop(st) {
-    // порядок из текущего DOM-порядка сетки: закреплённые всегда сверху
-    const domIds = uniDragCards($('#photosGrid'), '.photo').map(c => c.dataset.id);
-    const list = domIds.map(id => db.photos.find(p => p.id === id)).filter(Boolean);
-    [...list.filter(p => p.pinned), ...list.filter(p => !p.pinned)].forEach((p, i) => {
-      const ph = db.photos.find(x => x.id === p.id);
-      if (ph) ph.order = i;
-    });
+// Перетаскивание фото — SortableJS (forceFallback: нативный HTML5 DnD не
+// поддерживает тач). Один инстанс, одна ручка .photo-drag, две развязки на
+// отпускании (onEnd), различаются хит-тестом точки курсора:
+// 1) отпустили над чипом лейбла — откатываем визуальную перестановку и вешаем
+//    лейбл (и всем отмеченным) вместо сохранения нового порядка;
+// 2) иначе — обычный реордер, пересчёт p.order по итоговому DOM-порядку.
+// Обратное направление (чип → фото) не трогает #photosGrid вообще — отдельный
+// маленький pointer-обработчик на #labelBar (05-dnd.js, chipDragSetup), с этим
+// инстансом общих ручек/контейнеров нет, конфликтовать нечему.
+function photoDropChip(evt) {
+  const oe = evt.originalEvent || evt;
+  // elementFromPoint — точнее (при forceFallback e.target часто указывает на
+  // перехваченный элемент, а не на то, что реально под курсором); e.target —
+  // запасной вариант, если elementFromPoint недоступен (напр. в тестах).
+  let el = null;
+  if (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function'
+    && (oe.clientX !== undefined || oe.clientY !== undefined)) {
+    try { el = document.elementFromPoint(oe.clientX, oe.clientY); } catch (err) {}
+  }
+  if (!el) el = oe.target;
+  if (!el || !el.closest) return null;
+  if (el.closest('[data-label-del]')) return null;
+  const chip = el.closest('.album-chip[data-label]');
+  if (!chip || !chip.dataset.label) return null;
+  if (chip.dataset.label === EVENT_LABEL || chip.dataset.label === DATE_LABEL) return null;
+  return chip;
+}
+// Живая подсветка чипа под курсором во время драга фото — read-only наблюдатель
+// поверх SortableJS (только читает позицию, ничего не перехватывает), не второй
+// драг-движок: событию pointermove это никак не мешает.
+let photoChipHoverEl = null;
+function photoChipHoverCheck(e) {
+  const chip = photoDropChip(e);
+  if (chip === photoChipHoverEl) return;
+  if (photoChipHoverEl && photoChipHoverEl.classList) photoChipHoverEl.classList.remove('drag-over');
+  if (chip && chip.classList) chip.classList.add('drag-over');
+  photoChipHoverEl = chip;
+}
+function photosSortEnd(evt) {
+  document.removeEventListener('pointermove', photoChipHoverCheck);
+  if (photoChipHoverEl && photoChipHoverEl.classList) { photoChipHoverEl.classList.remove('drag-over'); photoChipHoverEl = null; }
+  const chip = photoDropChip(evt);
+  if (chip) {
+    // не реордер — навешивание лейбла. DOM-перестановку, которую уже сделал
+    // Sortable во время живого драга, отдельно откатывать не нужно: renderPhotos()
+    // ниже перерисовывает сетку целиком синхронно, до первой отрисовки браузера —
+    // промежуточное состояние DOM никогда не попадает на экран.
+    const targets = new Set(selectedPhotos); // массовое назначение: всем отмеченным…
+    targets.add(evt.item.dataset.id);        // …и перетаскиваемому фото
+    applyLabelToPhotos(chip.dataset.label, targets);
+    selectedPhotos.clear(); // действие выполнено — выделение снимаем
     save(); renderPhotos();
-    dragPhotoId = null;
-  },
-  onCancel() { dragPhotoId = null; }
-});
-// Чипы лейблов: тащим сам чип на фото (или на отмеченные) — навешиваем лейбл.
-// Клик по чипу (без драга) по-прежнему переключает фильтр.
-uniDragSetup({
-  container: $('#labelBar'),
-  itemSel: '.album-chip[data-label]',
-  ignoreSel: '[data-label-del]',
-  allow: chip => !!chip.dataset.label && chip.dataset.label !== EVENT_LABEL && chip.dataset.label !== DATE_LABEL,
-  reorder: false,
-  idOf: c => c.dataset.label,
-  targets: [{
-    sel: '.photo',
-    highlight(photo, on) { photo.classList.toggle('drag-over', on); },
-    drop(st, photo) {
-      const name = st.id;
-      const targets = new Set(selectedPhotos); // всем отмеченным…
-      targets.add(photo.dataset.id);           // …и фото под курсором
-      applyLabelToPhotos(name, targets);
-      selectedPhotos.clear();
-      save(); renderPhotos();
-      dragLabel = null;
-    }
-  }],
-  onStart(st) { dragLabel = st.id; },
-  onDrop() { dragLabel = null; },
-  onCancel() { dragLabel = null; }
-});
+    return;
+  }
+  // обычный реордер: порядок из текущего DOM-порядка сетки, закреплённые сверху
+  const domIds = [...evt.to.children].filter(c => c.classList && c.classList.contains('photo')).map(c => c.dataset.id);
+  const list = domIds.map(id => db.photos.find(p => p.id === id)).filter(Boolean);
+  [...list.filter(p => p.pinned), ...list.filter(p => !p.pinned)].forEach((p, i) => {
+    const ph = db.photos.find(x => x.id === p.id);
+    if (ph) ph.order = i;
+  });
+  save(); renderPhotos();
+}
+if (typeof Sortable !== 'undefined') {
+  Sortable.create($('#photosGrid'), {
+    handle: '.photo-drag', forceFallback: true, fallbackOnBody: true, animation: 150,
+    scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
+    onStart() { document.addEventListener('pointermove', photoChipHoverCheck); },
+    onEnd: photosSortEnd
+  });
+}
+// Чип лейбла → фото (обратное направление) — см. 05-dnd.js/chipDragSetup.
+chipDragSetup($('#labelBar'));
 
 /* ===== Песня ===== */
 $('#songAudio').addEventListener('error', () => {

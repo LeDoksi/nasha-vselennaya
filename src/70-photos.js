@@ -77,9 +77,10 @@ function renderLabels() {
     db.labels.filter(l => !sysLabels.includes(l)).map(l => `<span class="chip-wrap"><button class="album-chip${currentLabel === l ? ' active' : ''}" data-label="${esc(l)}" title="Перетащи на фото, чтобы навесить лейбл"># ${esc(l)}</button><button type="button" class="label-del" data-label-del="${esc(l)}" title="Удалить лейбл">✕</button></span>`).join('') +
     `<button class="btn album-add-btn" data-label-new title="Создать лейбл">＋ Лейбл</button>`;
 }
-function deletePhoto(id) {
+// Чистка фото без подтверждения — общая часть deletePhoto()/deleteSelectedPhotos()
+// (при массовом удалении confirm один, на всех отмеченных сразу).
+function deletePhotoSilent(id) {
   const ph = db.photos.find(x => x.id === id);
-  if (!confirmDelete('Удалить фото' + (ph && ph.title ? ' «' + ph.title + '»' : '') + '? Это не отменить.')) return;
   if (ph) {
     // фото удаляется и из событий, и из свиданий, чтобы в календаре не оставалось «мёртвых» миниатюр
     db.events.forEach(ev => {
@@ -98,8 +99,23 @@ function deletePhoto(id) {
   selectedPhotos.delete(id);
   // Удаляем из кэша только удалённое фото — остальные миниатюры остаются
   if (id) thumbCache.delete(id);
+}
+function deletePhoto(id) {
+  const ph = db.photos.find(x => x.id === id);
+  if (!confirmDelete('Удалить фото' + (ph && ph.title ? ' «' + ph.title + '»' : '') + '? Это не отменить.')) return;
+  deletePhotoSilent(id);
   save(); renderPhotos(); renderCalendar(); renderHome();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // уберём и из облака
+}
+// Массовое удаление отмеченных фото (панель выбора «🗑 Удалить выбранные») —
+// один confirm на все, без повторного диалога на каждое.
+function deleteSelectedPhotos() {
+  const ids = [...selectedPhotos];
+  if (!ids.length) return;
+  if (!confirmDelete(`Удалить ${ids.length} фото? Это не отменить.`)) return;
+  ids.forEach(deletePhotoSilent);
+  save(); renderPhotos(); renderCalendar(); renderHome();
+  if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
 }
 // К каким событиям привязано фото — для фильтра «год → месяц → событие».
 // ev.photos хранит id фото (v6+).
@@ -281,6 +297,7 @@ function openLabelOverlay() {
   $('#labelNewName').focus();
 }
 $('#selAddLabelBtn').addEventListener('click', openLabelOverlay);
+$('#selDeleteBtn').addEventListener('click', deleteSelectedPhotos);
 $('#selClearBtn').addEventListener('click', () => { selectedPhotos.clear(); renderPhotos(); });
 // Фильтр витрины «📅 События»: клик по кнопкам «год → месяц → событие» (повторный клик сбрасывает уровень)
 document.addEventListener('click', e => {
@@ -324,72 +341,77 @@ $('#labelApplyBtn').addEventListener('click', () => {
   save(); $('#labelOverlay').hidden = true; renderPhotos();
 });
 $('#labelNewName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#labelNewBtn').click(); });
-// Перетаскивание — универсальный Pointer Events-движок (05-dnd.js):
-// 1) внутри сетки меняем порядок фото текущего фильтра (живое превью с FLIP);
-// 2) фото, брошенное на чип лейбла, навешивает лейбл (и всем отмеченным);
-// 3) чип лейбла, брошенный на фото, навешивает лейбл.
-let dragPhotoId = null;
-let dragLabel = null; // название лейбла, чип которого сейчас тащим
-uniDragSetup({
-  container: $('#photosGrid'),
-  itemSel: '.photo',
-  handleSel: '.photo-drag',
-  idOf: c => c.dataset.id,
-  targets: [{
-    sel: '.album-chip[data-label]',
-    canDrop(st, chip, el) {
-      return !!chip.dataset.label && chip.dataset.label !== EVENT_LABEL && chip.dataset.label !== DATE_LABEL
-        && !(el && el.closest && el.closest('[data-label-del]'));
-    },
-    highlight(chip, on) { chip.classList.toggle('drag-over', on); },
-    drop(st, chip) {
-      const name = chip.dataset.label;
-      const targets = new Set(selectedPhotos); // массовое назначение: всем отмеченным…
-      targets.add(st.id);                      // …и перетаскиваемому фото
-      applyLabelToPhotos(name, targets);
-      selectedPhotos.clear(); // действие выполнено — выделение снимаем
-      save(); renderPhotos();
-      dragPhotoId = null;
-    }
-  }],
-  onStart(st) { dragPhotoId = st.id; },
-  onDrop(st) {
-    // порядок из текущего DOM-порядка сетки: закреплённые всегда сверху
-    const domIds = uniDragCards($('#photosGrid'), '.photo').map(c => c.dataset.id);
-    const list = domIds.map(id => db.photos.find(p => p.id === id)).filter(Boolean);
-    [...list.filter(p => p.pinned), ...list.filter(p => !p.pinned)].forEach((p, i) => {
-      const ph = db.photos.find(x => x.id === p.id);
-      if (ph) ph.order = i;
-    });
+// Перетаскивание фото — SortableJS (forceFallback: нативный HTML5 DnD не
+// поддерживает тач). Один инстанс, одна ручка .photo-drag, две развязки на
+// отпускании (onEnd), различаются хит-тестом точки курсора:
+// 1) отпустили над чипом лейбла — откатываем визуальную перестановку и вешаем
+//    лейбл (и всем отмеченным) вместо сохранения нового порядка;
+// 2) иначе — обычный реордер, пересчёт p.order по итоговому DOM-порядку.
+// Обратное направление (чип → фото) не трогает #photosGrid вообще — отдельный
+// маленький pointer-обработчик на #labelBar (05-dnd.js, chipDragSetup), с этим
+// инстансом общих ручек/контейнеров нет, конфликтовать нечему.
+function photoDropChip(evt) {
+  const oe = evt.originalEvent || evt;
+  // elementFromPoint — точнее (при forceFallback e.target часто указывает на
+  // перехваченный элемент, а не на то, что реально под курсором); e.target —
+  // запасной вариант, если elementFromPoint недоступен (напр. в тестах).
+  let el = null;
+  if (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function'
+    && (oe.clientX !== undefined || oe.clientY !== undefined)) {
+    try { el = document.elementFromPoint(oe.clientX, oe.clientY); } catch (err) {}
+  }
+  if (!el) el = oe.target;
+  if (!el || !el.closest) return null;
+  if (el.closest('[data-label-del]')) return null;
+  const chip = el.closest('.album-chip[data-label]');
+  if (!chip || !chip.dataset.label) return null;
+  if (chip.dataset.label === EVENT_LABEL || chip.dataset.label === DATE_LABEL) return null;
+  return chip;
+}
+// Живая подсветка чипа под курсором во время драга фото — read-only наблюдатель
+// поверх SortableJS (только читает позицию, ничего не перехватывает), не второй
+// драг-движок: событию pointermove это никак не мешает.
+let photoChipHoverEl = null;
+function photoChipHoverCheck(e) {
+  const chip = photoDropChip(e);
+  if (chip === photoChipHoverEl) return;
+  if (photoChipHoverEl && photoChipHoverEl.classList) photoChipHoverEl.classList.remove('drag-over');
+  if (chip && chip.classList) chip.classList.add('drag-over');
+  photoChipHoverEl = chip;
+}
+function photosSortEnd(evt) {
+  document.removeEventListener('pointermove', photoChipHoverCheck);
+  if (photoChipHoverEl && photoChipHoverEl.classList) { photoChipHoverEl.classList.remove('drag-over'); photoChipHoverEl = null; }
+  const chip = photoDropChip(evt);
+  if (chip) {
+    // не реордер — навешивание лейбла. DOM-перестановку, которую уже сделал
+    // Sortable во время живого драга, отдельно откатывать не нужно: renderPhotos()
+    // ниже перерисовывает сетку целиком синхронно, до первой отрисовки браузера —
+    // промежуточное состояние DOM никогда не попадает на экран.
+    const targets = new Set(selectedPhotos); // массовое назначение: всем отмеченным…
+    targets.add(evt.item.dataset.id);        // …и перетаскиваемому фото
+    applyLabelToPhotos(chip.dataset.label, targets);
+    selectedPhotos.clear(); // действие выполнено — выделение снимаем
     save(); renderPhotos();
-    dragPhotoId = null;
-  },
-  onCancel() { dragPhotoId = null; }
-});
-// Чипы лейблов: тащим сам чип на фото (или на отмеченные) — навешиваем лейбл.
-// Клик по чипу (без драга) по-прежнему переключает фильтр.
-uniDragSetup({
-  container: $('#labelBar'),
-  itemSel: '.album-chip[data-label]',
-  ignoreSel: '[data-label-del]',
-  allow: chip => !!chip.dataset.label && chip.dataset.label !== EVENT_LABEL && chip.dataset.label !== DATE_LABEL,
-  reorder: false,
-  idOf: c => c.dataset.label,
-  targets: [{
-    sel: '.photo',
-    highlight(photo, on) { photo.classList.toggle('drag-over', on); },
-    drop(st, photo) {
-      const name = st.id;
-      const targets = new Set(selectedPhotos); // всем отмеченным…
-      targets.add(photo.dataset.id);           // …и фото под курсором
-      applyLabelToPhotos(name, targets);
-      selectedPhotos.clear();
-      save(); renderPhotos();
-      dragLabel = null;
-    }
-  }],
-  onStart(st) { dragLabel = st.id; },
-  onDrop() { dragLabel = null; },
-  onCancel() { dragLabel = null; }
-});
+    return;
+  }
+  // обычный реордер: порядок из текущего DOM-порядка сетки, закреплённые сверху
+  const domIds = [...evt.to.children].filter(c => c.classList && c.classList.contains('photo')).map(c => c.dataset.id);
+  const list = domIds.map(id => db.photos.find(p => p.id === id)).filter(Boolean);
+  [...list.filter(p => p.pinned), ...list.filter(p => !p.pinned)].forEach((p, i) => {
+    const ph = db.photos.find(x => x.id === p.id);
+    if (ph) ph.order = i;
+  });
+  save(); renderPhotos();
+}
+if (typeof Sortable !== 'undefined') {
+  Sortable.create($('#photosGrid'), {
+    handle: '.photo-drag', forceFallback: true, fallbackOnBody: true, animation: 150,
+    scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
+    onStart() { document.addEventListener('pointermove', photoChipHoverCheck); },
+    onEnd: photosSortEnd
+  });
+}
+// Чип лейбла → фото (обратное направление) — см. 05-dnd.js/chipDragSetup.
+chipDragSetup($('#labelBar'));
 

@@ -129,6 +129,7 @@
       <div class="sel-bar" id="photoSelBar" style="display:none">
         <span class="sel-count">Выбрано: <b id="selCount">0</b></span>
         <button class="btn album-add-btn" id="selAddLabelBtn">🏷 Добавить лейбл</button>
+        <button class="btn btn-danger album-add-btn" id="selDeleteBtn">🗑 Удалить выбранные</button>
         <button class="btn album-add-btn" id="selClearBtn">✕ Снять выбор</button>
       </div>
       <p class="drag-hint" id="dragHint" style="display:none">↕ Перетаскивай фото за ⠿ для порядка. Клик по ○ на фото — выбрать несколько.</p>
@@ -411,6 +412,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
+  <script src="vendor/sortable.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
