@@ -210,10 +210,18 @@ h3{font-weight:800}
 
 
 /* ===== Календарь ===== */
+/* .cal-nav-row (‹ месяц год ›) и .cal-actions (кнопки) — раньше все 5 были
+   прямыми детьми .cal-head вперемешку с flex-wrap: на большинстве экранов
+   переносилось ровно как нужно, но на самых узких (391-393px, где ряд и так
+   был на грани по ширине) перенос иногда не срабатывал и обрезал контент
+   слева. Группировка в два блока + явная раскладка в колонку на мобиле —
+   устойчиво независимо от того, как конкретный браузер посчитает перенос. */
 .cal-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.cal-nav-row{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
+.cal-actions{display:flex;gap:10px;flex-wrap:wrap}
 .cal-nav{
   width:40px;height:40px;border-radius:12px;border:1px solid var(--border);
-  background:#fff;font-size:20px;cursor:pointer;color:var(--violet-ink);transition:.2s;
+  background:#fff;font-size:20px;cursor:pointer;color:var(--violet-ink);transition:.2s;flex:none;
 }
 .cal-nav:hover{background:#fbf5ff;transform:translateY(-2px)}
 .cal-jump-row{display:flex;gap:8px;justify-content:center;flex:1;min-width:0}
@@ -239,6 +247,9 @@ h3{font-weight:800}
 .cal-cell{
   aspect-ratio:1;border-radius:14px;display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:1px;cursor:pointer;transition:background .2s;border:1px solid transparent;
+  overflow:hidden; /* .cal-dot внутри и так должен truncate'иться max-width:100%,
+    но подстраховка на случай, если браузер посчитает % от ширины иначе —
+    плашка события физически не может вылезти за пределы своей клетки */
 }
 .cal-cell:not(.selected):hover{background:#f7f0ff}
 .cal-cell.cal-empty{pointer-events:none}
@@ -669,6 +680,12 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
   .cal-nav{width:36px;height:36px}
   .cal-dot{font-size:9px}
   .two-col{grid-template-columns:1fr}
+  /* Явная раскладка в колонку — не полагаемся на то, что flex-wrap сам
+     перенесёт ровно там, где нужно (на iPhone 14 Pro 393px не переносил,
+     на 390px — переносил; слишком хрупко). */
+  .cal-head{flex-direction:column;align-items:stretch}
+  .cal-actions{flex-direction:column}
+  .cal-actions .btn{width:100%;justify-content:center}
 }
 @media(max-width:640px){
   .date-card{flex-wrap:wrap}

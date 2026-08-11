@@ -60,14 +60,18 @@
     <!-- ===== КАЛЕНДАРЬ ===== -->
     <section class="view" id="view-calendar">
       <div class="cal-head">
-        <button class="cal-nav" id="calPrev">‹</button>
-        <div class="cal-jump-row">
-          <select class="cal-jump" id="calMonthSelect" aria-label="Выбрать месяц"></select>
-          <select class="cal-jump" id="calYearSelect" aria-label="Выбрать год"></select>
+        <div class="cal-nav-row">
+          <button class="cal-nav" id="calPrev">‹</button>
+          <div class="cal-jump-row">
+            <select class="cal-jump" id="calMonthSelect" aria-label="Выбрать месяц"></select>
+            <select class="cal-jump" id="calYearSelect" aria-label="Выбрать год"></select>
+          </div>
+          <button class="cal-nav" id="calNext">›</button>
         </div>
-        <button class="cal-nav" id="calNext">›</button>
-        <button class="btn" id="jumpNextBtn" title="Перейти к ближайшему событию или свиданию">⏭ К ближайшему событию</button>
-        <button class="btn" id="addEventBtn">＋ Добавить дату</button>
+        <div class="cal-actions">
+          <button class="btn" id="jumpNextBtn" title="Перейти к ближайшему событию или свиданию">⏭ К ближайшему событию</button>
+          <button class="btn" id="addEventBtn">＋ Добавить дату</button>
+        </div>
       </div>
       <p class="cal-jump-info" id="jumpInfo" hidden></p>
       <div class="calendar" id="calendar"></div>
