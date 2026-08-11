@@ -211,7 +211,9 @@ assert(registry['#userChip'].textContent === '👧 Даша ▾', 'chip switches
 w('(s)=>s.setUser("gosha")');
 
 // --- Свидание: приглашение от кого + ответы ---
-w('(s)=>{s.db.dates.push({id:"d1",date:s.iso(2026,7,10),time:"19:00",from:"gosha",responses:{gosha:"yes",dasha:null},place:"Парк",note:"Пикник",emoji:"💘",done:false});s.renderHome();return s.db;}');
+// Дата — через 3 дня от сегодня, чтобы тест не устаревал
+const dateIn3Days = new Date(Date.now() + 3*86400000);
+w('(s)=>{s.db.dates.push({id:"d1",date:s.iso('+dateIn3Days.getFullYear()+','+dateIn3Days.getMonth()+','+dateIn3Days.getDate()+'),time:"19:00",from:"gosha",responses:{gosha:"yes",dasha:null},place:"Парк",note:"Пикник",emoji:"💘",done:false});s.renderHome();return s.db;}');
 const datesHtml = registry['#dates'].innerHTML;
 assert(datesHtml.includes('приглашение от Гоши'), 'date card: from gosha');
 assert(datesHtml.includes('Гоша: 💌 позвал'), 'date card: inviter status');
@@ -294,7 +296,7 @@ w('(s)=>{s.go("calendar");s.renderCalendar();}');
 assert(registry['#calendar'].innerHTML.includes('has-date'), 'calendar cell marked has-date');
 const calHtml = registry['#calendar'].innerHTML;
 assert(calHtml.includes('💘'), 'calendar has date marker');
-w('(s)=>{s.selectedDate=s.iso(2026,7,10);s.renderDayPanel();}');
+w('(s)=>{s.selectedDate=s.iso('+dateIn3Days.getFullYear()+','+dateIn3Days.getMonth()+','+dateIn3Days.getDate()+');s.renderDayPanel();}');
 assert(registry['#dayPanel'].innerHTML.includes('Свидания'), 'date in day panel');
 
 // --- Редактирование события календаря ---
