@@ -311,8 +311,10 @@ sandbox.go('photos');
 const photosGrid = sandbox.document.querySelector('#photosGrid');
 const photo = id => photosGrid.children.find(x => x.dataset.id === id);
 const photoHandle = id => photo(id) && photo(id).querySelector('[data-photo-drag]');
-const chip = () => sandbox.document.querySelector('#labelBar').children.find(x =>
-  x.classList.contains('album-chip') && x.dataset.label === 'Поездка');
+// .album-chip теперь обёрнут в .chip-wrap (сосед .label-del — кнопка внутри
+// кнопки была невалидным HTML и не давала удалить лейбл с клавиатуры), поэтому
+// он больше не прямой потомок #labelBar — ищем полным querySelector.
+const chip = () => sandbox.document.querySelector('#labelBar').querySelector('.album-chip[data-label="Поездка"]');
 const setPRects = () => photosGrid.children.filter(x => x.classList.contains('photo')).forEach((c, i) => {
   c._rect = { top: i * 160, left: 0, right: 220, bottom: i * 160 + 150, width: 220, height: 150, x: 0, y: i * 160 };
 });

@@ -204,7 +204,7 @@
   </main>
 
   <!-- ===== Модалка «добавить дату» ===== -->
-  <div class="overlay" id="eventOverlay" hidden>
+  <div class="overlay" id="eventOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="evModalTitle">
     <div class="modal event-modal">
       <div class="ev-head">
         <h3 id="evModalTitle">💜 Памятная дата</h3>
@@ -239,10 +239,10 @@
   </div>
 
   <!-- ===== Модалка «назначить свидание» ===== -->
-  <div class="overlay" id="dateOverlay" hidden>
+  <div class="overlay" id="dateOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="dtModalTitle">
     <div class="modal">
       <button class="modal-x" data-close="dateOverlay">✕</button>
-      <h3>💘 Назначить свидание</h3>
+      <h3 id="dtModalTitle">💘 Назначить свидание</h3>
       <label>Когда</label>
       <div class="two-col">
         <div class="field"><label for="dtDate">Дата</label><input type="date" id="dtDate"></div>
@@ -260,10 +260,10 @@
   </div>
 
   <!-- ===== Модалка «лейбл» ===== -->
-  <div class="overlay" id="labelOverlay" hidden>
+  <div class="overlay" id="labelOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="labelModalTitle">
     <div class="modal">
       <button class="modal-x" data-close="labelOverlay">✕</button>
-      <h3>🏷 Лейбл</h3>
+      <h3 id="labelModalTitle">🏷 Лейбл</h3>
       <p class="cal-tip" id="labelModalHint" style="margin-bottom:12px"></p>
       <label>Новый лейбл</label>
       <div class="list-add">
@@ -277,10 +277,10 @@
   </div>
 
   <!-- ===== Модалка «хотелка» ===== -->
-  <div class="overlay" id="wishOverlay" hidden>
+  <div class="overlay" id="wishOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="wishModalTitle">
     <div class="modal">
       <button class="modal-x" data-close="wishOverlay">✕</button>
-      <h3>🎁 Хотелка</h3>
+      <h3 id="wishModalTitle">🎁 Хотелка</h3>
       <label>Что хочешь? (обязательно)</label>
       <textarea id="wishText" placeholder="Например: кофемашина, поездка к морю…"></textarea>
       <label>Фото (необязательно)</label>
@@ -296,7 +296,7 @@
   </div>
 
   <!-- ===== Личный кабинет: пароли ===== -->
-  <div class="overlay" id="passOverlay" hidden>
+  <div class="overlay" id="passOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="passTitle">
     <div class="modal">
       <button class="modal-x" data-close="passOverlay">✕</button>
       <h3 id="passTitle">🔑 Пароль</h3>

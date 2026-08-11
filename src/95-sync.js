@@ -76,7 +76,7 @@ async function initSync() {
     syncReady = true;
     renderSyncStatus('idle');
     listenRemote();      // живые обновления с другого устройства
-    pullVault(true);     // при входе пробуем забрать свежие данные
+    pullVault();          // при входе пробуем забрать свежие данные
     scheduleSyncPush();  // и отдать свои, если они свежее
     schedulePhotoSync(); // фото: выгрузить свои / скачать недостающие
   } catch (e) {
@@ -217,7 +217,7 @@ async function forcePushVault() {
 }
 
 /* ===== Pull: читаем облако, применяем, если оно свежее ===== */
-async function pullVault(silent) {
+async function pullVault() {
   if (!syncReady) return;
   try {
     const snap = await syncDb.ref(SYNC_PATH).once('value');
@@ -230,7 +230,6 @@ async function pullVault(silent) {
     syncTs = rts;
     store.set(SYNC_KEY, String(rts));
     renderSyncStatus('ok', rts);
-    if (!silent) notify('Данные обновлены с другого устройства 💜');
   } catch (e) {
     console.warn('[sync] pull failed', e);
     renderSyncStatus('error');
@@ -751,7 +750,7 @@ async function syncNow() {
   if (!FIREBASE_CONFIG) { renderSyncStatus('off'); return; }
   if (!syncReady) { initSync(); return; }
   if (syncPushBlocked) { await forcePushVault(); return; }
-  await pullVault(false);
+  await pullVault();
   await pushVault();
   schedulePhotoSync(); // фото-сверка тоже по требованию
 }

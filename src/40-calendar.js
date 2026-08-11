@@ -35,24 +35,35 @@ function renderCalendar() {
   const dim = new Date(calY, calM + 1, 0).getDate();
   const today = new Date();
 
-  let html = '<div class="cal-row cal-head-row">' +
-    ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map(d => `<div class="cal-cell cal-dow">${d}</div>`).join('') + '</div>';
-  let cells = '';
-  for (let i = 0; i < firstDow; i++) cells += '<div class="cal-cell cal-empty"></div>';
+  // Грид-семантика (role=grid/row/gridcell + aria-selected/aria-current/
+  // aria-label) — раньше был только role=button на ячейке, без структуры
+  // строк, хотя маленький date-picker внутри модалок это уже умел (полный
+  // APG-паттерн «grid dialog»). Дни собираются в плоский список, потом
+  // режутся на недели по 7 — не рискуем случайно оставить пустую строку.
+  let html = '<div class="cal-row cal-head-row" role="row">' +
+    ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map(d => `<div class="cal-cell cal-dow" role="columnheader">${d}</div>`).join('') + '</div>';
+  const dayCells = [];
+  for (let i = 0; i < firstDow; i++) dayCells.push('<div class="cal-cell cal-empty" role="gridcell"></div>');
   for (let d = 1; d <= dim; d++) {
     const ds = iso(calY, calM, d);
     const evs = eventsOn(ds, calM, d);
     const dts = datesOn(ds);
     const isToday = today.getFullYear() === calY && today.getMonth() === calM && today.getDate() === d;
+    const isSelected = selectedDate === ds;
     const inSpan = db.events.some(ev => !ev.repeat && ev.endDate && ev.endDate >= ev.date && ds >= ev.date && ds <= ev.endDate);
-    cells += `<div class="cal-cell${isToday ? ' today' : ''}${selectedDate === ds ? ' selected' : ''}${inSpan ? ' in-span' : ''}${dts.length ? ' has-date' : ''}" data-day="${ds}" role="button" tabindex="0">` +
+    dayCells.push(`<div class="cal-cell${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}${inSpan ? ' in-span' : ''}${dts.length ? ' has-date' : ''}" data-day="${ds}" role="gridcell" tabindex="0" aria-selected="${isSelected}" aria-label="${d} ${MONTHS_GEN[calM]} ${calY} года"${isToday ? ' aria-current="date"' : ''}>` +
       `<span class="cal-num">${d}</span>` +
       evs.slice(0, 2).map(e => `<span class="cal-dot" title="${esc(e.title)}">${esc(e.emoji)} ${esc(e.title)}</span>`).join('') +
       (evs.length > 2 ? `<span class="cal-dot cal-dot-more" title="Ещё ${evs.length - 2} события">+${evs.length - 2}</span>` : '') +
       (dts.length ? `<span class="cal-dot date-dot" title="Свидание">${esc(dts[0].emoji || '💘')}</span>` : '') +
-      '</div>';
+      '</div>');
   }
-  $('#calendar').innerHTML = html + `<div class="cal-row">${cells}</div>`;
+  while (dayCells.length % 7) dayCells.push('<div class="cal-cell cal-empty" role="gridcell"></div>');
+  let cells = '';
+  for (let i = 0; i < dayCells.length; i += 7) cells += '<div class="cal-row" role="row">' + dayCells.slice(i, i + 7).join('') + '</div>';
+  $('#calendar').setAttribute('role', 'grid');
+  $('#calendar').setAttribute('aria-label', 'Календарь');
+  $('#calendar').innerHTML = html + cells;
   renderDayPanel();
   updateNearestJump();
 }
@@ -73,7 +84,7 @@ function renderDayPanel() {
       : '<p class="cal-tip">В этот день событий пока нет.</p>') +
     (dts.length
       ? `<div class="day-sub">💘 Свидания</div>` + dts.map(dt =>
-          `<div class="day-event date-evt${dt.done ? ' date-done' : ''}">${esc(dt.emoji || '💘')} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}${dt.done ? ' ✅' : ''}</span>${dtThumbs(dt)} <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${dt.done ? '💗' : '✅'}</button> <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото">📷</button> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`).join('')
+          `<div class="day-event date-evt${dt.done ? ' date-done' : ''}">${esc(dt.emoji || '💘')} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}${dt.done ? ' ✅' : ''}</span>${dtThumbs(dt)} <button class="mini-x" data-edit-date="${dt.id}" title="Изменить">✏️</button> <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${dt.done ? '💗' : '✅'}</button> <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото">📷</button> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`).join('')
       : '') +
     `<div class="day-add">
        <input type="text" id="dayTitle" placeholder="Название события">

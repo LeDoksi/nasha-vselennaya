@@ -205,6 +205,7 @@ function renderDates() {
             <button class="resp-btn no ${resp[who] === 'no' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="no">Нет 👎</button>
           </div>` : ''}
           <div class="date-btns">
+            <button class="mini-x" data-edit-date="${d.id}" title="Изменить">✏️</button>
             <button class="mini-x" data-done-date="${d.id}" title="Свидание прошло">💗</button>
             <button class="mini-x" data-del-date="${d.id}" title="Удалить">✕</button>
           </div>
@@ -212,20 +213,47 @@ function renderDates() {
       </div>`;
     }).join('') : '<p class="cal-tip">Ближайших свиданий пока нет. Самое время назначить новое! ✨</p>');
 }
-function openDateModal() {
-  const t = new Date();
-  $('#dtDate').value = iso(t.getFullYear(), t.getMonth(), t.getDate());
-  $('#dtTime').value = '19:00';
-  $('#dtPlace').value = '';
-  $('#dtNote').value = '';
-  $('#dtEmoji').value = '💘';
+let editingDateId = null;
+// id — только настоящая строка (клик по «💘 Назначить свидание» передаёт
+// MouseEvent, не id — как и было с openEventModal, см. фикс события ＋Добавить дату).
+function openDateModal(id) {
+  editingDateId = typeof id === 'string' ? id : null;
+  const dt = editingDateId ? db.dates.find(x => x.id === editingDateId) : null;
+  const title = $('#dtModalTitle');
+  if (title) title.textContent = dt ? '✏️ Изменить свидание' : '💘 Назначить свидание';
+  if (dt) {
+    $('#dtDate').value = dt.date;
+    $('#dtTime').value = dt.time || '19:00';
+    $('#dtPlace').value = dt.place || '';
+    $('#dtNote').value = dt.note || '';
+    $('#dtEmoji').value = dt.emoji || '💘';
+  } else {
+    const t = new Date();
+    $('#dtDate').value = iso(t.getFullYear(), t.getMonth(), t.getDate());
+    $('#dtTime').value = '19:00';
+    $('#dtPlace').value = '';
+    $('#dtNote').value = '';
+    $('#dtEmoji').value = '💘';
+  }
   $('#dateOverlay').hidden = false;
 }
-$('#addDateBtn').addEventListener('click', openDateModal);
+$('#addDateBtn').addEventListener('click', () => openDateModal());
 // Свидание всегда от имени вошедшего — выбора «кто приглашает» нет.
 function saveDateFromModal() {
   const date = $('#dtDate').value;
   if (!date) { alert('Выбери дату свидания 💘'); return; }
+  const existing = editingDateId ? db.dates.find(x => x.id === editingDateId) : null;
+  if (existing) {
+    // Правка не трогает from/responses — кто позвал и кто уже ответил, остаётся как было.
+    existing.date = date;
+    existing.time = $('#dtTime').value;
+    existing.place = $('#dtPlace').value.trim();
+    existing.note = $('#dtNote').value.trim();
+    existing.emoji = $('#dtEmoji').value.trim() || '💘';
+    editingDateId = null;
+    save(); $('#dateOverlay').hidden = true; renderHome(); renderCalendar();
+    return;
+  }
   const from = getUser();
   // Пригласивший уже согласен по смыслу (UI показывает «💌 позвал/позвала» без
   // кнопок ответа — canAnswer это и запрещает), поэтому его responses[from]

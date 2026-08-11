@@ -1955,6 +1955,7 @@ function renderDates() {
             <button class="resp-btn no ${resp[who] === 'no' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="no">Нет 👎</button>
           </div>` : ''}
           <div class="date-btns">
+            <button class="mini-x" data-edit-date="${d.id}" title="Изменить">✏️</button>
             <button class="mini-x" data-done-date="${d.id}" title="Свидание прошло">💗</button>
             <button class="mini-x" data-del-date="${d.id}" title="Удалить">✕</button>
           </div>
@@ -1962,20 +1963,47 @@ function renderDates() {
       </div>`;
     }).join('') : '<p class="cal-tip">Ближайших свиданий пока нет. Самое время назначить новое! ✨</p>');
 }
-function openDateModal() {
-  const t = new Date();
-  $('#dtDate').value = iso(t.getFullYear(), t.getMonth(), t.getDate());
-  $('#dtTime').value = '19:00';
-  $('#dtPlace').value = '';
-  $('#dtNote').value = '';
-  $('#dtEmoji').value = '💘';
+let editingDateId = null;
+// id — только настоящая строка (клик по «💘 Назначить свидание» передаёт
+// MouseEvent, не id — как и было с openEventModal, см. фикс события ＋Добавить дату).
+function openDateModal(id) {
+  editingDateId = typeof id === 'string' ? id : null;
+  const dt = editingDateId ? db.dates.find(x => x.id === editingDateId) : null;
+  const title = $('#dtModalTitle');
+  if (title) title.textContent = dt ? '✏️ Изменить свидание' : '💘 Назначить свидание';
+  if (dt) {
+    $('#dtDate').value = dt.date;
+    $('#dtTime').value = dt.time || '19:00';
+    $('#dtPlace').value = dt.place || '';
+    $('#dtNote').value = dt.note || '';
+    $('#dtEmoji').value = dt.emoji || '💘';
+  } else {
+    const t = new Date();
+    $('#dtDate').value = iso(t.getFullYear(), t.getMonth(), t.getDate());
+    $('#dtTime').value = '19:00';
+    $('#dtPlace').value = '';
+    $('#dtNote').value = '';
+    $('#dtEmoji').value = '💘';
+  }
   $('#dateOverlay').hidden = false;
 }
-$('#addDateBtn').addEventListener('click', openDateModal);
+$('#addDateBtn').addEventListener('click', () => openDateModal());
 // Свидание всегда от имени вошедшего — выбора «кто приглашает» нет.
 function saveDateFromModal() {
   const date = $('#dtDate').value;
   if (!date) { alert('Выбери дату свидания 💘'); return; }
+  const existing = editingDateId ? db.dates.find(x => x.id === editingDateId) : null;
+  if (existing) {
+    // Правка не трогает from/responses — кто позвал и кто уже ответил, остаётся как было.
+    existing.date = date;
+    existing.time = $('#dtTime').value;
+    existing.place = $('#dtPlace').value.trim();
+    existing.note = $('#dtNote').value.trim();
+    existing.emoji = $('#dtEmoji').value.trim() || '💘';
+    editingDateId = null;
+    save(); $('#dateOverlay').hidden = true; renderHome(); renderCalendar();
+    return;
+  }
   const from = getUser();
   // Пригласивший уже согласен по смыслу (UI показывает «💌 позвал/позвала» без
   // кнопок ответа — canAnswer это и запрещает), поэтому его responses[from]
@@ -2421,24 +2449,35 @@ function renderCalendar() {
   const dim = new Date(calY, calM + 1, 0).getDate();
   const today = new Date();
 
-  let html = '<div class="cal-row cal-head-row">' +
-    ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map(d => `<div class="cal-cell cal-dow">${d}</div>`).join('') + '</div>';
-  let cells = '';
-  for (let i = 0; i < firstDow; i++) cells += '<div class="cal-cell cal-empty"></div>';
+  // Грид-семантика (role=grid/row/gridcell + aria-selected/aria-current/
+  // aria-label) — раньше был только role=button на ячейке, без структуры
+  // строк, хотя маленький date-picker внутри модалок это уже умел (полный
+  // APG-паттерн «grid dialog»). Дни собираются в плоский список, потом
+  // режутся на недели по 7 — не рискуем случайно оставить пустую строку.
+  let html = '<div class="cal-row cal-head-row" role="row">' +
+    ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map(d => `<div class="cal-cell cal-dow" role="columnheader">${d}</div>`).join('') + '</div>';
+  const dayCells = [];
+  for (let i = 0; i < firstDow; i++) dayCells.push('<div class="cal-cell cal-empty" role="gridcell"></div>');
   for (let d = 1; d <= dim; d++) {
     const ds = iso(calY, calM, d);
     const evs = eventsOn(ds, calM, d);
     const dts = datesOn(ds);
     const isToday = today.getFullYear() === calY && today.getMonth() === calM && today.getDate() === d;
+    const isSelected = selectedDate === ds;
     const inSpan = db.events.some(ev => !ev.repeat && ev.endDate && ev.endDate >= ev.date && ds >= ev.date && ds <= ev.endDate);
-    cells += `<div class="cal-cell${isToday ? ' today' : ''}${selectedDate === ds ? ' selected' : ''}${inSpan ? ' in-span' : ''}${dts.length ? ' has-date' : ''}" data-day="${ds}" role="button" tabindex="0">` +
+    dayCells.push(`<div class="cal-cell${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}${inSpan ? ' in-span' : ''}${dts.length ? ' has-date' : ''}" data-day="${ds}" role="gridcell" tabindex="0" aria-selected="${isSelected}" aria-label="${d} ${MONTHS_GEN[calM]} ${calY} года"${isToday ? ' aria-current="date"' : ''}>` +
       `<span class="cal-num">${d}</span>` +
       evs.slice(0, 2).map(e => `<span class="cal-dot" title="${esc(e.title)}">${esc(e.emoji)} ${esc(e.title)}</span>`).join('') +
       (evs.length > 2 ? `<span class="cal-dot cal-dot-more" title="Ещё ${evs.length - 2} события">+${evs.length - 2}</span>` : '') +
       (dts.length ? `<span class="cal-dot date-dot" title="Свидание">${esc(dts[0].emoji || '💘')}</span>` : '') +
-      '</div>';
+      '</div>');
   }
-  $('#calendar').innerHTML = html + `<div class="cal-row">${cells}</div>`;
+  while (dayCells.length % 7) dayCells.push('<div class="cal-cell cal-empty" role="gridcell"></div>');
+  let cells = '';
+  for (let i = 0; i < dayCells.length; i += 7) cells += '<div class="cal-row" role="row">' + dayCells.slice(i, i + 7).join('') + '</div>';
+  $('#calendar').setAttribute('role', 'grid');
+  $('#calendar').setAttribute('aria-label', 'Календарь');
+  $('#calendar').innerHTML = html + cells;
   renderDayPanel();
   updateNearestJump();
 }
@@ -2459,7 +2498,7 @@ function renderDayPanel() {
       : '<p class="cal-tip">В этот день событий пока нет.</p>') +
     (dts.length
       ? `<div class="day-sub">💘 Свидания</div>` + dts.map(dt =>
-          `<div class="day-event date-evt${dt.done ? ' date-done' : ''}">${esc(dt.emoji || '💘')} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}${dt.done ? ' ✅' : ''}</span>${dtThumbs(dt)} <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${dt.done ? '💗' : '✅'}</button> <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото">📷</button> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`).join('')
+          `<div class="day-event date-evt${dt.done ? ' date-done' : ''}">${esc(dt.emoji || '💘')} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}${dt.done ? ' ✅' : ''}</span>${dtThumbs(dt)} <button class="mini-x" data-edit-date="${dt.id}" title="Изменить">✏️</button> <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${dt.done ? '💗' : '✅'}</button> <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото">📷</button> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`).join('')
       : '') +
     `<div class="day-add">
        <input type="text" id="dayTitle" placeholder="Название события">
@@ -3106,12 +3145,31 @@ uniDragSetup({
 
 
 /* ===== Списки ===== */
+let editingSubtask = null; // {listId, itemId} в режиме инлайн-правки, иначе null
 function listItemHTML(listId, it) {
+  const editing = editingSubtask && editingSubtask.listId === listId && editingSubtask.itemId === it.id;
   return `<li class="${it.done ? 'done' : ''}" data-item="${esc(it.id)}">
     <button class="check" data-toggle-item="${listId}" data-id="${it.id}" title="Готово">${it.done ? '✅' : '○'}</button>
-    <span>${esc(it.text)}</span>
-    <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>
+    ${editing
+      ? `<input type="text" class="subtask-editor" id="subtaskEdit-${esc(it.id)}" value="${esc(it.text)}">
+         <button class="mini-x" data-save-item="${listId}" data-id="${it.id}" title="Сохранить">💜</button>
+         <button class="mini-x" data-cancel-item title="Отмена">✕</button>`
+      : `<span>${esc(it.text)}</span>
+         <button class="mini-x" data-edit-item="${listId}" data-id="${it.id}" title="Редактировать">✏️</button>
+         <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>`}
   </li>`;
+}
+function startEditSubtask(listId, itemId) { editingSubtask = { listId, itemId }; renderLists(); }
+function cancelSubtaskEdit() { editingSubtask = null; renderLists(); }
+function saveSubtaskEdit(listId, itemId, text) {
+  const list = db.lists.find(x => x.id === listId);
+  const it = list && list.items.find(x => x.id === itemId);
+  editingSubtask = null;
+  if (!it) { renderLists(); return; }
+  const inp = $('#subtaskEdit-' + itemId);
+  const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
+  if (t) it.text = t;
+  save(); renderLists();
 }
 // Выполненные подзадачи всегда внизу списка: устойчивая сортировка —
 // внутри групп (невыполненные/выполненные) относительный порядок сохраняется.
@@ -3334,6 +3392,7 @@ function wishCard(w) {
       ${w.link ? `<a class="wish-link" href="${safeUrl(w.link)}" target="_blank" rel="noopener">🔗 Открыть ссылку</a>` : ''}
       <div class="wish-btns">
         ${wishToggleHTML(w)}
+        <button class="mini-x" data-edit-wish="${w.id}" title="Изменить">✏️</button>
         <button class="mini-x" data-wish-del="${w.id}" title="Удалить">✕</button>
       </div>
     </div>
@@ -3352,16 +3411,22 @@ function renderWishlist() {
     sec('dasha', 'Даши', '👧', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨');
   if (typeof hydratePhotoImgs === 'function') hydratePhotoImgs(grid);
 }
-function openWishModal() {
-  wishPhotoData = null;
-  $('#wishText').value = '';
-  $('#wishLink').value = '';
-  $('#wishPhotoName').textContent = '';
+let editingWishId = null;
+// id — только настоящая строка (клик по «＋ Добавить» передаёт MouseEvent).
+function openWishModal(id) {
+  editingWishId = typeof id === 'string' ? id : null;
+  const wish = editingWishId ? db.wishlist.find(x => x.id === editingWishId) : null;
+  const title = $('#wishModalTitle');
+  if (title) title.textContent = wish ? '✏️ Изменить хотелку' : '🎁 Хотелка';
+  wishPhotoData = null; // новое фото выбирается заново; старое (wish.photoId) остаётся, если не тронуть выбор
+  $('#wishText').value = wish ? wish.text : '';
+  $('#wishLink').value = wish ? (wish.link || '') : '';
+  $('#wishPhotoName').textContent = wish && wish.photoId ? '✅ фото уже есть — выбери новое, чтобы заменить' : '';
   $('#wishPhoto').value = '';
   $('#wishOverlay').hidden = false;
   $('#wishText').focus();
 }
-$('#addWishBtn').addEventListener('click', openWishModal);
+$('#addWishBtn').addEventListener('click', () => openWishModal());
 $('#wishPhoto').addEventListener('change', async e => {
   const f = e.target.files[0];
   if (!f) return;
@@ -3376,24 +3441,30 @@ $('#wishPhoto').addEventListener('change', async e => {
 async function saveWishFromModal() {
   const text = $('#wishText').value.trim();
   if (!text) { alert('Напиши, что хочешь 💜'); return; }
-  const wish = {
-    id: uid(), text,
-    link: $('#wishLink').value.trim() || '',
-    owner: getUser(), done: false, ts: Date.now()
-  };
+  let photoId = null;
   if (wishPhotoData && photoStore) {
     try {
       const blob = dataUrlToBlob(wishPhotoData);
       if (blob) {
-        const photoId = uid();
+        photoId = uid();
         let thumb = null;
         try { thumb = await makeThumbBlob(wishPhotoData, 256); } catch (e) {}
         await photoStore.put(photoId, blob, thumb, { type: blob.type || 'image/webp', title: text, size: blob.size });
-        wish.photoId = photoId;
       }
     } catch (e) { console.warn('Не удалось сохранить фото хотелки', e); }
   }
-  db.wishlist.unshift(wish);
+  const existing = editingWishId ? db.wishlist.find(x => x.id === editingWishId) : null;
+  if (existing) {
+    // Владелец/статус «исполнено» правка не трогает — только текст/ссылку/фото.
+    existing.text = text;
+    existing.link = $('#wishLink').value.trim() || '';
+    if (photoId) existing.photoId = photoId; // новое фото выбрано — заменяем; иначе старое остаётся
+    editingWishId = null;
+  } else {
+    const wish = { id: uid(), text, link: $('#wishLink').value.trim() || '', owner: getUser(), done: false, ts: Date.now() };
+    if (photoId) wish.photoId = photoId;
+    db.wishlist.unshift(wish);
+  }
   save(); $('#wishOverlay').hidden = true; renderWishlist();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
 }
@@ -3429,6 +3500,9 @@ document.addEventListener('click', e => {
 
   const editEv = e.target.closest('[data-edit-event]');
   if (editEv) { openEventModal(editEv.dataset.editEvent); return; }
+
+  const editDt = e.target.closest('[data-edit-date]');
+  if (editDt) { openDateModal(editDt.dataset.editDate); return; }
 
   const photoEv = e.target.closest('[data-photo-event]');
   if (photoEv) { addEventPhotoQuick(photoEv.dataset.photoEvent); return; }
@@ -3472,6 +3546,12 @@ document.addEventListener('click', e => {
   if (togItem) { toggleSubtask(togItem.dataset.toggleItem, togItem.dataset.id); return; }
   const delItem = e.target.closest('[data-del-item]');
   if (delItem) { delSubtask(delItem.dataset.delItem, delItem.dataset.id); return; }
+  const editItem = e.target.closest('[data-edit-item]');
+  if (editItem) { startEditSubtask(editItem.dataset.editItem, editItem.dataset.id); return; }
+  const saveItemBtn = e.target.closest('[data-save-item]');
+  if (saveItemBtn) { saveSubtaskEdit(saveItemBtn.dataset.saveItem, saveItemBtn.dataset.id); return; }
+  const cancelItemBtn = e.target.closest('[data-cancel-item]');
+  if (cancelItemBtn) { cancelSubtaskEdit(); return; }
   const listAdd = e.target.closest('[data-list-add]');
   if (listAdd) { addListSubtask(listAdd.dataset.listAdd, 'listInput-' + listAdd.dataset.listAdd); return; }
   const listDone = e.target.closest('[data-list-complete]');
@@ -3505,6 +3585,8 @@ document.addEventListener('click', e => {
     }
     return;
   }
+  const editWish = e.target.closest('[data-edit-wish]');
+  if (editWish) { openWishModal(editWish.dataset.editWish); return; }
   const wishDel = e.target.closest('[data-wish-del]');
   if (wishDel) {
     if (!confirmDelete('Удалить хотелку? Это не отменить.')) return;
@@ -3529,6 +3611,14 @@ document.addEventListener('click', e => {
   if (closeBtn) { closeOverlay(closeBtn.dataset.close); return; }
   if (e.target.classList && e.target.classList.contains('overlay')) closeOverlay(e.target.id);
 });
+// Двойной клик по подзадаче — как ✏️ (пара с редактированием заметок)
+const listsWrapEl = $('#listsWrap');
+if (listsWrapEl) listsWrapEl.addEventListener('dblclick', e => {
+  const li = e.target.closest('li[data-item]');
+  if (!li || e.target.closest('.check, .drag-handle, button, input')) return;
+  const card = li.closest('.list-card');
+  if (card) startEditSubtask(card.dataset.id, li.dataset.item);
+});
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     const open = document.querySelector('.overlay:not([hidden])');
@@ -3539,6 +3629,12 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('listInput-') === 0) {
     e.preventDefault();
     addListSubtask(e.target.id.slice('listInput-'.length), e.target.id);
+    return;
+  }
+  // Списки: Enter в поле правки подзадачи — сохранить
+  if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('subtaskEdit-') === 0 && editingSubtask) {
+    e.preventDefault();
+    saveSubtaskEdit(editingSubtask.listId, editingSubtask.itemId);
     return;
   }
   // Календарь: Enter / пробел на дне — как клик по ячейке
@@ -3620,7 +3716,11 @@ function renderLabels() {
     `<button class="album-chip${currentLabel === '' ? ' active' : ''}" data-label="">🖼 Все фото (${db.photos.length})</button>` +
     (evCount ? `<button class="album-chip${currentLabel === EVENT_LABEL ? ' active' : ''}" data-label="${esc(EVENT_LABEL)}">📅 События (${evCount})</button>` : '') +
     (dtCount ? `<button class="album-chip${currentLabel === DATE_LABEL ? ' active' : ''}" data-label="${esc(DATE_LABEL)}">💞 Свидания (${dtCount})</button>` : '') +
-    db.labels.filter(l => !sysLabels.includes(l)).map(l => `<button class="album-chip${currentLabel === l ? ' active' : ''}" data-label="${esc(l)}" title="Перетащи на фото, чтобы навесить лейбл"># ${esc(l)}<span class="label-del" data-label-del="${esc(l)}" title="Удалить лейбл">✕</span></button>`).join('') +
+    // .label-del — отдельная кнопка-СОСЕД (не вложена в .album-chip): кнопка
+    // внутри кнопки — невалидный HTML, и клавиатурная активация внешней
+    // кнопки не могла «дотянуться» до вложенного крестика — с клавиатуры
+    // удалить лейбл было физически невозможно.
+    db.labels.filter(l => !sysLabels.includes(l)).map(l => `<span class="chip-wrap"><button class="album-chip${currentLabel === l ? ' active' : ''}" data-label="${esc(l)}" title="Перетащи на фото, чтобы навесить лейбл"># ${esc(l)}</button><button type="button" class="label-del" data-label-del="${esc(l)}" title="Удалить лейбл">✕</button></span>`).join('') +
     `<button class="btn album-add-btn" data-label-new title="Создать лейбл">＋ Лейбл</button>`;
 }
 function deletePhoto(id) {
@@ -3724,12 +3824,12 @@ function renderPhotosNow() {
       <button class="del-photo" data-del-photo="${p.id}" title="Удалить">✕</button>
       <button class="drag-handle photo-drag" data-photo-drag="${p.id}" title="Перетащить">⠿</button>
       ${(p.labels || []).length ? `<div class="photo-labels">${p.labels.map(l =>
-        `<span class="photo-label">${esc(l)}${l === EVENT_LABEL || l === DATE_LABEL ? '' : `<span class="photo-label-del" data-label-off="${esc(l)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</span>`}</span>`
+        `<span class="photo-label">${esc(l)}${l === EVENT_LABEL || l === DATE_LABEL ? '' : `<button type="button" class="photo-label-del" data-label-off="${esc(l)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</button>`}</span>`
       ).join('')}</div>` : ''}
       ${currentLabel === EVENT_LABEL && p.title ? `<span class="photo-caption">${esc(eventFilter.title || p.title)}</span>` : ''}
     </div>`;
   }).join('')
-    : '<p class="cal-tip">📷 Загрузите ваши фото — они будут храниться локально, прямо в браузере.</p>';
+    : '<p class="cal-tip">📷 Загрузите ваши фото — они зашифруются и будут доступны с обоих устройств, если настроена синхронизация в Настройках.</p>';
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
 }
 // Витрина «📅 События»: кнопки «год → месяц → событие» появляются по мере выбора
@@ -4495,7 +4595,7 @@ async function initSync() {
     syncReady = true;
     renderSyncStatus('idle');
     listenRemote();      // живые обновления с другого устройства
-    pullVault(true);     // при входе пробуем забрать свежие данные
+    pullVault();          // при входе пробуем забрать свежие данные
     scheduleSyncPush();  // и отдать свои, если они свежее
     schedulePhotoSync(); // фото: выгрузить свои / скачать недостающие
   } catch (e) {
@@ -4636,7 +4736,7 @@ async function forcePushVault() {
 }
 
 /* ===== Pull: читаем облако, применяем, если оно свежее ===== */
-async function pullVault(silent) {
+async function pullVault() {
   if (!syncReady) return;
   try {
     const snap = await syncDb.ref(SYNC_PATH).once('value');
@@ -4649,7 +4749,6 @@ async function pullVault(silent) {
     syncTs = rts;
     store.set(SYNC_KEY, String(rts));
     renderSyncStatus('ok', rts);
-    if (!silent) notify('Данные обновлены с другого устройства 💜');
   } catch (e) {
     console.warn('[sync] pull failed', e);
     renderSyncStatus('error');
@@ -5170,7 +5269,7 @@ async function syncNow() {
   if (!FIREBASE_CONFIG) { renderSyncStatus('off'); return; }
   if (!syncReady) { initSync(); return; }
   if (syncPushBlocked) { await forcePushVault(); return; }
-  await pullVault(false);
+  await pullVault();
   await pushVault();
   schedulePhotoSync(); // фото-сверка тоже по требованию
 }

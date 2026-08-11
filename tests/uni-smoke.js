@@ -75,6 +75,7 @@ function __TEST__(s){
   s.renderLists = renderLists; s.renderPhotos = renderPhotos;
   s.createList = createList; s.addListSubtask = addListSubtask;
   s.toggleSubtask = toggleSubtask; s.delSubtask = delSubtask; s.completeList = completeList;
+  s.startEditSubtask = startEditSubtask; s.saveSubtaskEdit = saveSubtaskEdit; s.cancelSubtaskEdit = cancelSubtaskEdit;
   s.renderWishlist = renderWishlist; s.renderCountdown = renderCountdown; s.tickCountdown = tickCountdown; s.renderSettings = renderSettings;
   s.renderCompliment = renderCompliment;
   s.go = go; s.daysTogether = daysTogether; s.iso = iso;
@@ -249,6 +250,17 @@ assert(w(`(s)=>s.db.dates.find(d=>d.id==="${lastDateId}").responses.dasha`) === 
 w(`(s)=>{const d=s.db.dates.find(x=>x.id==="${lastDateId}"); d.responses.gosha='yes'; s.renderHome(); return 1;}`);
 assert(registry['#dates'].innerHTML.includes('both-yes'),
   'партнёр тоже ответил «да» → баннер «Мы идём на свидание!» показывается (раньше не срабатывало никогда)');
+// Редактирование свидания (раньше можно было только удалить и создать заново,
+// теряя ответы обоих) — правка не должна трогать from/responses.
+const datesCountBeforeEdit = w('(s)=>s.db.dates.length');
+w(`(s)=>s.openDateModal("${lastDateId}")`);
+assert(registry['#dtModalTitle'].textContent === '✏️ Изменить свидание', 'заголовок модалки меняется в режиме правки');
+registry['#dtPlace'].value = 'Новое кафе';
+w('(s)=>s.saveDateFromModal()');
+const editedDate = w(`(s)=>s.db.dates.find(d=>d.id==="${lastDateId}")`);
+assert(editedDate.place === 'Новое кафе', 'правка сохраняет новое место');
+assert(editedDate.responses.dasha === 'yes' && editedDate.responses.gosha === 'yes', 'правка не сбрасывает уже данные ответы');
+assert(w('(s)=>s.db.dates.length') === datesCountBeforeEdit, 'правка не создала дубликат свидания');
 // Хотелка всегда в список вошедшего.
 w('(s)=>{s.setUser("gosha");s.openWishModal();}');
 registry['#wishText'].value = 'Новая мечта';
@@ -258,6 +270,18 @@ w('(s)=>{s.setUser("dasha");s.openWishModal();}');
 registry['#wishText'].value = 'Мечта Даши';
 w('(s)=>s.saveWishFromModal()');
 assert(w('(s)=>s.db.wishlist[0].owner') === 'dasha', 'хотелка Даши попадает в её список');
+// Редактирование хотелки (раньше — только удалить и создать заново).
+const wishesCountBeforeEdit = w('(s)=>s.db.wishlist.length');
+const dashaWishId = w('(s)=>s.db.wishlist[0].id');
+w(`(s)=>s.openWishModal("${dashaWishId}")`);
+assert(registry['#wishModalTitle'].textContent === '✏️ Изменить хотелку', 'заголовок модалки меняется в режиме правки');
+assert(registry['#wishText'].value === 'Мечта Даши', 'поле предзаполнено текущим текстом');
+registry['#wishText'].value = 'Мечта Даши (обновлено)';
+w('(s)=>s.saveWishFromModal()');
+const editedWish = w(`(s)=>s.db.wishlist.find(x=>x.id==="${dashaWishId}")`);
+assert(editedWish.text === 'Мечта Даши (обновлено)', 'правка сохраняет новый текст хотелки');
+assert(editedWish.owner === 'dasha', 'правка не меняет владельца хотелки');
+assert(w('(s)=>s.db.wishlist.length') === wishesCountBeforeEdit, 'правка не создала дубликат хотелки');
 w('(s)=>s.setUser("gosha")');
 
 // --- Фото хотелки: photoStore (IndexedDB), не сырой base64 в самом db ---
@@ -616,6 +640,13 @@ assert(w(`(s)=>s.toggleSubtask("L1","${subId}")`) === true, 'подзадача 
 assert(w(`(s)=>s.toggleSubtask("L1","${subId}")`) === false, 'выполнение подзадачи снимается');
 w(`(s)=>{const l=s.db.lists.find(x=>x.id==="L1");l.items=[{id:"i1",text:"х",done:false},{id:"i2",text:"y",done:false}];s.delSubtask("L1","i1");return 1;}`);
 assert(w('(s)=>s.db.lists.find(l=>l.id==="L1").items.length') === 1, 'подзадача удаляется из списка');
+// Редактирование подзадачи (раньше — только удалить и создать заново).
+w('(s)=>{s.startEditSubtask("L1","i2"); return 1;}');
+assert(registry['#listsWrap'].innerHTML.includes('subtaskEdit-i2'), 'режим правки рисует поле ввода для подзадачи');
+w('(s)=>{s.document.querySelector("#subtaskEdit-i2").value="Обновлённая подзадача"; return 1;}');
+w('(s)=>s.saveSubtaskEdit("L1","i2")');
+assert(w('(s)=>s.db.lists.find(l=>l.id==="L1").items.find(i=>i.id==="i2").text') === 'Обновлённая подзадача', 'правка сохраняет новый текст подзадачи');
+assert(w('(s)=>s.db.lists.find(l=>l.id==="L1").items.length') === 1, 'правка не создала дубликат подзадачи');
 // выполненные подзадачи улетают вниз списка (порядок в db и в рендере)
 w('(s)=>{const l=s.db.lists.find(x=>x.id==="L1"); l.items=[{id:"a1",text:"Первая",done:false},{id:"b1",text:"Вторая",done:false}]; s.toggleSubtask("L1","b1"); return 1;}');
 assert(w('(s)=>{const l=s.db.lists.find(x=>x.id==="L1"); return l.items.map(i=>i.id).join(",");}') === 'a1,b1', 'выполненная подзадача переезжает в конец списка');
@@ -637,10 +668,15 @@ let phHtml = registry['#photosGrid'].innerHTML;
 assert(phHtml.includes('data-photo-drag'), 'у фото есть драг-ручка ⠿ (Pointer Events drag)');
 assert(phHtml.includes('data-sel-photo'), 'у фото есть кнопка выбора');
 assert(phHtml.includes('Поездка') && phHtml.includes('Свидание'), 'у фото несколько лейблов');
+assert(/<button[^>]*data-label-off=/.test(phHtml), 'крестик лейбла на фото — button (доступен с клавиатуры)');
 assert(!phHtml.includes('data-ren-photo'), 'переименование убрано');
 const labHtml = registry['#labelBar'].innerHTML;
 assert(labHtml.includes('Все фото'), 'кнопка «Все фото» в фильтре');
 assert(labHtml.includes('Семья') && labHtml.includes('data-label-del'), 'лейбл в фильтре с кнопкой удаления');
+// Крестик удаления лейбла — настоящая <button>, не вложенная в другую кнопку
+// (было: <span> внутри .album-chip — невалидный HTML, недоступно с клавиатуры).
+assert(/<button[^>]*data-label-del=/.test(labHtml), 'крестик лейбла — button (доступен с клавиатуры)');
+assert(!/<button class="album-chip[^"]*"[^>]*>[^<]*<span class="label-del"/.test(labHtml), 'крестик лейбла больше не вложен внутрь .album-chip');
 w('(s)=>{s.currentLabel="Свидание";s.renderPhotos();}');
 phHtml = registry['#photosGrid'].innerHTML;
 assert(phHtml.includes('кафе') && !phHtml.includes('море'), 'фильтр по лейблу (только подходящие)');

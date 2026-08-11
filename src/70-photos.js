@@ -70,7 +70,11 @@ function renderLabels() {
     `<button class="album-chip${currentLabel === '' ? ' active' : ''}" data-label="">🖼 Все фото (${db.photos.length})</button>` +
     (evCount ? `<button class="album-chip${currentLabel === EVENT_LABEL ? ' active' : ''}" data-label="${esc(EVENT_LABEL)}">📅 События (${evCount})</button>` : '') +
     (dtCount ? `<button class="album-chip${currentLabel === DATE_LABEL ? ' active' : ''}" data-label="${esc(DATE_LABEL)}">💞 Свидания (${dtCount})</button>` : '') +
-    db.labels.filter(l => !sysLabels.includes(l)).map(l => `<button class="album-chip${currentLabel === l ? ' active' : ''}" data-label="${esc(l)}" title="Перетащи на фото, чтобы навесить лейбл"># ${esc(l)}<span class="label-del" data-label-del="${esc(l)}" title="Удалить лейбл">✕</span></button>`).join('') +
+    // .label-del — отдельная кнопка-СОСЕД (не вложена в .album-chip): кнопка
+    // внутри кнопки — невалидный HTML, и клавиатурная активация внешней
+    // кнопки не могла «дотянуться» до вложенного крестика — с клавиатуры
+    // удалить лейбл было физически невозможно.
+    db.labels.filter(l => !sysLabels.includes(l)).map(l => `<span class="chip-wrap"><button class="album-chip${currentLabel === l ? ' active' : ''}" data-label="${esc(l)}" title="Перетащи на фото, чтобы навесить лейбл"># ${esc(l)}</button><button type="button" class="label-del" data-label-del="${esc(l)}" title="Удалить лейбл">✕</button></span>`).join('') +
     `<button class="btn album-add-btn" data-label-new title="Создать лейбл">＋ Лейбл</button>`;
 }
 function deletePhoto(id) {
@@ -174,12 +178,12 @@ function renderPhotosNow() {
       <button class="del-photo" data-del-photo="${p.id}" title="Удалить">✕</button>
       <button class="drag-handle photo-drag" data-photo-drag="${p.id}" title="Перетащить">⠿</button>
       ${(p.labels || []).length ? `<div class="photo-labels">${p.labels.map(l =>
-        `<span class="photo-label">${esc(l)}${l === EVENT_LABEL || l === DATE_LABEL ? '' : `<span class="photo-label-del" data-label-off="${esc(l)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</span>`}</span>`
+        `<span class="photo-label">${esc(l)}${l === EVENT_LABEL || l === DATE_LABEL ? '' : `<button type="button" class="photo-label-del" data-label-off="${esc(l)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</button>`}</span>`
       ).join('')}</div>` : ''}
       ${currentLabel === EVENT_LABEL && p.title ? `<span class="photo-caption">${esc(eventFilter.title || p.title)}</span>` : ''}
     </div>`;
   }).join('')
-    : '<p class="cal-tip">📷 Загрузите ваши фото — они будут храниться локально, прямо в браузере.</p>';
+    : '<p class="cal-tip">📷 Загрузите ваши фото — они зашифруются и будут доступны с обоих устройств, если настроена синхронизация в Настройках.</p>';
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
 }
 // Витрина «📅 События»: кнопки «год → месяц → событие» появляются по мере выбора

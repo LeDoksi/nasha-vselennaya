@@ -230,7 +230,11 @@ h3{font-weight:800}
 .cal-jump-info[hidden]{display:none}
 .calendar{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)}
 .cal-row{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
-.cal-head-row{margin-bottom:6px}
+/* Раньше все дни месяца были в ОДНОМ .cal-row (grid сам переносил лишние
+   ячейки на новые визуальные строки, вертикальный отступ давал общий gap).
+   Теперь у каждой недели свой .cal-row (role="row" для грид-семантики) —
+   между строками нужен явный отступ, иначе недели слипаются. */
+.cal-row:not(:last-child){margin-bottom:6px}
 .cal-cell{
   aspect-ratio:1;border-radius:14px;display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:1px;cursor:pointer;transition:background .2s;border:1px solid transparent;
@@ -538,6 +542,11 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .album-chip.drag-over{border-color:transparent;background:var(--grad);color:#fff;transform:scale(1.06);box-shadow:0 0 0 3px var(--pink2)}
 .album-chip{cursor:grab}
 .album-chip:active{cursor:grabbing}
+/* .label-del — теперь настоящая кнопка-сосед .album-chip (не вложена внутрь
+   неё, см. renderLabels в 70-photos.js), уложена поверх правого края пилюли
+   абсолютным позиционированием — визуально там же, где была раньше. */
+.chip-wrap{position:relative;display:inline-flex;align-items:center}
+.chip-wrap .album-chip{padding-right:26px}
 
 /* Витрина «📅 События»: селект конкретного события + подпись на фото */
 .ev-album-bar{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
@@ -573,7 +582,10 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
   background:rgba(76,29,149,.78);color:#fff;font-size:10px;padding:2px 8px;border-radius:99px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
 }
-.photo-label-del{margin-left:4px;color:rgba(255,255,255,.9);font-weight:900;cursor:pointer;pointer-events:auto}
+.photo-label-del{
+  margin-left:4px;background:none;border:none;padding:0;font:inherit;font-size:10px;
+  color:rgba(255,255,255,.9);font-weight:900;cursor:pointer;pointer-events:auto;vertical-align:baseline;
+}
 .photo-label-del:hover{color:#fff}
 .sel-bar{
   display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;
@@ -583,8 +595,13 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .sel-bar .btn{box-shadow:none}
 .sel-count{font-weight:800;font-size:14px;margin-right:auto}
 .sel-count b{font-size:16px}
-.label-del{margin-left:6px;color:rgba(255,255,255,.85);font-weight:900;cursor:pointer}
-.label-del:hover{color:#fff}
+.label-del{
+  position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  background:none;border:none;padding:2px;margin:0;border-radius:50%;
+  font:inherit;font-size:12px;font-weight:900;line-height:1;color:var(--muted);cursor:pointer;
+}
+.label-del:hover{color:var(--pink);background:rgba(0,0,0,.06)}
+[data-theme="dark"] .label-del:hover{background:rgba(255,255,255,.1)}
 .wish-section{margin-bottom:30px}
 .wish-section h4{margin-bottom:12px;font-size:17px;color:var(--muted)}
 .wish.done{opacity:.55}

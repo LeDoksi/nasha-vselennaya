@@ -1,10 +1,29 @@
 /* ===== Списки ===== */
+let editingSubtask = null; // {listId, itemId} в режиме инлайн-правки, иначе null
 function listItemHTML(listId, it) {
+  const editing = editingSubtask && editingSubtask.listId === listId && editingSubtask.itemId === it.id;
   return `<li class="${it.done ? 'done' : ''}" data-item="${esc(it.id)}">
     <button class="check" data-toggle-item="${listId}" data-id="${it.id}" title="Готово">${it.done ? '✅' : '○'}</button>
-    <span>${esc(it.text)}</span>
-    <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>
+    ${editing
+      ? `<input type="text" class="subtask-editor" id="subtaskEdit-${esc(it.id)}" value="${esc(it.text)}">
+         <button class="mini-x" data-save-item="${listId}" data-id="${it.id}" title="Сохранить">💜</button>
+         <button class="mini-x" data-cancel-item title="Отмена">✕</button>`
+      : `<span>${esc(it.text)}</span>
+         <button class="mini-x" data-edit-item="${listId}" data-id="${it.id}" title="Редактировать">✏️</button>
+         <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>`}
   </li>`;
+}
+function startEditSubtask(listId, itemId) { editingSubtask = { listId, itemId }; renderLists(); }
+function cancelSubtaskEdit() { editingSubtask = null; renderLists(); }
+function saveSubtaskEdit(listId, itemId, text) {
+  const list = db.lists.find(x => x.id === listId);
+  const it = list && list.items.find(x => x.id === itemId);
+  editingSubtask = null;
+  if (!it) { renderLists(); return; }
+  const inp = $('#subtaskEdit-' + itemId);
+  const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
+  if (t) it.text = t;
+  save(); renderLists();
 }
 // Выполненные подзадачи всегда внизу списка: устойчивая сортировка —
 // внутри групп (невыполненные/выполненные) относительный порядок сохраняется.
@@ -227,6 +246,7 @@ function wishCard(w) {
       ${w.link ? `<a class="wish-link" href="${safeUrl(w.link)}" target="_blank" rel="noopener">🔗 Открыть ссылку</a>` : ''}
       <div class="wish-btns">
         ${wishToggleHTML(w)}
+        <button class="mini-x" data-edit-wish="${w.id}" title="Изменить">✏️</button>
         <button class="mini-x" data-wish-del="${w.id}" title="Удалить">✕</button>
       </div>
     </div>
@@ -245,16 +265,22 @@ function renderWishlist() {
     sec('dasha', 'Даши', '👧', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨');
   if (typeof hydratePhotoImgs === 'function') hydratePhotoImgs(grid);
 }
-function openWishModal() {
-  wishPhotoData = null;
-  $('#wishText').value = '';
-  $('#wishLink').value = '';
-  $('#wishPhotoName').textContent = '';
+let editingWishId = null;
+// id — только настоящая строка (клик по «＋ Добавить» передаёт MouseEvent).
+function openWishModal(id) {
+  editingWishId = typeof id === 'string' ? id : null;
+  const wish = editingWishId ? db.wishlist.find(x => x.id === editingWishId) : null;
+  const title = $('#wishModalTitle');
+  if (title) title.textContent = wish ? '✏️ Изменить хотелку' : '🎁 Хотелка';
+  wishPhotoData = null; // новое фото выбирается заново; старое (wish.photoId) остаётся, если не тронуть выбор
+  $('#wishText').value = wish ? wish.text : '';
+  $('#wishLink').value = wish ? (wish.link || '') : '';
+  $('#wishPhotoName').textContent = wish && wish.photoId ? '✅ фото уже есть — выбери новое, чтобы заменить' : '';
   $('#wishPhoto').value = '';
   $('#wishOverlay').hidden = false;
   $('#wishText').focus();
 }
-$('#addWishBtn').addEventListener('click', openWishModal);
+$('#addWishBtn').addEventListener('click', () => openWishModal());
 $('#wishPhoto').addEventListener('change', async e => {
   const f = e.target.files[0];
   if (!f) return;
@@ -269,24 +295,30 @@ $('#wishPhoto').addEventListener('change', async e => {
 async function saveWishFromModal() {
   const text = $('#wishText').value.trim();
   if (!text) { alert('Напиши, что хочешь 💜'); return; }
-  const wish = {
-    id: uid(), text,
-    link: $('#wishLink').value.trim() || '',
-    owner: getUser(), done: false, ts: Date.now()
-  };
+  let photoId = null;
   if (wishPhotoData && photoStore) {
     try {
       const blob = dataUrlToBlob(wishPhotoData);
       if (blob) {
-        const photoId = uid();
+        photoId = uid();
         let thumb = null;
         try { thumb = await makeThumbBlob(wishPhotoData, 256); } catch (e) {}
         await photoStore.put(photoId, blob, thumb, { type: blob.type || 'image/webp', title: text, size: blob.size });
-        wish.photoId = photoId;
       }
     } catch (e) { console.warn('Не удалось сохранить фото хотелки', e); }
   }
-  db.wishlist.unshift(wish);
+  const existing = editingWishId ? db.wishlist.find(x => x.id === editingWishId) : null;
+  if (existing) {
+    // Владелец/статус «исполнено» правка не трогает — только текст/ссылку/фото.
+    existing.text = text;
+    existing.link = $('#wishLink').value.trim() || '';
+    if (photoId) existing.photoId = photoId; // новое фото выбрано — заменяем; иначе старое остаётся
+    editingWishId = null;
+  } else {
+    const wish = { id: uid(), text, link: $('#wishLink').value.trim() || '', owner: getUser(), done: false, ts: Date.now() };
+    if (photoId) wish.photoId = photoId;
+    db.wishlist.unshift(wish);
+  }
   save(); $('#wishOverlay').hidden = true; renderWishlist();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
 }
@@ -322,6 +354,9 @@ document.addEventListener('click', e => {
 
   const editEv = e.target.closest('[data-edit-event]');
   if (editEv) { openEventModal(editEv.dataset.editEvent); return; }
+
+  const editDt = e.target.closest('[data-edit-date]');
+  if (editDt) { openDateModal(editDt.dataset.editDate); return; }
 
   const photoEv = e.target.closest('[data-photo-event]');
   if (photoEv) { addEventPhotoQuick(photoEv.dataset.photoEvent); return; }
@@ -365,6 +400,12 @@ document.addEventListener('click', e => {
   if (togItem) { toggleSubtask(togItem.dataset.toggleItem, togItem.dataset.id); return; }
   const delItem = e.target.closest('[data-del-item]');
   if (delItem) { delSubtask(delItem.dataset.delItem, delItem.dataset.id); return; }
+  const editItem = e.target.closest('[data-edit-item]');
+  if (editItem) { startEditSubtask(editItem.dataset.editItem, editItem.dataset.id); return; }
+  const saveItemBtn = e.target.closest('[data-save-item]');
+  if (saveItemBtn) { saveSubtaskEdit(saveItemBtn.dataset.saveItem, saveItemBtn.dataset.id); return; }
+  const cancelItemBtn = e.target.closest('[data-cancel-item]');
+  if (cancelItemBtn) { cancelSubtaskEdit(); return; }
   const listAdd = e.target.closest('[data-list-add]');
   if (listAdd) { addListSubtask(listAdd.dataset.listAdd, 'listInput-' + listAdd.dataset.listAdd); return; }
   const listDone = e.target.closest('[data-list-complete]');
@@ -398,6 +439,8 @@ document.addEventListener('click', e => {
     }
     return;
   }
+  const editWish = e.target.closest('[data-edit-wish]');
+  if (editWish) { openWishModal(editWish.dataset.editWish); return; }
   const wishDel = e.target.closest('[data-wish-del]');
   if (wishDel) {
     if (!confirmDelete('Удалить хотелку? Это не отменить.')) return;
@@ -422,6 +465,14 @@ document.addEventListener('click', e => {
   if (closeBtn) { closeOverlay(closeBtn.dataset.close); return; }
   if (e.target.classList && e.target.classList.contains('overlay')) closeOverlay(e.target.id);
 });
+// Двойной клик по подзадаче — как ✏️ (пара с редактированием заметок)
+const listsWrapEl = $('#listsWrap');
+if (listsWrapEl) listsWrapEl.addEventListener('dblclick', e => {
+  const li = e.target.closest('li[data-item]');
+  if (!li || e.target.closest('.check, .drag-handle, button, input')) return;
+  const card = li.closest('.list-card');
+  if (card) startEditSubtask(card.dataset.id, li.dataset.item);
+});
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     const open = document.querySelector('.overlay:not([hidden])');
@@ -432,6 +483,12 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('listInput-') === 0) {
     e.preventDefault();
     addListSubtask(e.target.id.slice('listInput-'.length), e.target.id);
+    return;
+  }
+  // Списки: Enter в поле правки подзадачи — сохранить
+  if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('subtaskEdit-') === 0 && editingSubtask) {
+    e.preventDefault();
+    saveSubtaskEdit(editingSubtask.listId, editingSubtask.itemId);
     return;
   }
   // Календарь: Enter / пробел на дне — как клик по ячейке
