@@ -138,6 +138,7 @@ function unlockApp() {
   lastActivity = Date.now();
   startAutoLock();
   saveSessionKey(); // «запомнить меня» на время вкладки — переживает reload
+  maybeShowDateInvitePopup(); // неотвеченные приглашения на свидание — сразу видно, не только листая вниз
   // Облачная синхронизация: после входа пробуем забрать/отдать данные
   if (typeof initSync === 'function') initSync();
 }

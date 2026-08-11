@@ -105,6 +105,17 @@ body{
    .nav-btn даёт бесплатно active-подсветку и клик-делегат (см. 20-theme-nav.js),
    но пилюля из одного эмодзи выглядела бы слишком широкой — сузили padding. */
 .settings-btn{padding:9px 12px}
+/* Кнопка-уведомление о неотвеченных приглашениях на свидание — видна только
+   когда есть что показать (hidden атрибутом из JS), кружок-счётчик поверх. */
+.invite-btn{position:relative;padding:9px 12px;animation:invitePulse 1.6s ease-in-out infinite}
+.invite-badge{
+  position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;padding:0 4px;
+  border-radius:999px;background:var(--pink-ink);color:#fff;font-size:11px;font-weight:900;
+  display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 2px 6px rgba(0,0,0,.3);
+}
+@keyframes invitePulse{0%,100%{box-shadow:0 0 0 0 rgba(236,72,153,.45)}50%{box-shadow:0 0 0 6px rgba(236,72,153,0)}}
+/* reduced-motion уже гасит все анимации глобально ([data-motion="reduced"] *
+   и системный prefers-reduced-motion), отдельный оверрайд не нужен. */
 .nav{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0}
 .nav-btn{
   border:1px solid var(--border);background:#fff;color:var(--muted);

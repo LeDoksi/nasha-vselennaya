@@ -31,6 +31,7 @@
         <button class="nav-btn" data-view="memory">Память</button>
       </nav>
       <div class="header-actions">
+        <button class="nav-btn invite-btn" id="dateInviteBtn" hidden data-open-invites title="Есть неотвеченные приглашения на свидание" aria-label="Приглашения на свидание">💘<span class="invite-badge" id="dateInviteCount">0</span></button>
         <button class="btn theme-toggle" id="themeToggle" title="Сменить тему" aria-pressed="false">🌙</button>
         <button class="nav-btn settings-btn" data-view="settings" title="Настройки" aria-label="Настройки">⚙️</button>
       </div>
@@ -242,6 +243,15 @@
       <label>Эмодзи</label>
       <input type="text" id="dtEmoji" value="💘" maxlength="4">
       <button class="btn" id="dtSave">Сохранить свидание 💜</button>
+    </div>
+  </div>
+
+  <!-- ===== Модалка «приглашение на свидание» — не отвечено, всплывает при входе ===== -->
+  <div class="overlay" id="dateInviteOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="dateInviteTitle">
+    <div class="modal">
+      <button class="modal-x" data-close="dateInviteOverlay">✕</button>
+      <h3 id="dateInviteTitle">💘 Тебе назначили свидание!</h3>
+      <div id="dateInviteList"></div>
     </div>
   </div>
 

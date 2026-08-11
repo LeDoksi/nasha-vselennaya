@@ -394,6 +394,9 @@ function closeOverlay(id) {
   $('#' + id).hidden = true;
   if (id === 'lightbox') lbResetState(); // светбокс закрыт — сбрасываем список и зум
   if (id === 'eventOverlay') editingEventId = null;
+  // Закрыли не ответив — запоминаем на время сессии, чтобы не всплывало
+  // повторно при каждом заходе на главную (см. src/30-home.js).
+  if (id === 'dateInviteOverlay') markInvitesDismissed(pendingDateInvites().map(d => d.id));
 }
 document.addEventListener('click', e => {
   const userBtn = e.target.closest('[data-user]');
@@ -413,6 +416,9 @@ document.addEventListener('click', e => {
 
   const editDt = e.target.closest('[data-edit-date]');
   if (editDt) { openDateModal(editDt.dataset.editDate); return; }
+
+  const openInvites = e.target.closest('[data-open-invites]');
+  if (openInvites) { openDateInviteOverlay(); return; }
 
   const photoEv = e.target.closest('[data-photo-event]');
   if (photoEv) { addEventPhotoQuick(photoEv.dataset.photoEvent); return; }

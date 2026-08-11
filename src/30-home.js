@@ -29,6 +29,7 @@ function renderHome() {
 
   // Напоминания убраны: ближайшее событие и так видно на таймере (#countdown).
   renderDates();
+  renderDateInvites(); // счётчик на колокольчике в шапке + список в открытой модалке
   renderCompliment();
   renderCountdown();
   // Фаза B: кольцо прогресса (в блоке — коллаж фото, события «в этот день», статистика)
@@ -212,6 +213,79 @@ function renderDates() {
       </div>`;
     }).join('') : '<p class="cal-tip">Ближайших свиданий пока нет. Самое время назначить новое! ✨</p>');
 }
+
+/* ===== Неотвеченные приглашения на свидание =====
+   Раньше их было видно, только долистав до блока свиданий в самом низу
+   главной — на телефоне легко пропустить. Теперь: кнопка-колокольчик в
+   шапке (видна всегда, есть счётчик) + окно само всплывает при входе. */
+// Приглашение партнёра, на которое я ещё не ответил(а): не моё (from !== я),
+// не «вместе» (там отвечать не обязательно), не done, ответа ещё нет.
+function pendingDateInvites() {
+  const who = getUser();
+  return db.dates.filter(d => !d.done && d.from && d.from !== 'both' && d.from !== who && !(d.responses && d.responses[who]));
+}
+function dateInviteCardHTML(d) {
+  const fromName = d.from === 'gosha' ? 'Гоши' : 'Даши';
+  return `<div class="date-card">
+    <div class="date-emoji">${esc(d.emoji || '💘')}</div>
+    <div class="date-info">
+      <b>${fmtDateLong(d.date)}</b>
+      <span class="date-from">💌 приглашение от ${fromName}</span>
+      ${d.time ? `<span>🕐 ${esc(d.time)}</span>` : ''}
+      ${d.place ? `<span>📍 ${esc(d.place)}</span>` : ''}
+      ${d.note ? `<span>💬 ${esc(d.note)}</span>` : ''}
+    </div>
+    <div class="date-side">
+      <div class="resp-btns">
+        <button class="resp-btn" data-answer-date="${d.id}" data-answer="yes">Да 👍</button>
+        <button class="resp-btn no" data-answer-date="${d.id}" data-answer="no">Нет 👎</button>
+      </div>
+    </div>
+  </div>`;
+}
+// Обновляет счётчик на кнопке-колокольчике и список внутри модалки (если она
+// открыта — например, ответили прямо в ней). Ответили на все — модалка сама
+// закрывается. Вызывается из renderHome(), чтобы счётчик не «протухал».
+function renderDateInvites() {
+  const pending = pendingDateInvites();
+  const btn = $('#dateInviteBtn');
+  if (btn) {
+    btn.hidden = !pending.length;
+    const c = $('#dateInviteCount');
+    if (c) c.textContent = pending.length;
+  }
+  const list = $('#dateInviteList');
+  if (list) list.innerHTML = pending.length ? pending.map(dateInviteCardHTML).join('') : '';
+  const ov = $('#dateInviteOverlay');
+  if (ov && !ov.hidden && !pending.length) ov.hidden = true; // ответили на всё — закрываем само
+  return pending;
+}
+// «Закрыл не ответив» запоминаем на время сессии (sessionStorage — та же
+// граница, что у «запомнить меня»: переживает reload, не переживает закрытие
+// вкладки/браузера), чтобы окно не всплывало повторно при каждом заходе на
+// главную. Новое, ещё не виденное приглашение всё равно покажется.
+const DISMISSED_INVITES_KEY = 'universe_dismissed_invites';
+function getDismissedInviteIds() {
+  try { return new Set(JSON.parse(sessionStorage.getItem(DISMISSED_INVITES_KEY) || '[]')); } catch (e) { return new Set(); }
+}
+function markInvitesDismissed(ids) {
+  try { sessionStorage.setItem(DISMISSED_INVITES_KEY, JSON.stringify(ids)); } catch (e) {}
+}
+function openDateInviteOverlay() {
+  renderDateInvites();
+  const ov = $('#dateInviteOverlay');
+  if (ov) ov.hidden = false;
+}
+// Вызывается один раз при входе (unlockApp): если есть приглашения, которые
+// ещё не показывали и не закрывали в этой сессии — всплывает окно.
+function maybeShowDateInvitePopup() {
+  const pending = renderDateInvites();
+  if (!pending.length) return;
+  const dismissed = getDismissedInviteIds();
+  if (pending.every(d => dismissed.has(d.id))) return; // всё уже видели и закрыли — не спамим
+  openDateInviteOverlay();
+}
+
 let editingDateId = null;
 // id — только настоящая строка (клик по «💘 Назначить свидание» передаёт
 // MouseEvent, не id — как и было с openEventModal, см. фикс события ＋Добавить дату).

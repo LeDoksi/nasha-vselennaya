@@ -84,6 +84,9 @@ function __TEST__(s){
   s.setUser = setUser; s.getUser = getUser;
   s.toggleTheme = toggleTheme; s.setTheme = setTheme; s.getTheme = getTheme; s.celebrate = celebrate; s.openEventModal = openEventModal;
   s.openDateModal = openDateModal; s.openWishModal = openWishModal;
+  s.pendingDateInvites = pendingDateInvites; s.renderDateInvites = renderDateInvites;
+  s.openDateInviteOverlay = openDateInviteOverlay; s.maybeShowDateInvitePopup = maybeShowDateInvitePopup;
+  s.getDismissedInviteIds = getDismissedInviteIds;
   s.toggleDateDone = toggleDateDone;
   s.saveDateFromModal = saveDateFromModal; s.saveWishFromModal = saveWishFromModal;
   s.migrateDB = migrateDB;
@@ -236,6 +239,34 @@ w('(s)=>s.setUser("dasha")');
 w('(s)=>s.renderHome()');
 assert(registry['#dates'].innerHTML.includes('resp-me'), 'current user highlighted');
 assert(registry['#dates'].innerHTML.includes('data-answer-date="d1"'), 'invitee has answer buttons');
+
+// --- Неотвеченные приглашения: колокольчик в шапке + окно при входе ---
+// Даша всё ещё вошедшая, d1 приглашение от Гоши, dasha.responses === null.
+assert(w('(s)=>s.pendingDateInvites().length') === 1, 'pendingDateInvites: одно неотвеченное приглашение (я — Даша)');
+assert(w('(s)=>s.pendingDateInvites()[0].id') === 'd1', 'pendingDateInvites: правильное свидание');
+w('(s)=>s.renderDateInvites()');
+assert(registry['#dateInviteBtn'].hidden === false, 'колокольчик виден, когда есть неотвеченные приглашения');
+assert(registry['#dateInviteCount'].textContent === 1, 'счётчик на колокольчике = 1');
+assert(registry['#dateInviteList'].innerHTML.includes('приглашение от Гоши'), 'список приглашений содержит карточку');
+w('(s)=>s.openDateInviteOverlay()');
+assert(registry['#dateInviteOverlay'].hidden === false, 'клик по колокольчику открывает модалку');
+// Закрыли не ответив — в этой сессии повторно не всплывает
+w('(s)=>s.closeOverlay("dateInviteOverlay")');
+assert(registry['#dateInviteOverlay'].hidden === true, 'модалка закрыта');
+assert(w('(s)=>s.getDismissedInviteIds().has("d1")') === true, 'закрытое без ответа приглашение запомнено как «закрыли»');
+w('(s)=>s.maybeShowDateInvitePopup()');
+assert(registry['#dateInviteOverlay'].hidden === true, 'уже закрытое приглашение не всплывает повторно в этой сессии');
+// Отвечаем на приглашение (то же самое делает клик по data-answer-date в общем
+// делегате кликов — здесь просто данные + повторный рендер, как после клика)
+w('(s)=>{const d = s.db.dates.find(x=>x.id==="d1"); d.responses.dasha = "yes"; s.renderHome(); return 1;}');
+assert(w('(s)=>s.pendingDateInvites().length') === 0, 'после ответа приглашение больше не «неотвеченное»');
+assert(registry['#dateInviteBtn'].hidden === true, 'колокольчик скрывается, когда отвечать больше не на что');
+// Новое, ещё не виденное приглашение — всплывает, даже если старое уже закрывали
+w('(s)=>{s.db.dates.push({id:"d2",date:"2099-01-01",from:"gosha",responses:{gosha:"yes",dasha:null},place:"Кино",emoji:"🎬",done:false}); return 1;}');
+w('(s)=>s.maybeShowDateInvitePopup()');
+assert(registry['#dateInviteOverlay'].hidden === false, 'новое неотвеченное приглашение всплывает, даже если старое уже закрывали');
+w('(s)=>{s.closeOverlay("dateInviteOverlay"); s.db.dates = s.db.dates.filter(d=>d.id!=="d2"); s.renderHome(); return 1;}');
+
 w('(s)=>s.setUser("gosha")');
 
 // --- Модалки сами знают, кто вошёл: «кто» не выбирается, а берётся из сессии ---
