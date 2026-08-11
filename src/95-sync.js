@@ -47,6 +47,56 @@ let syncTs = 0;            // последний применённый syncTs
 let syncPushTimer = null;  // debounce push после save()
 let syncApplying = false;  // защита от рекурсии pull→save→push
 
+/* ===== RTDB-адаптер для фото (миниатюры + показ-версии в Firebase RTDB) =====
+   Совместимый с firebase.storage() интерфейс: ref(path).put/getBlob/delete, ref(folder).listAll().
+   Используется как бесплатная альтернатива Firebase Storage (Spark plan). */
+function makeRtdbPhotoStorage() {
+  if (!syncDb) return null;
+  return {
+    ref(path) {
+      const seg = String(path || '').split('/').filter(Boolean);
+      if (seg.length >= 3) {
+        const part = seg[1], id = seg.slice(2).join('/');
+        const p = 'photos/' + part + '/' + encodeURIComponent(id);
+        return {
+          name: id,
+          fullPath: seg.join('/'),
+          async put(blob) {
+            const txt = (typeof blob === 'string') ? blob : await blob.text();
+            await syncDb.ref(p).set(txt);
+          },
+          async getBlob() {
+            try {
+              const snap = await syncDb.ref(p).once('value');
+              const txt = snap.val();
+              if (txt === null) return null;
+              return new Blob([txt], { type: 'application/json' });
+            } catch (e) {
+              return null;
+            }
+          },
+          async delete() {
+            try { await syncDb.ref(p).remove(); } catch (e) {}
+          }
+        };
+      }
+      const prefix = 'photos/' + encodeURIComponent(seg.join('/')) + '/';
+      return {
+        async listAll() {
+          try {
+            const snap = await syncDb.ref(prefix).once('value');
+            const data = snap.val() || {};
+            const items = Object.keys(data).map(k => ({ name: k }));
+            return { items, prefixes: [] };
+          } catch (e) {
+            return { items: [], prefixes: [] };
+          }
+        }
+      };
+    }
+  };
+}
+
 /* ===== Инициализация: вызывается из unlockApp() после входа ===== */
 async function initSync() {
   syncTs = parseInt(store.get(SYNC_KEY) || '0', 10) || 0;
@@ -57,12 +107,12 @@ async function initSync() {
     return;
   }
   try {
-    syncFirebase = firebase.initializeApp(FIREBASE_CONFIG, 'nasha_sync');
+        syncFirebase = firebase.initializeApp(FIREBASE_CONFIG, 'nasha_sync');
     syncDb = firebase.database(syncFirebase);
-    // Хранилище фото (фаза B3): оригиналы + миниатюры в Яндекс.Диске (бесплатно,
-    // из РФ работает). Firebase Storage — только на платном Blaze, оставлен как
-    // запасной вариант. Без токена фото остаются локальными — как раньше.
-    if (YANDEX_DISK_CONFIG && YANDEX_DISK_CONFIG.token) syncStorage = makeYdStorage();
+    // Хранилище фото (фаза B6): миниатюры + показ-версии синхронизируются через
+    // Firebase RTDB — браузерная передача работает нативно, без CORS-прокси.
+    // Оригиналы бэкапятся в Yandex Object Storage upload-only (см. makeCloudStorage).
+    if (typeof firebase.database === 'function' && syncDb) syncStorage = makeRtdbPhotoStorage();
     else if (typeof firebase.storage === 'function') syncStorage = firebase.storage(syncFirebase);
     // Anonymous Auth: оба устройства — «гости», доступ к общему vaults/shared.
     // UID нигде не храним: правила разрешают любому анониму, данные зашифрованы.
