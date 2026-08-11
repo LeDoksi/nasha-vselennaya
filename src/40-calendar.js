@@ -95,6 +95,7 @@ function renderDayPanel() {
   if (addBtn) addBtn.addEventListener('click', addDayEvent);
   const inp = $('#dayTitle');
   if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') addDayEvent(); });
+  hydratePhotoImgs(panel); // миниатюры из photoStore — заполняем src каркасов после рендера
 }
 function addDayEvent() {
   const title = $('#dayTitle').value.trim();
@@ -208,16 +209,24 @@ function photoByRef(ref) {
 function thumbRefs(refs) {
   return refs.filter(ref => photoByRef(ref) || (typeof ref === 'string' && ref.startsWith('data:')));
 }
+// Каркас + асинхронная дозаливка src — как у остальной галереи (70-photos.js,
+// 30-home.js, 35-memory.js): пока блоб фото ещё качается из облака,
+// photoSrc(p) пуст — раньше тут безусловно ставился src="" (битая рамка,
+// которая никогда не чинилась, т.к. hydratePhotoImgs здесь не вызывался).
+// Теперь — data-photo-src, дозаливается на ближайшем renderDayPanel().
+function evThumbHTML(ref, altText) {
+  const p = photoByRef(ref);
+  if (!p) { // сиротский data-URL из легаси-события — всегда валиден сразу
+    return `<img class="ev-thumb" src="${esc(ref)}" alt="${esc(altText)}" data-photo="${esc(ref)}" loading="lazy">`;
+  }
+  const url = photoSrc(p);
+  return `<img class="ev-thumb"${url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"'} alt="${esc(altText)}" data-photo="${esc(p.id)}" loading="lazy">`;
+}
 function evThumbs(e) {
   if (!(e.photos && e.photos.length)) return '';
   const refs = thumbRefs(e.photos);
   if (!refs.length) return '';
-  return `<span class="ev-thumbs">${refs.map(ref => {
-    const p = photoByRef(ref);
-    const src = p ? photoSrc(p) : ref; // сиротский data-URL из легаси-события показываем напрямую
-    const attr = p ? p.id : ref;
-    return `<img class="ev-thumb" src="${esc(src)}" alt="${esc(e.title)}" data-photo="${esc(attr)}" loading="lazy">`;
-  }).join('')}</span>`;
+  return `<span class="ev-thumbs">${refs.map(ref => evThumbHTML(ref, e.title)).join('')}</span>`;
 }
 
 // Фото события кладём в общую галерею под общим лейблом «📅 События»;
@@ -349,12 +358,7 @@ function dtThumbs(dt) {
   if (!(dt.photos && dt.photos.length)) return '';
   const refs = thumbRefs(dt.photos);
   if (!refs.length) return '';
-  return '<span class="ev-thumbs">' + refs.map(ref => {
-    const p = photoByRef(ref);
-    const src = p ? photoSrc(p) : ref;
-    const attr = p ? p.id : ref;
-    return '<img class="ev-thumb" src="' + esc(src) + '" alt="" data-photo="' + esc(attr) + '" loading="lazy">';
-  }).join('') + '</span>';
+  return '<span class="ev-thumbs">' + refs.map(ref => evThumbHTML(ref, '')).join('') + '</span>';
 }
 
 /* ===== Кастомный date-picker в стиле сайта =====

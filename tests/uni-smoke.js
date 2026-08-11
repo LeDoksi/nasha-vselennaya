@@ -961,6 +961,20 @@ w('(s)=>{s.db.photos=[]; return 1;}');
 assert(w('(s)=>s.dtThumbs({photos:["deadId"]})') === '', 'dtThumbs: мёртвый id — без битой рамки');
 assert(w('(s)=>s.evThumbs({title:"Пикник", photos:["deadId"]})') === '', 'evThumbs: мёртвый id — без битой рамки');
 assert(w('(s)=>s.dtThumbs({photos:["data:image/jpeg;base64,AA=="]})').includes('<img'), 'dtThumbs: легаси data-URL показывается напрямую');
+// Фото уже известно (есть в db.photos), но блоб ещё качается из облака — src="" (битая
+// рамка) не рисуем, ставим data-photo-src, чтобы hydratePhotoImgs дозалил после докачки.
+w('(s)=>{s.db.photos=[{id:"pending1", title:"Ф", labels:[], pinned:false, order:0}]; return 1;}');
+const pendingEvHtml = w('(s)=>s.evThumbs({title:"Пикник", photos:["pending1"]})');
+assert(pendingEvHtml.includes('data-photo-src="pending1"'), 'evThumbs: фото ещё без миниатюры — data-photo-src вместо src=""');
+assert(!pendingEvHtml.includes('src=""'), 'evThumbs: фото ещё без миниатюры — НЕ рисуем src="" (битая рамка)');
+const pendingDtHtml = w('(s)=>s.dtThumbs({photos:["pending1"]})');
+assert(pendingDtHtml.includes('data-photo-src="pending1"'), 'dtThumbs: фото ещё без миниатюры — data-photo-src вместо src=""');
+assert(!pendingDtHtml.includes('src=""'), 'dtThumbs: фото ещё без миниатюры — НЕ рисуем src="" (битая рамка)');
+// Когда миниатюра докачалась и попала в кэш — сразу src, без data-photo-src
+w('(s)=>{s.setThumbUrl("pending1", "data:image/jpeg;base64,BB=="); return 1;}');
+const readyEvHtml = w('(s)=>s.evThumbs({title:"Пикник", photos:["pending1"]})');
+assert(readyEvHtml.includes('src="data:image/jpeg;base64,BB=="'), 'evThumbs: миниатюра в кэше — сразу src');
+assert(!readyEvHtml.includes('data-photo-src'), 'evThumbs: миниатюра в кэше — data-photo-src не нужен');
 
 // --- Фаза C: память — будущие события/свидания не попадают ---
 w('(s)=>{s.db.events=[]; s.db.dates=[]; s.db.photos=[]; s.db.notes=[]; return 1;}');
