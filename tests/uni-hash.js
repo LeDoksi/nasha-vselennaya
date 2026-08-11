@@ -26,7 +26,7 @@ const ctx = {
   Blob: function (p, o) { this._bytes = []; this.size = 0; this.type = (o && o.type) || ''; this.arrayBuffer = () => Promise.resolve(new Uint8Array().buffer); },
   HTMLAudioElement: function () {}, Image: function () {},
   localStorage: { getItem(k) { return store[k] ?? null; }, setItem(k, v) { store[k] = String(v); }, removeItem(k) { delete store[k]; } },
-  sessionStorage: { getItem(k) { return store[k] ?? null; }, setItem(k, v) { store[k] = String(v); } },
+  sessionStorage: { getItem(k) { return store[k] ?? null; }, setItem(k, v) { store[k] = String(v); }, removeItem(k) { delete store[k]; } },
   location: { hash: '#/wishlist' },
   window: { addEventListener() {}, matchMedia() { return { matches: false }; } },
   document: {

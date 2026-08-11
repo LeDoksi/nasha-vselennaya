@@ -180,7 +180,7 @@ for (const id of PREIDS) { const el = makeEl('div'); el.id = id; registry['#' + 
 const sandbox = {
   document,
   localStorage: { getItem(k) { return sandbox._store[k] ?? null; }, setItem(k, v) { sandbox._store[k] = String(v); }, removeItem(k) { delete sandbox._store[k]; } },
-  sessionStorage: { getItem(k) { return sandbox._ss[k] ?? null; }, setItem(k, v) { sandbox._ss[k] = String(v); } },
+  sessionStorage: { getItem(k) { return sandbox._ss[k] ?? null; }, setItem(k, v) { sandbox._ss[k] = String(v); }, removeItem(k) { delete sandbox._ss[k]; } },
   alert() {}, confirm() { return true; },
   URL: { createObjectURL() { return 'blob:x'; }, revokeObjectURL() {} },
   FileReader: function () { this.readAsDataURL = (f) => { this.onload({ target: { result: 'data:image/jpeg;base64,AA==' } }); }; },

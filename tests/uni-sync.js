@@ -47,7 +47,7 @@ const sandbox = {
     querySelectorAll() { return []; }
   },
   localStorage: { getItem(k) { return sandbox._store[k] ?? null; }, setItem(k, v) { sandbox._store[k] = String(v); }, removeItem(k) { delete sandbox._store[k]; } },
-  sessionStorage: { getItem(k) { return sandbox._ss[k] ?? null; }, setItem(k, v) { sandbox._ss[k] = String(v); } },
+  sessionStorage: { getItem(k) { return sandbox._ss[k] ?? null; }, setItem(k, v) { sandbox._ss[k] = String(v); }, removeItem(k) { delete sandbox._ss[k]; } },
   alert() {}, confirm() { return true; },
   URL: { createObjectURL() { return 'blob:x'; }, revokeObjectURL() {} },
   FileReader: function () {}, Blob: function (parts) { this.size = (parts || []).join('').length; this.arrayBuffer = () => Promise.resolve(new Uint8Array(0).buffer); },

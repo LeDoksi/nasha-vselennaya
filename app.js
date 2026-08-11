@@ -1127,6 +1127,7 @@ function unlockApp() {
   go('home');
   lastActivity = Date.now();
   startAutoLock();
+  saveSessionKey(); // «запомнить меня» на время вкладки — переживает reload
   // Облачная синхронизация: после входа пробуем забрать/отдать данные
   if (typeof initSync === 'function') initSync();
 }
@@ -1139,6 +1140,7 @@ function lock() {
   clearThumbCache();
   countdownTarget = null;
   authLocked = true;
+  clearSessionKey();
   document.body.classList.add('auth');
   showAuth('lock');
   renderAuthWho();
@@ -1148,6 +1150,54 @@ function lock() {
   if (typeof stopSync === 'function') stopSync();
 }
 function isLocked() { return authLocked; }
+
+/* ===== «Запомнить меня» на время вкладки =====
+   Раньше расшифрованный ключ жил ТОЛЬКО в памяти (обычная JS-переменная) —
+   любое обновление страницы стирало его, приходилось вводить пароль заново
+   каждый раз. Пользователь попросил не разлогинивать при обновлении страницы;
+   решили (обсуждён компромисс, вариант A из трёх): держать ключ в
+   sessionStorage — он переживает reload, но НЕ переживает закрытие вкладки
+   или браузера. Полный уход с устройства всё ещё требует пароль. */
+const SESSION_KEY = 'universe_session';
+async function saveSessionKey() {
+  if (!masterKey || !currentUser) return;
+  try {
+    const kraw = new Uint8Array(await crypto.subtle.exportKey('raw', masterKey));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ who: currentUser, k: b64(kraw) }));
+  } catch (e) { console.warn('Не удалось сохранить сессию', e); }
+}
+function clearSessionKey() {
+  try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
+}
+// Пробуем войти без пароля по ключу, пережившему reload. Возвращает true при
+// успехе (приложение уже разблокировано) — вызывающий пропускает обычный
+// экран входа. Любая нестыковка (сейф сменился, ключ повреждён) — тихо чистим
+// протухшую запись и откатываемся на обычный вход, а не мучаем повторами.
+async function resumeSession() {
+  let raw;
+  try { raw = sessionStorage.getItem(SESSION_KEY); } catch (e) { return false; }
+  if (!raw) return false;
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch (e) { clearSessionKey(); return false; }
+  const vault = loadVault();
+  if (!vault || !parsed || !parsed.who || !parsed.k) { clearSessionKey(); return false; }
+  try {
+    const key = await crypto.subtle.importKey('raw', unb64(parsed.k), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+    const rawDb = await aesDec(key, vault.db);
+    masterKey = key;
+    currentUser = parsed.who;
+    db = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(rawDb)) });
+    await initPhotoStore(); // гарантируем бэкенд (в тестах — память)
+    await photoStore.migratePhotos(db);
+    await photoStore.refreshSizes();
+    warmThumbCache(); // миниатюры в кэш — галерея рендерится без ожидания
+    unlockApp();
+    return true;
+  } catch (e) {
+    clearSessionKey();
+    return false;
+  }
+}
 
 let pendingAuthWho = 'gosha';
 // Сейф, найденный в облаке до входа. Может быть «вторым» сейфом (на устройстве
@@ -4284,6 +4334,10 @@ async function initAuth() {
   applyMotion(getMotion());
   lastActivity = Date.now();
   startAutoLock();
+  // «Запомнить меня» на время вкладки: ключ, переживший обновление страницы —
+  // пробуем войти им сразу, без экрана логина. Не получилось (закрывали
+  // вкладку/браузер, сейф сменился и т.п.) — обычный вход ниже.
+  if (await resumeSession()) return;
   document.body.classList.add('auth');
   pendingAuthWho = 'gosha';
   renderAuthWho();

@@ -23,7 +23,8 @@ const sandbox = {
   },
   sessionStorage: {
     getItem(k) { return sandbox._ss[k] ?? null; },
-    setItem(k, v) { sandbox._ss[k] = String(v); }
+    setItem(k, v) { sandbox._ss[k] = String(v); },
+    removeItem(k) { delete sandbox._ss[k]; }
   },
   alert() {}, confirm() { return sandbox._confirmResult !== false; }, _confirmResult: true,
   URL: { createObjectURL() { return 'blob:x'; }, revokeObjectURL() {} },
@@ -109,6 +110,7 @@ function __TEST__(s){
   s.relabelEventPhotos = relabelEventPhotos;
   s.createVault = createVault; s.unlockWith = unlockWith; s.savePassFor = savePassFor; s.changePass = changePass;
   s.lock = lock; s.isLocked = isLocked; s.loadVault = loadVault; s.legacyDB = legacyDB; s.save = save;
+  s.resumeSession = resumeSession; s.saveSessionKey = saveSessionKey; s.clearSessionKey = clearSessionKey;
   s.exportData = exportData; s.importData = importData; s.showAuth = showAuth; s.unlockApp = unlockApp;
   s.initSync = initSync; s.scheduleSyncPush = scheduleSyncPush; s.stopSync = stopSync; s.syncNow = syncNow;
   Object.defineProperty(s, 'syncReady', { get: () => syncReady, set: v => { syncReady = v; }, configurable: true });
@@ -766,6 +768,27 @@ assert(await w('(s)=>s.changePass("wrong","x")') === false, 'смена с не�
 assert(await w('(s)=>s.changePass("123456","gosha-new")') === true, 'свой пароль сменён');
 assert(await w('(s)=>s.unlockWith("gosha","123456")') === false, 'старый пароль больше не работает');
 assert(await w('(s)=>s.unlockWith("gosha","gosha-new")') === true, 'новый пароль работает');
+
+// --- «Запомнить меня»: ключ в sessionStorage переживает reload, не lock() ---
+const sessKeyBefore = w('(s)=>s.sessionStorage.getItem("universe_session")');
+assert(sessKeyBefore !== null, 'после входа сессия сама сохранилась в sessionStorage (unlockApp→saveSessionKey)');
+w('(s)=>s.lock()');
+assert(w('(s)=>s.sessionStorage.getItem("universe_session")') === null, 'lock() чистит сохранённую сессию (clearSessionKey)');
+// имитируем reload БЕЗ lock(): память чиста (как после настоящего lock() выше),
+// но в sessionStorage — «пережившая» запись (при реальном reload lock() не вызывается)
+w(`(s)=>{s.sessionStorage.setItem("universe_session", ${JSON.stringify(sessKeyBefore)}); return 1;}`);
+assert(await w('(s)=>s.resumeSession()') === true, 'resumeSession восстанавливает сессию без пароля');
+assert(w('(s)=>s.currentUser') === 'gosha', 'после resumeSession известен вошедший');
+assert(w('(s)=>s.isLocked()') === false, 'после resumeSession приложение разблокировано');
+assert(w('(s)=>s.masterKey') !== null, 'после resumeSession ключ снова в памяти');
+assert(w('(s)=>Array.isArray(s.db.photos)') === true, 'после resumeSession данные расшифрованы');
+w('(s)=>s.lock()');
+assert(await w('(s)=>s.resumeSession()') === false, 'после lock() resumeSession больше не проходит — сессии нет');
+assert(w('(s)=>s.isLocked()') === true, 'без сохранённой сессии остаёмся на экране входа');
+// битая запись в sessionStorage не должна ронять resumeSession — тихо чистится
+w('(s)=>{s.sessionStorage.setItem("universe_session", "not-json"); return 1;}');
+assert(await w('(s)=>s.resumeSession()') === false, 'битая запись в sessionStorage не роняет resumeSession');
+assert(w('(s)=>s.sessionStorage.getItem("universe_session")') === null, 'битая запись вычищается');
 
 // --- Замок вычищает память ---
 w('(s)=>s.lock()');

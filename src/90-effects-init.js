@@ -21,6 +21,10 @@ async function initAuth() {
   applyMotion(getMotion());
   lastActivity = Date.now();
   startAutoLock();
+  // «Запомнить меня» на время вкладки: ключ, переживший обновление страницы —
+  // пробуем войти им сразу, без экрана логина. Не получилось (закрывали
+  // вкладку/браузер, сейф сменился и т.п.) — обычный вход ниже.
+  if (await resumeSession()) return;
   document.body.classList.add('auth');
   pendingAuthWho = 'gosha';
   renderAuthWho();
