@@ -104,6 +104,7 @@ function __TEST__(s){
   s.getMotion = getMotion; s.applyMotion = applyMotion; s.setMotion = setMotion; s.motionReduced = motionReduced;
   Object.defineProperty(s, 'photosRenderQueued', { get: () => photosRenderQueued, set: v => { photosRenderQueued = v; }, configurable: true });
   s.selectedPhotos = selectedPhotos; s.renderLabels = renderLabels;
+  s.toggleSelectedPin = toggleSelectedPin;
   s.togglePhotoSelectMode = togglePhotoSelectMode; s.togglePhotoReorderMode = togglePhotoReorderMode;
   Object.defineProperty(s, 'photoSelectMode', { get: () => photoSelectMode, configurable: true });
   Object.defineProperty(s, 'photoReorderMode', { get: () => photoReorderMode, configurable: true });
@@ -766,6 +767,16 @@ w('(s)=>{s.selectedPhotos.add("p2");s.renderPhotos();}');
 phHtml = registry['#photosGrid'].innerHTML;
 assert(phHtml.includes('photo selected'), 'выбранное фото подсвечено');
 assert(registry['#photoSelBar'].style.display === 'flex', 'панель выбора показана');
+
+// --- Массовое закрепление (панель выбора «⭐/☆ Закрепить») — тот же тоггл,
+// что и у применения лейблов: не все выбранные закреплены → закрепляет все;
+// повторный вызов, когда уже все закреплены, → снимает со всех ---
+assert(registry['#selPinBtn'].textContent === '☆ Закрепить', 'подпись кнопки — «Закрепить», пока не все выбранные закреплены');
+w('(s)=>s.toggleSelectedPin()');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").pinned') === true, 'toggleSelectedPin закрепляет выбранное фото');
+assert(registry['#selPinBtn'].textContent === '⭐ Открепить', 'подпись сменилась на «Открепить», раз все выбранные уже закреплены');
+w('(s)=>s.toggleSelectedPin()');
+assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").pinned') === false, 'повторный toggleSelectedPin открепляет (все были закреплены)');
 
 // --- Попап «Применить лейблы»: чек-лист + создание нового прямо в попапе ---
 w('(s)=>s.openLabelApplyOverlay(s.selectedPhotos)');

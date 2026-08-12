@@ -3778,6 +3778,17 @@ function deleteSelectedPhotos() {
   save(); renderPhotos(); renderCalendar(); renderHome();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
 }
+// Массовое закрепление (панель выбора «⭐/☆ Закрепить») — тот же тоггл-приём,
+// что и у применения лейблов (toggleLabelOnPhotos): если закреплены уже ВСЕ
+// отмеченные — снимаем закрепление со всех, иначе закрепляем все разом.
+function toggleSelectedPin() {
+  const ids = [...selectedPhotos];
+  if (!ids.length) return;
+  const targets = db.photos.filter(p => ids.includes(p.id));
+  const allPinned = targets.length > 0 && targets.every(p => p.pinned);
+  targets.forEach(p => { p.pinned = !allPinned; });
+  save(); renderPhotos();
+}
 // К каким событиям привязано фото — для фильтра «год → месяц → событие».
 // ev.photos хранит id фото (v6+).
 function eventsForPhoto(p) {
@@ -3849,7 +3860,17 @@ function renderPhotosNow() {
   const selBar = $('#photoSelBar');
   if (selBar) {
     selBar.style.display = selectedPhotos.size ? 'flex' : 'none';
-    if (selectedPhotos.size) { const c = $('#selCount'); if (c) c.textContent = selectedPhotos.size; }
+    if (selectedPhotos.size) {
+      const c = $('#selCount'); if (c) c.textContent = selectedPhotos.size;
+      // Подпись отражает, что реально произойдёт: если уже закреплены ВСЕ
+      // выбранные — кнопка снимет закрепление со всех, иначе закрепит все.
+      const pinBtn = $('#selPinBtn');
+      if (pinBtn) {
+        const targets = db.photos.filter(p => selectedPhotos.has(p.id));
+        const allPinned = targets.length > 0 && targets.every(p => p.pinned);
+        pinBtn.textContent = allPinned ? '⭐ Открепить' : '☆ Закрепить';
+      }
+    }
   }
   grid.innerHTML = list.length ? list.map(p => {
     // Кэш миниатюр может быть ещё не прогрет — рисуем каркас и заполняем src
@@ -4067,6 +4088,7 @@ $('#labelApplyNewBtn').addEventListener('click', () => {
 });
 $('#labelApplyNewName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#labelApplyNewBtn').click(); });
 $('#selAddLabelBtn').addEventListener('click', () => openLabelApplyOverlay(selectedPhotos));
+$('#selPinBtn').addEventListener('click', toggleSelectedPin);
 $('#selDeleteBtn').addEventListener('click', deleteSelectedPhotos);
 $('#selClearBtn').addEventListener('click', () => { selectedPhotos.clear(); renderPhotos(); });
 // Фильтр витрины «📅 События»: клик по кнопкам «год → месяц → событие» (повторный клик сбрасывает уровень)
