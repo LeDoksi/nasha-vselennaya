@@ -6281,8 +6281,8 @@ initAuth();
    95-sync.js), настоящий секрет (приватный VAPID-ключ) живёт только в
    переменных окружения функции. См. README, раздел B4. */
 let PUSH_CONFIG = {
-  vapidPublicKey: '', // ← публичный VAPID-ключ, см. README раздел B4
-  sendFnUrl: '' // ← адрес Cloud Function send-push после деплоя, см. README раздел B4
+  vapidPublicKey: 'BHAuFiHPe13m3MBOygG_hRrrdecn6c0GJIvWGT1QKTUkm2kB9d9EMI8j-2I8Q3s-GbES6o8DK586wFAZFC22Z0U',
+  sendFnUrl: 'https://functions.yandexcloud.net/d4eadokbi6den6g3sggu'
 };
 
 let swRegistration = null;
