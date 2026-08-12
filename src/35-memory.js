@@ -10,13 +10,14 @@ function isoFromMs(ms) {
   return isNaN(d.getTime()) ? null : iso(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-function photoTitle(p) { return (p && p.title) || 'Фото'; }
-
 // Дата фото для «В этот день»: EXIF-дата снимка, дата события или дата свидания (самое раннее).
 // Дата загрузки здесь сознательно НЕ используется.
 function photoDate(p) {
   if (!p) return null;
-  if (p.takenAt) { const s = isoFromMs(p.takenAt); if (s) return s; }
+  if (p.takenAt) {
+    const s = isoFromMs(p.takenAt);
+    if (s) return s;
+  }
   let best = null;
   if (Array.isArray(db.events)) {
     for (const ev of db.events) {
@@ -72,20 +73,23 @@ function otdYear(dateStr) {
 
 /* ===== Кольцо прогресса до годовщины ===== */
 function pluralYears(n) {
-  const m10 = n % 10, m100 = n % 100;
+  const m10 = n % 10,
+    m100 = n % 100;
   if (m10 === 1 && m100 !== 11) return 'год';
   if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 'года';
   return 'лет';
 }
 function pluralDays(n) {
-  const m10 = n % 10, m100 = n % 100;
+  const m10 = n % 10,
+    m100 = n % 100;
   if (m10 === 1 && m100 !== 11) return 'день';
   if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 'дня';
   return 'дней';
 }
 // Универсальные формы: plural(5, 'событие', 'события', 'событий') → «событий»
 function plural(n, one, few, many) {
-  const m10 = n % 10, m100 = n % 100;
+  const m10 = n % 10,
+    m100 = n % 100;
   if (m10 === 1 && m100 !== 11) return one;
   if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
   return many;
@@ -100,11 +104,13 @@ function renderProgressRing(at) {
   const days = daysTogether(); // та же формула, что и раньше — не дублируем расчёт
   let anniv = new Date(start);
   while (anniv.getTime() <= cur.getTime()) anniv.setFullYear(anniv.getFullYear() + 1);
-  const prev = new Date(anniv); prev.setFullYear(prev.getFullYear() - 1);
+  const prev = new Date(anniv);
+  prev.setFullYear(prev.getFullYear() - 1);
   const total = Math.max(1, Math.round((anniv - prev) / 86400000));
   const elapsed = Math.max(0, Math.round((cur - prev) / 86400000));
   const pct = Math.max(0, Math.min(100, Math.round((elapsed / total) * 100)));
-  const R = 42, CIRC = 2 * Math.PI * R;
+  const R = 42,
+    CIRC = 2 * Math.PI * R;
   const off = CIRC - (CIRC * pct) / 100;
   const yearsTogether = Math.floor(days / 365.25);
   // Статистика под кольцом — чем заполнена наша история (v7)
@@ -114,12 +120,15 @@ function renderProgressRing(at) {
   const wishPct = wishTotal ? Math.round((wishDone / wishTotal) * 100) : 0;
   const wishLabel = wishTotal ? wishDone + '/' + wishTotal : 'пока пусто';
   const wishTitle = wishTotal ? 'Исполнено ' + wishDone + ' из ' + wishTotal + ' хотелок' : 'Хотелок пока нет — загадай желание 💜';
-  const stats = [
-    ['📸', db.photos.length, 'фото', 'фото', 'фото'],
-    ['📅', db.events.length, 'событие', 'события', 'событий'],
-    ['💘', db.dates.length, 'свидание', 'свидания', 'свиданий'],
-    ['📝', db.notes.length, 'заметка', 'заметки', 'заметок']
-  ].map(a => `<span class="hs-chip">${a[0]} ${a[1]} ${plural(a[1], a[2], a[3], a[4])}</span>`).join('') +
+  const stats =
+    [
+      ['📸', db.photos.length, 'фото', 'фото', 'фото'],
+      ['📅', db.events.length, 'событие', 'события', 'событий'],
+      ['💘', db.dates.length, 'свидание', 'свидания', 'свиданий'],
+      ['📝', db.notes.length, 'заметка', 'заметки', 'заметок']
+    ]
+      .map(a => `<span class="hs-chip">${a[0]} ${a[1]} ${plural(a[1], a[2], a[3], a[4])}</span>`)
+      .join('') +
     `<span class="hs-chip hs-wish" title="${wishTitle}">🎁 ${wishLabel}<span class="hs-bar"><i style="width:${wishPct}%"></i></span></span>` +
     `<span class="hs-chip hs-shuffle" id="shuffleHistoryBtn" role="button" tabindex="0" title="Перемешать фото коллажа">🎲 Перемешать</span>`;
   // «В этот день» (только когда есть события/свидания прошлых лет): чипы под кольцом.
@@ -127,10 +136,22 @@ function renderProgressRing(at) {
   const otdEvents = onThisDayItems(at || new Date()).filter(it => it.kind === 'event' || it.kind === 'date');
   const otdRow = otdEvents.length
     ? '<div class="history-otd"><span class="history-otd-label">✨ В этот день</span>' +
-      otdEvents.map(ev =>
-        '<span class="hs-chip hs-otd-chip" title="' + esc(ev.title) + ' — ' + otdYear(ev.date) + '">' +
-        esc(ev.emoji) + ' ' + esc(ev.title) + ' <small>· ' + esc(String(ev.date).slice(0, 4)) + '</small></span>'
-      ).join('') +
+      otdEvents
+        .map(
+          ev =>
+            '<span class="hs-chip hs-otd-chip" title="' +
+            esc(ev.title) +
+            ' — ' +
+            otdYear(ev.date) +
+            '">' +
+            esc(ev.emoji) +
+            ' ' +
+            esc(ev.title) +
+            ' <small>· ' +
+            esc(String(ev.date).slice(0, 4)) +
+            '</small></span>'
+        )
+        .join('') +
       '</div>'
     : '';
   box.innerHTML = `
@@ -191,17 +212,14 @@ function memoryByDay() {
     // Фото, привязанные к событию/свиданию, показываются только в их карточках — не дублируем.
     // Учитываем только карточки, которые реально попадут в память: дата <= сегодня,
     // у свиданий — ещё и done:true.
-    const attached = db.events.some(ev => !!ev.date && ev.date <= todayStr &&
-                       Array.isArray(ev.photos) && ev.photos.includes(p.id)) ||
-                     db.dates.some(dt => !!dt.date && dt.date <= todayStr && dt.done &&
-                       Array.isArray(dt.photos) && dt.photos.includes(p.id));
+    const attached =
+      db.events.some(ev => !!ev.date && ev.date <= todayStr && Array.isArray(ev.photos) && ev.photos.includes(p.id)) ||
+      db.dates.some(dt => !!dt.date && dt.date <= todayStr && dt.done && Array.isArray(dt.photos) && dt.photos.includes(p.id));
     if (attached) continue;
     const d = ensure(ds);
     d.photos.push(p);
   }
-  return [...map.values()]
-    .filter(d => d.events.length || d.dates.length || d.photos.length)
-    .sort((a, b) => b.date.localeCompare(a.date));
+  return [...map.values()].filter(d => d.events.length || d.dates.length || d.photos.length).sort((a, b) => b.date.localeCompare(a.date));
 }
 function renderMemory() {
   const feed = $('#memoryFeed');
@@ -220,19 +238,19 @@ function renderMemory() {
     const cls = side % 2 === 0 ? 'tl-left' : 'tl-right';
     let card = '<div class="tl-date">' + esc(label) + '</div>';
     if (day.photos.length) {
-      card += memoryPhotosHtml(day.photos, 'day' + (gid++), 'tl-photos');
+      card += memoryPhotosHtml(day.photos, 'day' + gid++, 'tl-photos');
     }
     for (const d of day.dates) {
       const info = [d.place, d.time].filter(Boolean).join(' · ');
       card += '<div class="tl-item"><span class="tl-item-emoji">' + esc(d.emoji) + '</span><b>Свидание' + (info ? ' · ' + esc(info) : '') + '</b></div>';
       if (d.photos && d.photos.length) {
-        card += memoryPhotosHtml(d.photos, 'dt' + (gid++), 'tl-item-photos');
+        card += memoryPhotosHtml(d.photos, 'dt' + gid++, 'tl-item-photos');
       }
     }
     for (const ev of day.events) {
       card += '<div class="tl-item"><span class="tl-item-emoji">' + esc(ev.emoji) + '</span><b>' + esc(ev.title) + '</b></div>';
       if (ev.photos.length) {
-        card += memoryPhotosHtml(ev.photos, 'ev' + (gid++), 'tl-item-photos');
+        card += memoryPhotosHtml(ev.photos, 'ev' + gid++, 'tl-item-photos');
       }
     }
     html += '<div class="' + cls + '"><div class="tl-dot"></div><div class="tl-card">' + card + '</div></div>';
@@ -242,7 +260,9 @@ function renderMemory() {
   feed.innerHTML = html;
   hydratePhotoImgs(feed);
   feed.querySelectorAll('[data-lightbox]').forEach(function (img) {
-    img.addEventListener('click', function () { openLightboxFrom(img); });
+    img.addEventListener('click', function () {
+      openLightboxFrom(img);
+    });
   });
 }
 
@@ -262,13 +282,20 @@ function tlPhotoImg(p, extraCls) {
 function memoryPhotosHtml(photos, groupId, rowCls) {
   const shown = photos.slice(0, MEMORY_PHOTOS_PREVIEW);
   const rest = photos.slice(MEMORY_PHOTOS_PREVIEW);
-  return '<div class="' + rowCls + '" data-photo-group="' + groupId + '" data-more-count="' + rest.length + '">' +
+  return (
+    '<div class="' +
+    rowCls +
+    '" data-photo-group="' +
+    groupId +
+    '" data-more-count="' +
+    rest.length +
+    '">' +
     shown.map(p => tlPhotoImg(p)).join('') +
     (rest.length
-      ? '<button class="tl-more-btn" data-tl-expand="' + groupId + '" title="Показать ещё фото">Показать ещё ' + rest.length + '</button>' +
-        rest.map(p => tlPhotoImg(p, 'tl-more-photo')).join('')
+      ? '<button class="tl-more-btn" data-tl-expand="' + groupId + '" title="Показать ещё фото">Показать ещё ' + rest.length + '</button>' + rest.map(p => tlPhotoImg(p, 'tl-more-photo')).join('')
       : '') +
-    '</div>';
+    '</div>'
+  );
 }
 // Переключатель «Показать ещё N фото ⇄ Свернуть». Возвращает 'more' | 'less' | null.
 function toggleMemoryPhotos(groupId) {
@@ -293,4 +320,3 @@ document.addEventListener('click', e => {
   const btn = e.target && e.target.closest ? e.target.closest('[data-tl-expand]') : null;
   if (btn) toggleMemoryPhotos(btn.dataset.tlExpand);
 });
-

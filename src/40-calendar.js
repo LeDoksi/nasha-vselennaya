@@ -1,17 +1,27 @@
 /* ===== Календарь ===== */
-let calY = new Date().getFullYear(), calM = new Date().getMonth(), selectedDate = null;
+let calY = new Date().getFullYear(),
+  calM = new Date().getMonth(),
+  selectedDate = null;
 let editingEventId = null;
-const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-const MONTHS_SHORT = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 // Родительный падеж для дат: «9 августа 2026 года»
-const MONTHS_GEN = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
-function fmtShort(s) { if (!s) return ''; const [y, m, d] = s.split('-').map(Number); return `${d} ${MONTHS_SHORT[m - 1]}`; }
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+function fmtShort(s) {
+  if (!s) return '';
+  const [, m, d] = s.split('-').map(Number);
+  return `${d} ${MONTHS_SHORT[m - 1]}`;
+}
 
-function iso(y, m, d) { return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; }
+function iso(y, m, d) {
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
 // Парсим 'YYYY-MM-DD' как локальную дату: без 'T00:00:00' браузер трактует строку
 // как UTC-полночь, и в часовых поясах западнее UTC дата «съезжает» на день назад.
 function parseLocalIso(s) {
-  const [y, m, d] = String(s || '').split('-').map(Number);
+  const [y, m, d] = String(s || '')
+    .split('-')
+    .map(Number);
   if (!y || !m || !d) return null;
   const dt = new Date(y, m - 1, d);
   return isNaN(dt) ? null : dt;
@@ -19,10 +29,10 @@ function parseLocalIso(s) {
 function eventsOn(dateStr, m, d) {
   return db.events.filter(ev => {
     if (ev.repeat) {
-      const [ey, em, ed] = ev.date.split('-').map(Number);
+      const [, em, ed] = ev.date.split('-').map(Number);
       // Повтор — только начиная с года создания события: иначе годовщина,
       // заведённая в 2026-м, подсвечивалась бы и в календаре 2020 года.
-      return (em - 1 === m && ed === d && dateStr >= ev.date);
+      return em - 1 === m && ed === d && dateStr >= ev.date;
     }
     // длительное событие: endDate >= date — попадает на каждый день промежутка
     if (ev.endDate && ev.endDate >= ev.date) return dateStr >= ev.date && dateStr <= ev.endDate;
@@ -40,8 +50,7 @@ function renderCalendar() {
   // строк, хотя маленький date-picker внутри модалок это уже умел (полный
   // APG-паттерн «grid dialog»). Дни собираются в плоский список, потом
   // режутся на недели по 7 — не рискуем случайно оставить пустую строку.
-  let html = '<div class="cal-row cal-head-row" role="row">' +
-    ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map(d => `<div class="cal-cell cal-dow" role="columnheader">${d}</div>`).join('') + '</div>';
+  let html = '<div class="cal-row cal-head-row" role="row">' + ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => `<div class="cal-cell cal-dow" role="columnheader">${d}</div>`).join('') + '</div>';
   const dayCells = [];
   for (let i = 0; i < firstDow; i++) dayCells.push('<div class="cal-cell cal-empty" role="gridcell"></div>');
   for (let d = 1; d <= dim; d++) {
@@ -51,12 +60,17 @@ function renderCalendar() {
     const isToday = today.getFullYear() === calY && today.getMonth() === calM && today.getDate() === d;
     const isSelected = selectedDate === ds;
     const inSpan = db.events.some(ev => !ev.repeat && ev.endDate && ev.endDate >= ev.date && ds >= ev.date && ds <= ev.endDate);
-    dayCells.push(`<div class="cal-cell${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}${inSpan ? ' in-span' : ''}${dts.length ? ' has-date' : ''}" data-day="${ds}" role="gridcell" tabindex="0" aria-selected="${isSelected}" aria-label="${d} ${MONTHS_GEN[calM]} ${calY} года"${isToday ? ' aria-current="date"' : ''}>` +
-      `<span class="cal-num">${d}</span>` +
-      evs.slice(0, 2).map(e => `<span class="cal-dot" title="${esc(e.title)}">${esc(e.emoji)} ${esc(e.title)}</span>`).join('') +
-      (evs.length > 2 ? `<span class="cal-dot cal-dot-more" title="Ещё ${evs.length - 2} события">+${evs.length - 2}</span>` : '') +
-      (dts.length ? `<span class="cal-dot date-dot" title="Свидание">${esc(dts[0].emoji || '💘')}</span>` : '') +
-      '</div>');
+    dayCells.push(
+      `<div class="cal-cell${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}${inSpan ? ' in-span' : ''}${dts.length ? ' has-date' : ''}" data-day="${ds}" role="gridcell" tabindex="0" aria-selected="${isSelected}" aria-label="${d} ${MONTHS_GEN[calM]} ${calY} года"${isToday ? ' aria-current="date"' : ''}>` +
+        `<span class="cal-num">${d}</span>` +
+        evs
+          .slice(0, 2)
+          .map(e => `<span class="cal-dot" title="${esc(e.title)}">${esc(e.emoji)} ${esc(e.title)}</span>`)
+          .join('') +
+        (evs.length > 2 ? `<span class="cal-dot cal-dot-more" title="Ещё ${evs.length - 2} события">+${evs.length - 2}</span>` : '') +
+        (dts.length ? `<span class="cal-dot date-dot" title="Свидание">${esc(dts[0].emoji || '💘')}</span>` : '') +
+        '</div>'
+    );
   }
   while (dayCells.length % 7) dayCells.push('<div class="cal-cell cal-empty" role="gridcell"></div>');
   let cells = '';
@@ -80,11 +94,21 @@ function renderDayPanel() {
   panel.innerHTML =
     `<div class="day-head"><b>${fmtDate}</b></div>` +
     (evs.length
-      ? evs.map(e => `<div class="day-event">${esc(e.emoji)} <span>${esc(e.title)}${e.endDate && e.endDate >= e.date ? ` <small class="ev-range">до ${fmtShort(e.endDate)}</small>` : ''}</span>${evThumbs(e)} <button class="mini-x" data-photo-event="${e.id}" title="Добавить фото">📷</button> <button class="mini-x" data-edit-event="${e.id}" title="Изменить">✏️</button> <button class="mini-x" data-del-event="${e.id}" title="Удалить">✕</button></div>`).join('')
+      ? evs
+          .map(
+            e =>
+              `<div class="day-event">${esc(e.emoji)} <span>${esc(e.title)}${e.endDate && e.endDate >= e.date ? ` <small class="ev-range">до ${fmtShort(e.endDate)}</small>` : ''}</span>${evThumbs(e)} <button class="mini-x" data-photo-event="${e.id}" title="Добавить фото">📷</button> <button class="mini-x" data-edit-event="${e.id}" title="Изменить">✏️</button> <button class="mini-x" data-del-event="${e.id}" title="Удалить">✕</button></div>`
+          )
+          .join('')
       : '<p class="cal-tip">В этот день событий пока нет.</p>') +
     (dts.length
-      ? `<div class="day-sub">💘 Свидания</div>` + dts.map(dt =>
-          `<div class="day-event date-evt${dt.done ? ' date-done' : ''}">${esc(dt.emoji || '💘')} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}${dt.done ? ' ✅' : ''}</span>${dtThumbs(dt)} <button class="mini-x" data-edit-date="${dt.id}" title="Изменить">✏️</button> <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${dt.done ? '💗' : '✅'}</button> <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото">📷</button> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`).join('')
+      ? `<div class="day-sub">💘 Свидания</div>` +
+        dts
+          .map(
+            dt =>
+              `<div class="day-event date-evt${dt.done ? ' date-done' : ''}">${esc(dt.emoji || '💘')} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}${dt.done ? ' ✅' : ''}</span>${dtThumbs(dt)} <button class="mini-x" data-edit-date="${dt.id}" title="Изменить">✏️</button> <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${dt.done ? '💗' : '✅'}</button> <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото">📷</button> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`
+          )
+          .join('')
       : '') +
     `<div class="day-add">
        <input type="text" id="dayTitle" placeholder="Название события">
@@ -94,16 +118,37 @@ function renderDayPanel() {
   const addBtn = $('#dayAdd');
   if (addBtn) addBtn.addEventListener('click', addDayEvent);
   const inp = $('#dayTitle');
-  if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') addDayEvent(); });
+  if (inp)
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') addDayEvent();
+    });
 }
 function addDayEvent() {
   const title = $('#dayTitle').value.trim();
   if (!title) return;
   db.events.push({ id: uid(), title, date: selectedDate, emoji: $('#dayEmoji').value.trim() || '💜', repeat: true });
-  save(); renderCalendar(); renderHome();
+  save();
+  renderCalendar();
+  renderHome();
 }
-$('#calPrev').addEventListener('click', () => { calM--; if (calM < 0) { calM = 11; calY--; } selectedDate = null; renderCalendar(); });
-$('#calNext').addEventListener('click', () => { calM++; if (calM > 11) { calM = 0; calY++; } selectedDate = null; renderCalendar(); });
+$('#calPrev').addEventListener('click', () => {
+  calM--;
+  if (calM < 0) {
+    calM = 11;
+    calY--;
+  }
+  selectedDate = null;
+  renderCalendar();
+});
+$('#calNext').addEventListener('click', () => {
+  calM++;
+  if (calM > 11) {
+    calM = 0;
+    calY++;
+  }
+  selectedDate = null;
+  renderCalendar();
+});
 $('#addEventBtn').addEventListener('click', () => openEventModal());
 
 // «⏭ К ближайшему событию»: ближайшая дата события/свидания с учётом
@@ -111,18 +156,19 @@ $('#addEventBtn').addEventListener('click', () => openEventModal());
 function nextUpcoming() {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const todayStr = iso(today.getFullYear(), today.getMonth(), today.getDate());
   const cands = [];
   for (const ev of db.events) {
     const [y, m, d] = ev.date.split('-').map(Number);
     let occ;
-    if (ev.repeat !== false) { // ежегодный повтор: следующий раз в этом/следующем году
+    if (ev.repeat !== false) {
+      // ежегодный повтор: следующий раз в этом/следующем году
       occ = new Date(today.getFullYear(), m - 1, d);
       if (occ < today) occ = new Date(today.getFullYear() + 1, m - 1, d);
       if (m === 2 && d === 29 && occ.getMonth() === 2 && occ.getDate() === 1) occ.setDate(0); // 29 фев → 28
     } else {
       occ = new Date(y, m - 1, d);
-      if (ev.endDate && occ <= today) { // диапазон уже начался и ещё идёт — «сейчас»
+      if (ev.endDate && occ <= today) {
+        // диапазон уже начался и ещё идёт — «сейчас»
         const end = parseLocalIso(ev.endDate);
         if (end && end >= today) occ = today;
       }
@@ -146,14 +192,16 @@ function updateNearestJump() {
   const nx = nextUpcoming();
   const info = $('#jumpInfo');
   const btn = $('#jumpNextBtn');
-  if (!nx) { // впереди событий нет — кнопка остаётся (по клику — подсказка), плашка скрыта
+  if (!nx) {
+    // впереди событий нет — кнопка остаётся (по клику — подсказка), плашка скрыта
     if (info) info.hidden = true;
     if (btn) btn.hidden = false;
     return;
   }
   const [y, m, d] = nx.date.split('-').map(Number);
-  const here = (y === calY && m - 1 === calM);
-  if (here) { // уже смотрим месяц ближайшего события — кнопка и плашка не нужны
+  const here = y === calY && m - 1 === calM;
+  if (here) {
+    // уже смотрим месяц ближайшего события — кнопка и плашка не нужны
     if (info) info.hidden = true;
     if (btn) btn.hidden = true;
     return;
@@ -168,11 +216,15 @@ function jumpToNearestEvent() {
   const nx = nextUpcoming();
   const info = $('#jumpInfo');
   if (!nx) {
-    if (info) { info.textContent = '💫 Ближайших событий пока нет — добавь первое!'; info.hidden = false; }
+    if (info) {
+      info.textContent = '💫 Ближайших событий пока нет — добавь первое!';
+      info.hidden = false;
+    }
     return;
   }
   const [y, m] = nx.date.split('-').map(Number);
-  calY = y; calM = m - 1;
+  calY = y;
+  calM = m - 1;
   selectedDate = nx.date;
   renderCalendar(); // updateNearestJump() скроет кнопку/плашку: ближайшее уже на экране
 }
@@ -180,22 +232,34 @@ $('#jumpNextBtn').addEventListener('click', jumpToNearestEvent);
 
 // Быстрый выбор месяца/года (два селекта над календарём)
 function fillCalJump() {
-  const ms = $('#calMonthSelect'), ys = $('#calYearSelect');
+  const ms = $('#calMonthSelect'),
+    ys = $('#calYearSelect');
   if (!ms || !ys) return;
   if (typeof ms.add === 'function' && ms.options.length === 0) {
     MONTHS.forEach((name, i) => {
-      const o = document.createElement('option'); o.value = String(i); o.textContent = name; ms.add(o);
+      const o = document.createElement('option');
+      o.value = String(i);
+      o.textContent = name;
+      ms.add(o);
     });
     const now = new Date();
     const y0 = Math.min(2026, now.getFullYear() - 5);
     for (let y = y0; y <= now.getFullYear() + 5; y++) {
-      const o = document.createElement('option'); o.value = String(y); o.textContent = String(y); ys.add(o);
+      const o = document.createElement('option');
+      o.value = String(y);
+      o.textContent = String(y);
+      ys.add(o);
     }
   }
   ms.value = String(calM);
   ys.value = String(calY);
 }
-function jumpCalendar(m, y) { calM = +m; calY = +y; selectedDate = null; renderCalendar(); }
+function jumpCalendar(m, y) {
+  calM = +m;
+  calY = +y;
+  selectedDate = null;
+  renderCalendar();
+}
 $('#calMonthSelect').addEventListener('change', e => jumpCalendar(e.target.value, calY));
 $('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.value));
 
@@ -241,8 +305,8 @@ function addEventPhotosToGallery(photos, title) {
   const ids = [];
   for (const item of photos) {
     // Элемент — либо data-URL (строка, как раньше), либо { data: dataURL, file: оригинал }
-    const photoRef = (item && typeof item === 'object') ? item.data : item;
-    const origFile = (item && typeof item === 'object') ? item.file : null;
+    const photoRef = item && typeof item === 'object' ? item.data : item;
+    const origFile = item && typeof item === 'object' ? item.file : null;
     const existing = db.photos.find(p => p.id === photoRef);
     if (existing) {
       if (!Array.isArray(existing.labels)) existing.labels = [];
@@ -258,14 +322,18 @@ function addEventPhotosToGallery(photos, title) {
       try {
         const blob = dataUrlToBlob(photoRef);
         if (blob && photoStore) {
-          makeThumbBlob(photoRef, 256).then(async thumb => {
-            const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size, origType: origFile ? (origFile.type || '') : '' };
-            await photoStore.put(ph.id, blob, thumb, meta, origFile); // origFile — сырой файл, если есть
-            if (ph.data === photoRef) delete ph.data; // блоб в сторе — base64 из памяти убираем
-            if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
-          }).catch(e => console.warn('Не удалось сохранить фото события в хранилище', e));
+          makeThumbBlob(photoRef, 256)
+            .then(async thumb => {
+              const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size, origType: origFile ? origFile.type || '' : '' };
+              await photoStore.put(ph.id, blob, thumb, meta, origFile); // origFile — сырой файл, если есть
+              if (ph.data === photoRef) delete ph.data; // блоб в сторе — base64 из памяти убираем
+              if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
+            })
+            .catch(e => console.warn('Не удалось сохранить фото события в хранилище', e));
         }
-      } catch (e) { console.warn('Не удалось сохранить фото события в хранилище', e); }
+      } catch (e) {
+        console.warn('Не удалось сохранить фото события в хранилище', e);
+      }
     }
   }
   return ids;
@@ -276,21 +344,33 @@ function addEventPhotoQuick(evId) {
   const ev = db.events.find(x => x.id === evId);
   if (!ev) return;
   const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  inp.multiple = true;
   inp.style.display = 'none';
   document.body.appendChild(inp);
-  inp.addEventListener('change', async () => {
-    const ok = [];
-    for (const f of [...inp.files].slice(0, 5)) {
-      try { ok.push({ data: await readFile(f), file: f }); } catch (err) { console.warn('Не удалось прочитать фото события', err); }
-    }
-    inp.remove();
-    if (!ok.length) return;
-    const ids = addEventPhotosToGallery(ok, ev.title);
-    const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object') ? x.data : x);
-    ev.photos = Array.isArray(ev.photos) ? ev.photos.concat(refs) : refs;
-    save(); renderCalendar(); renderHome();
-  }, { once: true });
+  inp.addEventListener(
+    'change',
+    async () => {
+      const ok = [];
+      for (const f of [...inp.files].slice(0, 5)) {
+        try {
+          ok.push({ data: await readFile(f), file: f });
+        } catch (err) {
+          console.warn('Не удалось прочитать фото события', err);
+        }
+      }
+      inp.remove();
+      if (!ok.length) return;
+      const ids = addEventPhotosToGallery(ok, ev.title);
+      const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object' ? x.data : x));
+      ev.photos = Array.isArray(ev.photos) ? ev.photos.concat(refs) : refs;
+      save();
+      renderCalendar();
+      renderHome();
+    },
+    { once: true }
+  );
   inp.click();
 }
 
@@ -301,8 +381,8 @@ function addDatePhotosToGallery(photos, title) {
   const ids = [];
   for (const item of photos) {
     // Элемент — либо data-URL (строка, как раньше), либо { data: dataURL, file: оригинал }
-    const photoRef = (item && typeof item === 'object') ? item.data : item;
-    const origFile = (item && typeof item === 'object') ? item.file : null;
+    const photoRef = item && typeof item === 'object' ? item.data : item;
+    const origFile = item && typeof item === 'object' ? item.file : null;
     const existing = db.photos.find(p => p.id === photoRef);
     if (existing) {
       if (!Array.isArray(existing.labels)) existing.labels = [];
@@ -316,14 +396,18 @@ function addDatePhotosToGallery(photos, title) {
       try {
         const blob = dataUrlToBlob(photoRef);
         if (blob && photoStore) {
-          makeThumbBlob(photoRef, 256).then(async thumb => {
-            const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size, origType: origFile ? (origFile.type || '') : '' };
-            await photoStore.put(ph.id, blob, thumb, meta, origFile); // origFile — сырой файл, если есть
-            if (ph.data === photoRef) delete ph.data;
-            if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
-          }).catch(e => console.warn('Не удалось сохранить фото свидания в хранилище', e));
+          makeThumbBlob(photoRef, 256)
+            .then(async thumb => {
+              const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size, origType: origFile ? origFile.type || '' : '' };
+              await photoStore.put(ph.id, blob, thumb, meta, origFile); // origFile — сырой файл, если есть
+              if (ph.data === photoRef) delete ph.data;
+              if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
+            })
+            .catch(e => console.warn('Не удалось сохранить фото свидания в хранилище', e));
         }
-      } catch (e) { console.warn('Не удалось сохранить фото свидания в хранилище', e); }
+      } catch (e) {
+        console.warn('Не удалось сохранить фото свидания в хранилище', e);
+      }
     }
   }
   return ids;
@@ -334,22 +418,34 @@ function addDatePhotoQuick(dtId) {
   const dt = db.dates.find(x => x.id === dtId);
   if (!dt) return;
   const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  inp.multiple = true;
   inp.style.display = 'none';
   document.body.appendChild(inp);
-  inp.addEventListener('change', async () => {
-    const ok = [];
-    for (const f of [...inp.files].slice(0, 5)) {
-      try { ok.push({ data: await readFile(f), file: f }); } catch (err) { console.warn('Не удалось прочитать фото свидания', err); }
-    }
-    inp.remove();
-    if (!ok.length) return;
-    const title = dt.place || dt.note || 'Свидание';
-    const ids = addDatePhotosToGallery(ok, title);
-    const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object') ? x.data : x);
-    dt.photos = Array.isArray(dt.photos) ? dt.photos.concat(refs) : refs;
-    save(); renderCalendar(); renderHome();
-  }, { once: true });
+  inp.addEventListener(
+    'change',
+    async () => {
+      const ok = [];
+      for (const f of [...inp.files].slice(0, 5)) {
+        try {
+          ok.push({ data: await readFile(f), file: f });
+        } catch (err) {
+          console.warn('Не удалось прочитать фото свидания', err);
+        }
+      }
+      inp.remove();
+      if (!ok.length) return;
+      const title = dt.place || dt.note || 'Свидание';
+      const ids = addDatePhotosToGallery(ok, title);
+      const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object' ? x.data : x));
+      dt.photos = Array.isArray(dt.photos) ? dt.photos.concat(refs) : refs;
+      save();
+      renderCalendar();
+      renderHome();
+    },
+    { once: true }
+  );
   inp.click();
 }
 
@@ -367,11 +463,13 @@ function dtThumbs(dt) {
    селекты месяца/года, сетка дней, «Сегодня» / «Очистить».
    Выбранная дата пишется в поле как ISO (YYYY-MM-DD) с событиями input/change —
    весь остальной код работает без изменений. */
-let dpInput = null;                   // поле, для которого открыт попап
-let dpM = new Date().getMonth();      // показываемый месяц
-let dpY = new Date().getFullYear();   // показываемый год
+let dpInput = null; // поле, для которого открыт попап
+let dpM = new Date().getMonth(); // показываемый месяц
+let dpY = new Date().getFullYear(); // показываемый год
 const dpPad = n => String(n).padStart(2, '0');
-function dpIso(y, m, d) { return y + '-' + dpPad(m + 1) + '-' + dpPad(d); }
+function dpIso(y, m, d) {
+  return y + '-' + dpPad(m + 1) + '-' + dpPad(d);
+}
 let dpFocus = null; // сфокусированный день (клавиатура, roving tabindex)
 
 // Фокус и клавиатурная навигация: паттерн «date picker dialog + grid» из APG.
@@ -379,12 +477,16 @@ let dpFocus = null; // сфокусированный день (клавиату
 function setDpFocus(iso) {
   dpFocus = iso;
   const live = $('#dpLive');
-  const [yy, mm, dd] = String(iso || '').split('-').map(Number);
+  const [yy, mm, dd] = String(iso || '')
+    .split('-')
+    .map(Number);
   if (live && yy && mm && dd) live.textContent = `${dd} ${MONTHS_GEN[mm - 1]} ${yy} года`;
 }
 // После смены месяца/года день не должен «пропадать»: зажимаем его в границы месяца
 function clampDpFocus() {
-  const [yy, mm, dd] = String(dpFocus || '').split('-').map(Number);
+  const [yy, , dd] = String(dpFocus || '')
+    .split('-')
+    .map(Number);
   const dim = new Date(dpY, dpM + 1, 0).getDate();
   setDpFocus(dpIso(dpY, dpM, yy ? Math.min(dd, dim) : Math.min(new Date().getDate(), dim)));
 }
@@ -411,31 +513,44 @@ function datePopKeydown(e) {
   if (!dpFocus) return;
   const [yy, mm, dd] = dpFocus.split('-').map(Number);
   const dim = () => new Date(dpY, dpM + 1, 0).getDate();
-  const stay = nd => { setDpFocus(dpIso(dpY, dpM, nd)); renderDatePop(); focusDpDay(dpFocus); };
+  const stay = nd => {
+    setDpFocus(dpIso(dpY, dpM, nd));
+    renderDatePop();
+    focusDpDay(dpFocus);
+  };
   if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
     if (e.preventDefault) e.preventDefault();
     const base = new Date(yy, mm - 1, dd + (e.key === 'ArrowLeft' ? -1 : 1));
-    stay(base.getMonth() === mm - 1 ? base.getDate() : (e.key === 'ArrowLeft' ? 1 : dim()));
+    stay(base.getMonth() === mm - 1 ? base.getDate() : e.key === 'ArrowLeft' ? 1 : dim());
   } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
     if (e.preventDefault) e.preventDefault();
     const base = new Date(yy, mm - 1, dd + (e.key === 'ArrowUp' ? -7 : 7));
-    stay(base.getMonth() === mm - 1 ? base.getDate() : (e.key === 'ArrowUp' ? 1 : dim()));
+    stay(base.getMonth() === mm - 1 ? base.getDate() : e.key === 'ArrowUp' ? 1 : dim());
   } else if (e.key === 'Home' || e.key === 'End') {
     if (e.preventDefault) e.preventDefault();
     stay(e.key === 'Home' ? 1 : dim());
   } else if (e.key === 'PageUp' || e.key === 'PageDown') {
     if (e.preventDefault) e.preventDefault();
-    let y = dpY, m = dpM;
+    let y = dpY,
+      m = dpM;
     if (e.shiftKey) {
       y += e.key === 'PageUp' ? -1 : 1;
     } else {
       m += e.key === 'PageUp' ? -1 : 1;
-      if (m < 0) { m = 11; y--; }
-      if (m > 11) { m = 0; y++; }
+      if (m < 0) {
+        m = 11;
+        y--;
+      }
+      if (m > 11) {
+        m = 0;
+        y++;
+      }
     }
-    dpY = y; dpM = m;
+    dpY = y;
+    dpM = m;
     clampDpFocus();
-    renderDatePop(); focusDpDay(dpFocus);
+    renderDatePop();
+    focusDpDay(dpFocus);
   }
 }
 // Обработчик висит на сетке дней: стрелки не перехватываются, когда фокус на селектах/кнопках
@@ -444,28 +559,34 @@ $('#dpDays').addEventListener('keydown', datePopKeydown);
 function renderDatePop() {
   const pop = $('#datePop');
   if (!pop) return;
-  const ms = $('#dpMonth'), ys = $('#dpYear');
+  const ms = $('#dpMonth'),
+    ys = $('#dpYear');
   if (ms) ms.innerHTML = MONTHS.map((n, i) => `<option value="${i}"${i === dpM ? ' selected' : ''}>${n}</option>`).join('');
   if (ys) {
     const now = new Date();
     const y0 = Math.min(2026, now.getFullYear() - 5);
     ys.innerHTML = '';
     for (let y = y0; y <= now.getFullYear() + 5; y++) {
-      const o = document.createElement('option'); o.value = String(y); o.textContent = String(y); ys.appendChild(o);
+      const o = document.createElement('option');
+      o.value = String(y);
+      o.textContent = String(y);
+      ys.appendChild(o);
     }
     ys.value = String(dpY);
   }
   const firstDow = (new Date(dpY, dpM, 1).getDay() + 6) % 7; // понедельник = 0
   const dim = new Date(dpY, dpM + 1, 0).getDate();
   const now = new Date();
-  let cells = '<div class="dp-dow" role="columnheader">Пн</div><div class="dp-dow" role="columnheader">Вт</div><div class="dp-dow" role="columnheader">Ср</div>' +
+  let cells =
+    '<div class="dp-dow" role="columnheader">Пн</div><div class="dp-dow" role="columnheader">Вт</div><div class="dp-dow" role="columnheader">Ср</div>' +
     '<div class="dp-dow" role="columnheader">Чт</div><div class="dp-dow" role="columnheader">Пт</div><div class="dp-dow" role="columnheader">Сб</div><div class="dp-dow" role="columnheader">Вс</div>';
   for (let i = 0; i < firstDow; i++) cells += '<button type="button" class="dp-day empty" tabindex="-1" aria-hidden="true"></button>';
   for (let d = 1; d <= dim; d++) {
     const iso = dpIso(dpY, dpM, d);
     const isToday = now.getFullYear() === dpY && now.getMonth() === dpM && now.getDate() === d;
     const picked = dpInput && dpInput.value === iso;
-    cells += `<button type="button" class="dp-day${isToday ? ' today' : ''}${picked ? ' picked' : ''}" data-dp-date="${iso}" ` +
+    cells +=
+      `<button type="button" class="dp-day${isToday ? ' today' : ''}${picked ? ' picked' : ''}" data-dp-date="${iso}" ` +
       `tabindex="${iso === dpFocus ? '0' : '-1'}" aria-label="${d} ${MONTHS_GEN[dpM]} ${dpY} года"${isToday ? ' aria-current="date"' : ''}>${d}</button>`;
   }
   const grid = $('#dpDays');
@@ -478,7 +599,9 @@ function pickDpDate(iso) {
     try {
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
-    } catch (err) { /* песочница тестов: Event не определён */ }
+    } catch (err) {
+      /* песочница тестов: Event не определён */
+    }
   }
   closeDatePop();
   if (el && el.focus) el.focus();
@@ -493,10 +616,10 @@ function openDatePop(el) {
   dpInput = el;
   const d = el.value ? parseLocalIso(el.value) : null;
   const now = new Date();
-  dpY = (d && !isNaN(d)) ? d.getFullYear() : now.getFullYear();
-  dpM = (d && !isNaN(d)) ? d.getMonth() : now.getMonth();
+  dpY = d && !isNaN(d) ? d.getFullYear() : now.getFullYear();
+  dpM = d && !isNaN(d) ? d.getMonth() : now.getMonth();
   // Клавиатура: roving tabindex — фокус на выбранной дате или на «сегодня»
-  const picked = (dpInput && /^\d{4}-\d{2}-\d{2}$/.test(dpInput.value)) ? dpInput.value : null;
+  const picked = dpInput && /^\d{4}-\d{2}-\d{2}$/.test(dpInput.value) ? dpInput.value : null;
   setDpFocus(picked || dpIso(dpY, dpM, Math.min(now.getDate(), new Date(dpY, dpM + 1, 0).getDate())));
   renderDatePop();
   const pop = $('#datePop');
@@ -514,7 +637,8 @@ function openDatePop(el) {
   const vw = (typeof window !== 'undefined' && window.innerWidth) || document.documentElement.clientWidth || 320;
   const vh = (typeof window !== 'undefined' && window.innerHeight) || document.documentElement.clientHeight || 480;
   if (r) {
-    const pw = 272, ph = 330;
+    const pw = 272,
+      ph = 330;
     let left = r.left;
     if (left + pw > vw - 8) left = Math.max(8, vw - pw - 8);
     pop.style.left = left + 'px';
@@ -528,8 +652,14 @@ $('#datePop').addEventListener('click', e => {
   const nav = e.target.closest('[data-dp-nav]');
   if (nav) {
     dpM += +nav.dataset.dpNav;
-    if (dpM < 0) { dpM = 11; dpY--; }
-    if (dpM > 11) { dpM = 0; dpY++; }
+    if (dpM < 0) {
+      dpM = 11;
+      dpY--;
+    }
+    if (dpM > 11) {
+      dpM = 0;
+      dpY++;
+    }
     clampDpFocus();
     renderDatePop();
     focusDpDay(dpFocus);
@@ -537,20 +667,34 @@ $('#datePop').addEventListener('click', e => {
   }
   if (e.target.closest('[data-dp-today]')) {
     const n = new Date();
-    pickDpDate(dpIso(n.getFullYear(), n.getMonth(), n.getDate())); return;
+    pickDpDate(dpIso(n.getFullYear(), n.getMonth(), n.getDate()));
+    return;
   }
-  if (e.target.closest('[data-dp-clear]')) { pickDpDate(''); return; }
+  if (e.target.closest('[data-dp-clear]')) {
+    pickDpDate('');
+    return;
+  }
   const day = e.target.closest('[data-dp-date]');
   if (day) pickDpDate(day.dataset.dpDate);
 });
-$('#dpMonth').addEventListener('change', e => { dpM = +e.target.value; clampDpFocus(); renderDatePop(); });
-$('#dpYear').addEventListener('change', e => { dpY = +e.target.value; clampDpFocus(); renderDatePop(); });
+$('#dpMonth').addEventListener('change', e => {
+  dpM = +e.target.value;
+  clampDpFocus();
+  renderDatePop();
+});
+$('#dpYear').addEventListener('change', e => {
+  dpY = +e.target.value;
+  clampDpFocus();
+  renderDatePop();
+});
 // Закрытие: клик мимо или Esc
 document.addEventListener('pointerdown', e => {
   const pop = $('#datePop');
   if (pop && !pop.hidden && !pop.contains(e.target)) closeDatePop();
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDatePop(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeDatePop();
+});
 // Поля дат в модалках открывают свой календарь вместо системного
 ['#evDate', '#evEnd', '#dtDate'].forEach(sel => {
   const el = $(sel);
@@ -596,24 +740,36 @@ function openEventModal(id) {
 $('#evPhoto').addEventListener('change', async e => {
   const files = [...e.target.files].slice(0, 5);
   for (const f of files) {
-    try { evPhotoData.push({ data: await readFile(f), file: f }); } catch (err) { console.warn('Не удалось прочитать фото события', err); }
+    try {
+      evPhotoData.push({ data: await readFile(f), file: f });
+    } catch (err) {
+      console.warn('Не удалось прочитать фото события', err);
+    }
   }
   e.target.value = '';
   setEvPhotoCount();
 });
 // Долгое событие не повторяется каждый год — снимаем галочку автоматически
-$('#evEnd').addEventListener('input', () => { if ($('#evEnd').value) $('#evRepeat').checked = false; });
+$('#evEnd').addEventListener('input', () => {
+  if ($('#evEnd').value) $('#evRepeat').checked = false;
+});
 function saveEventFromModal() {
   const title = $('#evTitle').value.trim();
   const date = $('#evDate').value;
-  if (!title || !date) { alert('Напиши название и выбери дату 💜'); return; }
+  if (!title || !date) {
+    alert('Напиши название и выбери дату 💜');
+    return;
+  }
   const endDate = $('#evEnd').value || null;
-  if (endDate && endDate < date) { alert('Конец события не может быть раньше начала 💜'); return; }
+  if (endDate && endDate < date) {
+    alert('Конец события не может быть раньше начала 💜');
+    return;
+  }
   const data = { title, date, endDate, emoji: $('#evEmoji').value.trim() || '💜', repeat: $('#evRepeat').checked && !endDate };
   // Фото события: кладём в общую галерею и вешаем лейбл = названию события
   if (evPhotoData.length) {
     const ids = addEventPhotosToGallery(evPhotoData, title);
-    data.photos = ids.length ? ids : evPhotoData.map(x => (x && typeof x === 'object') ? x.data : x);
+    data.photos = ids.length ? ids : evPhotoData.map(x => (x && typeof x === 'object' ? x.data : x));
   }
   const ev = editingEventId ? db.events.find(x => x.id === editingEventId) : null;
   if (ev) {
@@ -626,9 +782,13 @@ function saveEventFromModal() {
   }
   // Переходим на месяц события, чтобы оно сразу появилось в календаре
   const [evY, evM] = date.split('-').map(Number);
-  calM = evM - 1; calY = evY; selectedDate = date;
+  calM = evM - 1;
+  calY = evY;
+  selectedDate = date;
   editingEventId = null;
-  save(); $('#eventOverlay').hidden = true; renderCalendar(); renderHome();
+  save();
+  $('#eventOverlay').hidden = true;
+  renderCalendar();
+  renderHome();
 }
 $('#evSave').addEventListener('click', saveEventFromModal);
-

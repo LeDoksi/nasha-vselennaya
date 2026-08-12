@@ -8,7 +8,10 @@ let photoStore = null; // инициализируется при разблок
 // ===== IndexedDB-бэкенд (браузер) =====
 function openPhotoDB() {
   return new Promise((resolve, reject) => {
-    if (typeof indexedDB === 'undefined') { reject(new Error('IndexedDB not available')); return; }
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB not available'));
+      return;
+    }
     const req = indexedDB.open('universe_photos', 1);
     req.onerror = () => reject(req.error);
     req.onsuccess = () => resolve(req.result);
@@ -109,7 +112,7 @@ function estimateSize(row) {
   // Легаси-записи без meta.size — прикидываем по длине base64 шифртекста,
   // расшифровывать ради точного числа не нужно (это только для счётчика места).
   const d = row.full && row.full.d;
-  return d ? Math.ceil(d.length * 3 / 4) : 0;
+  return d ? Math.ceil((d.length * 3) / 4) : 0;
 }
 function indexEntry(row) {
   return { id: row.id, hasFull: !!row.full, hasThumb: !!row.thumb, hasOrig: !!row.orig, size: estimateSize(row) };
@@ -201,8 +204,8 @@ const IDBPhotoStore = {
   },
   async put(id, fullBlob, thumbBlob, meta, origBlob) {
     const fullU8 = fullBlob instanceof Uint8Array ? fullBlob : await blobToU8(fullBlob);
-    const thumbU8 = thumbBlob instanceof Uint8Array ? thumbBlob : (thumbBlob ? await blobToU8(thumbBlob) : null);
-    const origU8 = origBlob instanceof Uint8Array ? origBlob : (origBlob ? await blobToU8(origBlob) : null);
+    const thumbU8 = thumbBlob instanceof Uint8Array ? thumbBlob : thumbBlob ? await blobToU8(thumbBlob) : null;
+    const origU8 = origBlob instanceof Uint8Array ? origBlob : origBlob ? await blobToU8(origBlob) : null;
     const encFull = await encryptBlob(fullU8);
     const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
     const encOrig = origU8 ? await encryptBlob(origU8) : null;
@@ -234,9 +237,18 @@ const IDBPhotoStore = {
     const u8 = await decryptBlob(row.orig);
     return u8ToBlob(u8, row.meta?.origType || row.meta?.type || 'image/jpeg');
   },
-  async getEncryptedFull(id) { const row = await idbGet(this, id); return row?.full || null; },
-  async getEncryptedThumb(id) { const row = await idbGet(this, id); return row?.thumb || null; },
-  async getEncryptedOrig(id) { const row = await idbGet(this, id); return row?.orig || null; },
+  async getEncryptedFull(id) {
+    const row = await idbGet(this, id);
+    return row?.full || null;
+  },
+  async getEncryptedThumb(id) {
+    const row = await idbGet(this, id);
+    return row?.thumb || null;
+  },
+  async getEncryptedOrig(id) {
+    const row = await idbGet(this, id);
+    return row?.orig || null;
+  },
   async getMeta(id) {
     const row = await idbGet(this, id);
     return row?.meta || null;
@@ -254,10 +266,18 @@ const IDBPhotoStore = {
     const rows = await idbGetAll(this);
     const result = [];
     for (const r of rows) {
-      let full = null, thumb = null, orig = null;
-      try { full = await decryptBlob(r.full); } catch (e) {}
-      try { if (r.thumb) thumb = await decryptBlob(r.thumb); } catch (e) {}
-      try { if (r.orig) orig = await decryptBlob(r.orig); } catch (e) {}
+      let full = null,
+        thumb = null,
+        orig = null;
+      try {
+        full = await decryptBlob(r.full);
+      } catch (e) {}
+      try {
+        if (r.thumb) thumb = await decryptBlob(r.thumb);
+      } catch (e) {}
+      try {
+        if (r.orig) orig = await decryptBlob(r.orig);
+      } catch (e) {}
       result.push({ id: r.id, full, thumb, orig, meta: r.meta || {} });
     }
     return result;
@@ -266,10 +286,18 @@ const IDBPhotoStore = {
     const rows = await idbGetAll(this);
     const out = [];
     for (const r of rows) {
-      let fullB64 = null, thumbB64 = null, origB64 = null;
-      try { if (r.full) fullB64 = b64(await decryptBlob(r.full)); } catch (e) {}
-      try { if (r.thumb) thumbB64 = b64(await decryptBlob(r.thumb)); } catch (e) {}
-      try { if (r.orig) origB64 = b64(await decryptBlob(r.orig)); } catch (e) {}
+      let fullB64 = null,
+        thumbB64 = null,
+        origB64 = null;
+      try {
+        if (r.full) fullB64 = b64(await decryptBlob(r.full));
+      } catch (e) {}
+      try {
+        if (r.thumb) thumbB64 = b64(await decryptBlob(r.thumb));
+      } catch (e) {}
+      try {
+        if (r.orig) origB64 = b64(await decryptBlob(r.orig));
+      } catch (e) {}
       out.push({ id: r.id, full: fullB64, thumb: thumbB64, orig: origB64, meta: r.meta || {} });
     }
     return out;
@@ -292,7 +320,9 @@ const IDBPhotoStore = {
     await idbClear(this);
     this._index.clear();
   },
-  async migratePhotos(db) { return migratePhotosToStore(this, db); },
+  async migratePhotos(db) {
+    return migratePhotosToStore(this, db);
+  },
   // Счётчик места в настройках — из индекса (meta.size/оценка по длине
   // шифртекста), без расшифровки каждого блоба.
   async refreshSizes() {
@@ -305,11 +335,13 @@ const IDBPhotoStore = {
 // ===== MemoryPhotoStore (для тестов и фолбэка) =====
 const MemoryPhotoStore = {
   _map: new Map(),
-  async init() { this._map.clear(); },
+  async init() {
+    this._map.clear();
+  },
   async put(id, fullBlob, thumbBlob, meta, origBlob) {
     const fullU8 = fullBlob instanceof Uint8Array ? fullBlob : await blobToU8(fullBlob);
-    const thumbU8 = thumbBlob instanceof Uint8Array ? thumbBlob : (thumbBlob ? await blobToU8(thumbBlob) : null);
-    const origU8 = origBlob instanceof Uint8Array ? origBlob : (origBlob ? await blobToU8(origBlob) : null);
+    const thumbU8 = thumbBlob instanceof Uint8Array ? thumbBlob : thumbBlob ? await blobToU8(thumbBlob) : null;
+    const origU8 = origBlob instanceof Uint8Array ? origBlob : origBlob ? await blobToU8(origBlob) : null;
     const encFull = await encryptBlob(fullU8);
     const encThumb = thumbU8 ? await encryptBlob(thumbU8) : null;
     const encOrig = origU8 ? await encryptBlob(origU8) : null;
@@ -337,9 +369,18 @@ const MemoryPhotoStore = {
     const u8 = await decryptBlob(r.orig);
     return u8ToBlob(u8, r.meta?.origType || r.meta?.type || 'image/jpeg');
   },
-  async getEncryptedFull(id) { const r = this._map.get(id); return r?.full || null; },
-  async getEncryptedThumb(id) { const r = this._map.get(id); return r?.thumb || null; },
-  async getEncryptedOrig(id) { const r = this._map.get(id); return r?.orig || null; },
+  async getEncryptedFull(id) {
+    const r = this._map.get(id);
+    return r?.full || null;
+  },
+  async getEncryptedThumb(id) {
+    const r = this._map.get(id);
+    return r?.thumb || null;
+  },
+  async getEncryptedOrig(id) {
+    const r = this._map.get(id);
+    return r?.orig || null;
+  },
   async getMeta(id) {
     const r = this._map.get(id);
     return r?.meta || null;
@@ -348,16 +389,24 @@ const MemoryPhotoStore = {
   async listIds() {
     return [...this._map.values()].map(r => ({ id: r.id, hasFull: !!r.full, hasThumb: !!r.thumb, hasOrig: !!r.orig }));
   },
-    async delete(id) {
+  async delete(id) {
     this._map.delete(id);
   },
   async all() {
     const result = [];
     for (const r of this._map.values()) {
-      let full = null, thumb = null, orig = null;
-      try { full = await decryptBlob(r.full); } catch (e) {}
-      try { if (r.thumb) thumb = await decryptBlob(r.thumb); } catch (e) {}
-      try { if (r.orig) orig = await decryptBlob(r.orig); } catch (e) {}
+      let full = null,
+        thumb = null,
+        orig = null;
+      try {
+        full = await decryptBlob(r.full);
+      } catch (e) {}
+      try {
+        if (r.thumb) thumb = await decryptBlob(r.thumb);
+      } catch (e) {}
+      try {
+        if (r.orig) orig = await decryptBlob(r.orig);
+      } catch (e) {}
       result.push({ id: r.id, full, thumb, orig, meta: r.meta || {} });
     }
     return result;
@@ -365,10 +414,18 @@ const MemoryPhotoStore = {
   async exportBlobs() {
     const out = [];
     for (const r of this._map.values()) {
-      let fullB64 = null, thumbB64 = null, origB64 = null;
-      try { if (r.full) fullB64 = b64(await decryptBlob(r.full)); } catch (e) {}
-      try { if (r.thumb) thumbB64 = b64(await decryptBlob(r.thumb)); } catch (e) {}
-      try { if (r.orig) origB64 = b64(await decryptBlob(r.orig)); } catch (e) {}
+      let fullB64 = null,
+        thumbB64 = null,
+        origB64 = null;
+      try {
+        if (r.full) fullB64 = b64(await decryptBlob(r.full));
+      } catch (e) {}
+      try {
+        if (r.thumb) thumbB64 = b64(await decryptBlob(r.thumb));
+      } catch (e) {}
+      try {
+        if (r.orig) origB64 = b64(await decryptBlob(r.orig));
+      } catch (e) {}
       out.push({ id: r.id, full: fullB64, thumb: thumbB64, orig: origB64, meta: r.meta || {} });
     }
     return out;
@@ -388,7 +445,9 @@ const MemoryPhotoStore = {
   async clear() {
     this._map.clear();
   },
-  async migratePhotos(db) { return migratePhotosToStore(this, db); },
+  async migratePhotos(db) {
+    return migratePhotosToStore(this, db);
+  },
   async refreshSizes() {
     let total = 0;
     for (const r of this._map.values()) total += estimateSize(r);
@@ -404,7 +463,9 @@ async function initPhotoStore() {
       photoStore = IDBPhotoStore;
       return;
     }
-  } catch (e) { console.warn('IndexedDB not available, using memory store', e); }
+  } catch (e) {
+    console.warn('IndexedDB not available, using memory store', e);
+  }
   await MemoryPhotoStore.init();
   photoStore = MemoryPhotoStore;
 }
@@ -440,7 +501,9 @@ function canDraw() {
   try {
     const cv = document.createElement('canvas');
     return !!(cv && cv.getContext && cv.getContext('2d'));
-  } catch (e) { return false; }
+  } catch (e) {
+    return false;
+  }
 }
 
 // WebP-миниатюра из data-URL (Image + canvas). null, если браузер не умеет
@@ -450,76 +513,40 @@ async function makeThumbBlob(dataUrl, maxDim = 256) {
   return new Promise(resolve => {
     const img = new Image();
     let settled = false;
-    const finish = b => { if (!settled) { settled = true; resolve(b || null); } };
+    const finish = b => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(b || null);
+      }
+    };
     const timer = setTimeout(() => finish(null), 3000);
-    img.onload = () => { createThumbnail(img, maxDim).then(finish).catch(() => finish(null)); };
+    img.onload = () => {
+      createThumbnail(img, maxDim)
+        .then(finish)
+        .catch(() => finish(null));
+    };
     img.onerror = () => finish(null);
     img.src = dataUrl;
   });
-}
-
-// Загрузка файла → WebP (фолбэк JPEG) + миниатюра + EXIF-дата.
-// Canvas недоступен (тесты/старые браузеры) → null: вызывающий код
-// остаётся на старом пути readFile → dataUrlToBlob.
-async function processPhotoFile(file) {
-  if (!canDraw()) return null;
-  const dataUrl = await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-  const img = await new Promise(resolve => {
-    const i = new Image();
-    let settled = false;
-    const finish = v => { if (!settled) { settled = true; resolve(v || null); } };
-    const timer = setTimeout(() => finish(null), 3000);
-    i.onload = () => { clearTimeout(timer); finish(i); };
-    i.onerror = () => finish(null);
-    i.src = dataUrl;
-  });
-  if (!img) return null;
-  const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
-  if (!w || !h) return null;
-  const MAX = 1400;
-  const k = Math.min(1, MAX / Math.max(w, h));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(w * k); canvas.height = Math.round(h * k);
-  canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-  const toBlob = (type, q) => new Promise(res => {
-    try { canvas.toBlob(b => res(b), type, q); } catch (e) { res(null); }
-  });
-  let blob = await toBlob('image/webp', 0.8);
-  let type = 'image/webp';
-  if (!blob || blob.type !== 'image/webp') {
-    blob = await toBlob('image/jpeg', 0.82);
-    type = 'image/jpeg';
-  }
-  if (!blob) return null;
-  let thumbBlob = null;
-  try { thumbBlob = await createThumbnail(img, 256); } catch (e) {}
-  let takenAt = null;
-  try { takenAt = await extractExifDate(file); } catch (e) {}
-  return { blob, thumbBlob, type, thumbType: (thumbBlob && thumbBlob.type) || 'image/webp', takenAt, width: w, height: h };
 }
 
 // Простой EXIF-парсер (DateTimeOriginal / CreateDate)
 async function extractExifDate(file) {
   const buf = await file.slice(0, 65536).arrayBuffer();
   const u8 = new Uint8Array(buf);
-  if (u8[0] !== 0xFF || u8[1] !== 0xD8) return null;
+  if (u8[0] !== 0xff || u8[1] !== 0xd8) return null;
   let offset = 2;
   while (offset < u8.length - 8) {
-    if (u8[offset] !== 0xFF) break;
+    if (u8[offset] !== 0xff) break;
     const marker = u8[offset + 1];
-    if (marker === 0xE1) {
-      const segLen = (u8[offset + 2] << 8) | u8[offset + 3];
+    if (marker === 0xe1) {
       const exifHeader = String.fromCharCode(...u8.slice(offset + 4, offset + 10));
       if (exifHeader === 'Exif\x00\x00') {
         const tiffStart = offset + 10;
         const isLE = u8[tiffStart] === 0x49;
-        const read16 = off => isLE ? u8[off] | (u8[off + 1] << 8) : (u8[off] << 8) | u8[off + 1];
-        const read32 = off => isLE ? u8[off] | (u8[off + 1] << 8) | (u8[off + 2] << 16) | (u8[off + 3] << 24) : (u8[off] << 24) | (u8[off + 1] << 16) | (u8[off + 2] << 8) | u8[off + 3];
+        const read16 = off => (isLE ? u8[off] | (u8[off + 1] << 8) : (u8[off] << 8) | u8[off + 1]);
+        const read32 = off => (isLE ? u8[off] | (u8[off + 1] << 8) | (u8[off + 2] << 16) | (u8[off + 3] << 24) : (u8[off] << 24) | (u8[off + 1] << 16) | (u8[off + 2] << 8) | u8[off + 3]);
         const ifd0Off = tiffStart + 4 + read32(tiffStart + 4);
         const numEntries = read16(ifd0Off);
         for (let i = 0; i < numEntries; i++) {
@@ -535,7 +562,7 @@ async function extractExifDate(file) {
       }
       break;
     }
-    if (marker >= 0xE0 && marker <= 0xEF) {
+    if (marker >= 0xe0 && marker <= 0xef) {
       const segLen = (u8[offset + 2] << 8) | u8[offset + 3];
       offset += 2 + segLen;
     } else break;
@@ -555,9 +582,15 @@ function blobToDataUrl(blob) {
 
 // Кэш data-URL для миниатюр
 const thumbCache = new Map();
-function getThumbUrl(id) { return thumbCache.get(id) || null; }
-function setThumbUrl(id, url) { thumbCache.set(id, url); }
-function clearThumbCache() { thumbCache.clear(); }
+function getThumbUrl(id) {
+  return thumbCache.get(id) || null;
+}
+function setThumbUrl(id, url) {
+  thumbCache.set(id, url);
+}
+function clearThumbCache() {
+  thumbCache.clear();
+}
 
 // ===== Единый источник URL фото для рендеров =====
 // Порядок: кэш → блоб в photoStore. Возвращает data-URL для <img>.
@@ -579,7 +612,11 @@ async function photoUrl(p, useThumb = true) {
     try {
       let blob = null;
       // Миниатюра могла не расшифроваться — не бросаем, падаем на полный блоб
-      if (useThumb) { try { blob = await photoStore.getThumb(p.id); } catch (e) {} }
+      if (useThumb) {
+        try {
+          blob = await photoStore.getThumb(p.id);
+        } catch (e) {}
+      }
       if (!blob) blob = await photoStore.getFull(p.id);
       if (blob) {
         const url = await blobToDataUrl(blob);
@@ -628,7 +665,9 @@ async function warmThumbCache() {
     if (!p.id || getThumbUrl(p.id)) continue;
     try {
       let blob = null;
-      try { blob = await photoStore.getThumb(p.id); } catch (e) {}
+      try {
+        blob = await photoStore.getThumb(p.id);
+      } catch (e) {}
       if (!blob) blob = await photoStore.getFull(p.id);
       if (blob) {
         const url = await blobToDataUrl(blob);
@@ -658,8 +697,7 @@ async function hydratePhotoImgs(scope) {
     const id = im.dataset.photoSrc;
     // Фото хотелок не входят в db.photos (не показываются в общей галерее),
     // но живут в том же photoStore под своим id — ищем и там.
-    const p = db.photos.find(x => x.id === id) ||
-      (Array.isArray(db.wishlist) && db.wishlist.find(w => w.photoId === id) ? { id } : null);
+    const p = db.photos.find(x => x.id === id) || (Array.isArray(db.wishlist) && db.wishlist.find(w => w.photoId === id) ? { id } : null);
     const url = p ? await photoUrl(p, true) : '';
     if (url) {
       im.src = url;

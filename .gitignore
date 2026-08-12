@@ -25,3 +25,6 @@ tmp-*.js
 secrets.js
 .env
 .env.*
+
+# Dev-зависимости (ESLint/Prettier/husky) — ставятся через npm install
+node_modules/

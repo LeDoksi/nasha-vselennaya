@@ -6,6 +6,19 @@
   "scripts": {
     "build": "node build.js",
     "test": "node tests/uni-smoke.js app.js && node tests/uni-dnd.js app.js && node tests/uni-hash.js app.js && node tests/uni-sync.js app.js && node tests/uni-photo-sync.js app.js && node tests/photo-sign-auth.js",
-    "check": "node build.js && node tests/uni-smoke.js app.js && node tests/uni-dnd.js app.js && node tests/uni-hash.js app.js && node tests/uni-sync.js app.js && node tests/uni-photo-sync.js app.js && node tests/photo-sign-auth.js"
+    "lint": "eslint app.js tests build.js functions",
+    "check": "node build.js && node tests/uni-smoke.js app.js && node tests/uni-dnd.js app.js && node tests/uni-hash.js app.js && node tests/uni-sync.js app.js && node tests/uni-photo-sync.js app.js && node tests/photo-sign-auth.js && npm run lint",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.11.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.3.0",
+    "prettier": "^3.9.6"
+  },
+  "lint-staged": {
+    "*.js": "prettier --write"
   }
 }

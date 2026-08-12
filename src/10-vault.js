@@ -5,10 +5,16 @@ function legacyDB() {
     if (!raw) return defaultDB();
     const d = JSON.parse(raw);
     return { ...defaultDB(), ...migrateDB(d) };
-  } catch (e) { return defaultDB(); }
+  } catch (e) {
+    return defaultDB();
+  }
 }
 function loadVault() {
-  try { return JSON.parse(localStorage.getItem(VAULT_KEY)); } catch (e) { return null; }
+  try {
+    return JSON.parse(localStorage.getItem(VAULT_KEY));
+  } catch (e) {
+    return null;
+  }
 }
 // Сохранение всегда идёт через шифрование; очередь снимков не даёт
 // гонке записать более старый снимок поверх свежего.
@@ -23,8 +29,11 @@ function save() {
       const vault = loadVault();
       if (!vault) return;
       vault.db = await aesEnc(masterKey, enc.encode(snap));
-      try { localStorage.setItem(VAULT_KEY, JSON.stringify(vault)); }
-      catch (e) { notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true); }
+      try {
+        localStorage.setItem(VAULT_KEY, JSON.stringify(vault));
+      } catch (e) {
+        notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true);
+      }
       // Облачная синхронизация: после каждого успешного сохранения — push (debounce)
       if (typeof scheduleSyncPush === 'function') scheduleSyncPush();
     } catch (e) {
@@ -63,7 +72,9 @@ async function tryUnwrapKey(who, pass, vault) {
     const pwdKey = await pbkdf2Key(pass, unb64(wrap.s), vault.a || PBKDF2_ITERS);
     const kraw = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(wrap.i) }, pwdKey, unb64(wrap.d)));
     return await crypto.subtle.importKey('raw', kraw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
-  } catch (e) { return null; }
+  } catch (e) {
+    return null;
+  }
 }
 
 async function unlockWith(who, pass, vaultOverride) {
@@ -86,16 +97,26 @@ async function unlockWith(who, pass, vaultOverride) {
       // копию (universe_vault_prev), чтобы ничего не пропало безвозвратно.
       const prevLocal = loadVault();
       if (prevLocal && JSON.stringify(prevLocal) !== JSON.stringify(vaultOverride)) {
-        try { localStorage.setItem(VAULT_KEY_PREV, JSON.stringify(prevLocal)); } catch (e) { console.warn('Не удалось сохранить бэкап сейфа', e); }
+        try {
+          localStorage.setItem(VAULT_KEY_PREV, JSON.stringify(prevLocal));
+        } catch (e) {
+          console.warn('Не удалось сохранить бэкап сейфа', e);
+        }
       }
       if (!store.set(VAULT_KEY, JSON.stringify(vaultOverride))) return false;
       pendingCloudVault = null;
       notify('Сейф восстановлен из облака 💜');
     }
-    try { await save(); } catch (e) { console.warn('Не удалось закрепить миграцию', e); } // p.data убран, ссылки событий на id
+    try {
+      await save();
+    } catch (e) {
+      console.warn('Не удалось закрепить миграцию', e);
+    } // p.data убран, ссылки событий на id
     unlockApp();
     return true;
-  } catch (e) { return false; }
+  } catch (e) {
+    return false;
+  }
 }
 async function savePassFor(who, pass) {
   const vault = loadVault();
@@ -105,7 +126,12 @@ async function savePassFor(who, pass) {
   const pwdKey = await pbkdf2Key(pass, salt, vault.a || PBKDF2_ITERS);
   const wrap = { who, s: b64(salt), ...(await aesEnc(pwdKey, kraw)) };
   vault.keys = (vault.keys || []).filter(x => x.who !== who).concat(wrap);
-  try { localStorage.setItem(VAULT_KEY, JSON.stringify(vault)); return true; } catch (e) { return false; }
+  try {
+    localStorage.setItem(VAULT_KEY, JSON.stringify(vault));
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 async function changePass(cur, next) {
   const vault = loadVault();
@@ -117,9 +143,16 @@ async function changePass(cur, next) {
     const kraw = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(wrap.i) }, pwdKey, unb64(wrap.d)));
     const newSalt = randBytes(16);
     const nk = await pbkdf2Key(next, newSalt, vault.a || PBKDF2_ITERS);
-    vault.keys = await Promise.all(vault.keys.map(async x => x.who === currentUser ? { who: currentUser, s: b64(newSalt), ...(await aesEnc(nk, kraw)) } : x));
-    try { localStorage.setItem(VAULT_KEY, JSON.stringify(vault)); return true; } catch (e) { return false; }
-  } catch (e) { return false; }
+    vault.keys = await Promise.all(vault.keys.map(async x => (x.who === currentUser ? { who: currentUser, s: b64(newSalt), ...(await aesEnc(nk, kraw)) } : x)));
+    try {
+      localStorage.setItem(VAULT_KEY, JSON.stringify(vault));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  } catch (e) {
+    return false;
+  }
 }
 
 /* ===== Замок: экраны входа и создания ===== */
@@ -160,7 +193,13 @@ function lock() {
   // Облачная синхронизация: при блокировке отключаем слушатели и вход
   if (typeof stopSync === 'function') stopSync();
 }
-function isLocked() { return authLocked; }
+// Публичный API: сам app.js её не вызывает (UI смотрит на authLocked
+// напрямую), но тесты дёргают через s.isLocked — держим как явную точку
+// входа для будущего кода/тестов.
+// eslint-disable-next-line no-unused-vars
+function isLocked() {
+  return authLocked;
+}
 
 /* ===== «Запомнить меня» на время вкладки =====
    Раньше расшифрованный ключ жил ТОЛЬКО в памяти (обычная JS-переменная) —
@@ -183,10 +222,14 @@ async function saveSessionKey() {
     // на быстрой машине экспорт обычно успевает раньше, а на CI — нет).
     if (masterKey !== keyAtStart || !currentUser) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({ who: currentUser, k: b64(kraw) }));
-  } catch (e) { console.warn('Не удалось сохранить сессию', e); }
+  } catch (e) {
+    console.warn('Не удалось сохранить сессию', e);
+  }
 }
 function clearSessionKey() {
-  try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch (e) {}
 }
 // Пробуем войти без пароля по ключу, пережившему reload. Возвращает true при
 // успехе (приложение уже разблокировано) — вызывающий пропускает обычный
@@ -194,12 +237,24 @@ function clearSessionKey() {
 // протухшую запись и откатываемся на обычный вход, а не мучаем повторами.
 async function resumeSession() {
   let raw;
-  try { raw = sessionStorage.getItem(SESSION_KEY); } catch (e) { return false; }
+  try {
+    raw = sessionStorage.getItem(SESSION_KEY);
+  } catch (e) {
+    return false;
+  }
   if (!raw) return false;
   let parsed;
-  try { parsed = JSON.parse(raw); } catch (e) { clearSessionKey(); return false; }
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    clearSessionKey();
+    return false;
+  }
   const vault = loadVault();
-  if (!vault || !parsed || !parsed.who || !parsed.k) { clearSessionKey(); return false; }
+  if (!vault || !parsed || !parsed.who || !parsed.k) {
+    clearSessionKey();
+    return false;
+  }
   try {
     const key = await crypto.subtle.importKey('raw', unb64(parsed.k), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
     const rawDb = await aesDec(key, vault.db);
@@ -239,20 +294,26 @@ async function tryUnlock() {
     if (err) err.textContent = 'Проверяем облако ещё раз…';
     const fresh = await fetchCloudVault();
     cloud = fresh ? fresh.vault : null;
-    if (cloud) { pendingCloudVault = cloud; const hint = $('#cloudHint'); if (hint) hint.hidden = false; }
+    if (cloud) {
+      pendingCloudVault = cloud;
+      const hint = $('#cloudHint');
+      if (hint) hint.hidden = false;
+    }
   }
   if (!local && !cloud) {
     if (err) err.textContent = 'Сейф не найден ни на устройстве, ни в облаке. Проверь интернет и нажми «Войти» ещё раз, либо создай новый пароль.';
     return;
   }
-  const hasPass = !!((local && (local.keys || []).some(k => k.who === pendingAuthWho)) ||
-                    (cloud && (cloud.keys || []).some(k => k.who === pendingAuthWho)));
+  const hasPass = !!((local && (local.keys || []).some(k => k.who === pendingAuthWho)) || (cloud && (cloud.keys || []).some(k => k.who === pendingAuthWho)));
   if (!hasPass) {
     if (err) err.textContent = 'Пароль для этого человека ещё не создан. Добавь его в настройках — или войди другим.';
     return;
   }
   const pass = $('#authPass').value;
-  if (!pass) { if (err) err.textContent = 'Введи пароль 💜'; return; }
+  if (!pass) {
+    if (err) err.textContent = 'Введи пароль 💜';
+    return;
+  }
   // Проверяем пароль СРАЗУ против обоих сейфов (без побочных эффектов) и решаем,
   // каким входим:
   //  • локальный не открылся, а облачный открылся      → облачный (новый браузер)
@@ -271,7 +332,10 @@ async function tryUnlock() {
     useCloud = true;
   } else if (localKey && cloudKey) {
     let sameLineage = false;
-    try { await aesDec(localKey, cloud.db); sameLineage = true; } catch (e) {}
+    try {
+      await aesDec(localKey, cloud.db);
+      sameLineage = true;
+    } catch (e) {}
     useCloud = !sameLineage;
   }
   const ok = await unlockWith(pendingAuthWho, pass, useCloud ? cloud : undefined);
@@ -289,8 +353,14 @@ async function doSetup() {
   const who = $('#setupWho').value;
   const p1 = $('#setupPass').value;
   const p2 = $('#setupPass2').value;
-  if (p1.length < 6) { if (err) err.textContent = 'Пароль должен быть не короче 6 символов.'; return; }
-  if (p1 !== p2) { if (err) err.textContent = 'Пароли не совпадают — проверь ещё раз.'; return; }
+  if (p1.length < 6) {
+    if (err) err.textContent = 'Пароль должен быть не короче 6 символов.';
+    return;
+  }
+  if (p1 !== p2) {
+    if (err) err.textContent = 'Пароли не совпадают — проверь ещё раз.';
+    return;
+  }
   try {
     await createVault(who, p1);
     unlockApp();
@@ -307,7 +377,14 @@ let autoLockTimer = null;
 function startAutoLock() {
   if (autoLockTimer) return;
   ['click', 'keydown', 'pointerdown', 'scroll', 'touchstart'].forEach(ev =>
-    document.addEventListener(ev, () => { lastActivity = Date.now(); }, { passive: true }));
+    document.addEventListener(
+      ev,
+      () => {
+        lastActivity = Date.now();
+      },
+      { passive: true }
+    )
+  );
   autoLockTimer = setInterval(() => {
     if (isHidden() || !masterKey) return;
     if (Date.now() - lastActivity > AUTO_LOCK_MS) lock();
@@ -316,41 +393,47 @@ function startAutoLock() {
 
 /* ===== Кнопки экранов входа ===== */
 $('#authGo').addEventListener('click', tryUnlock);
-$('#authPass').addEventListener('keydown', e => { if (e.key === 'Enter') tryUnlock(); });
+$('#authPass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') tryUnlock();
+});
 $('#setupGo').addEventListener('click', doSetup);
-$('#setupPass2').addEventListener('keydown', e => { if (e.key === 'Enter') doSetup(); });
+$('#setupPass2').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSetup();
+});
 // «У меня уже есть сейф» на экране первого запуска: переходим на вход и
 // пробуем ещё раз найти сейф в облаке (сетевой запрос мог не успеть).
 const setupToLockEl = $('#setupToLock');
-if (setupToLockEl) setupToLockEl.addEventListener('click', async () => {
-  showAuth('lock');
-  $('#authErr').textContent = '';
-  const cloud = typeof fetchCloudVault === 'function' ? await fetchCloudVault() : null;
-  pendingCloudVault = cloud ? cloud.vault : null;
-  const hint = $('#cloudHint');
-  if (hint) hint.hidden = !cloud;
-  if (cloud) $('#authPass').focus();
-});
+if (setupToLockEl)
+  setupToLockEl.addEventListener('click', async () => {
+    showAuth('lock');
+    $('#authErr').textContent = '';
+    const cloud = typeof fetchCloudVault === 'function' ? await fetchCloudVault() : null;
+    pendingCloudVault = cloud ? cloud.vault : null;
+    const hint = $('#cloudHint');
+    if (hint) hint.hidden = !cloud;
+    if (cloud) $('#authPass').focus();
+  });
 // «Повторить проверку облака» — когда первый запрос не нашёл сейф (сеть могла
 // моргнуть, анонимный вход не успел).
 const cloudRetryBtnEl = $('#cloudRetryBtn');
-if (cloudRetryBtnEl) cloudRetryBtnEl.addEventListener('click', async () => {
-  const btn = $('#cloudRetryBtn');
-  if (btn) btn.disabled = true;
-  $('#authErr').textContent = 'Проверяем облако…';
-  const cloud = typeof fetchCloudVault === 'function' ? await fetchCloudVault() : null;
-  if (btn) btn.disabled = false;
-  if (cloud && cloud.vault) {
-    pendingCloudVault = cloud.vault;
-    $('#cloudHint').hidden = false;
-    $('#cloudRetryBtn').hidden = true;
-    $('#toSetupBtn').hidden = true;
-    $('#authErr').textContent = '';
-    $('#authPass').focus();
-  } else {
-    $('#authErr').textContent = 'Всё ещё не можем связаться с облаком. Проверь интернет и попробуй ещё раз, либо создай новый сейф.';
-  }
-});
+if (cloudRetryBtnEl)
+  cloudRetryBtnEl.addEventListener('click', async () => {
+    const btn = $('#cloudRetryBtn');
+    if (btn) btn.disabled = true;
+    $('#authErr').textContent = 'Проверяем облако…';
+    const cloud = typeof fetchCloudVault === 'function' ? await fetchCloudVault() : null;
+    if (btn) btn.disabled = false;
+    if (cloud && cloud.vault) {
+      pendingCloudVault = cloud.vault;
+      $('#cloudHint').hidden = false;
+      $('#cloudRetryBtn').hidden = true;
+      $('#toSetupBtn').hidden = true;
+      $('#authErr').textContent = '';
+      $('#authPass').focus();
+    } else {
+      $('#authErr').textContent = 'Всё ещё не можем связаться с облаком. Проверь интернет и попробуй ещё раз, либо создай новый сейф.';
+    }
+  });
 // «Создать новый сейф» — осознанный выбор для настоящего первого запуска.
 const toSetupBtnEl = $('#toSetupBtn');
 if (toSetupBtnEl) toSetupBtnEl.addEventListener('click', () => showAuth('setup'));
@@ -359,21 +442,32 @@ if (toSetupBtnEl) toSetupBtnEl.addEventListener('click', () => showAuth('setup')
 // фото этого устройства, и при следующем открытии приложение снова найдёт общий
 // сейф пары в облаке. Облачные данные при этом не трогаются.
 const forgetVaultBtnEl = $('#forgetVaultBtn');
-if (forgetVaultBtnEl) forgetVaultBtnEl.addEventListener('click', async () => {
-  const msg = pendingCloudVault
-    ? 'Забыть сейф и фото на ЭТОМ устройстве? Облачные данные пары не пострадают — при следующем входе они восстановятся.'
-    : 'Сбросить это устройство к «первому запуску»? Локальный сейф и фото будут удалены с ЭТОГО устройства.';
-  if (!confirm(msg)) return;
-  try { localStorage.removeItem(VAULT_KEY); } catch (e) {}
-  try { localStorage.removeItem(VAULT_KEY_PREV); } catch (e) {}
-  try { localStorage.removeItem(SYNC_KEY); } catch (e) {}
-  try { localStorage.removeItem(KEY); } catch (e) {}
-  if (photoStore && typeof photoStore.clear === 'function') {
-    try { await photoStore.clear(); } catch (e) {}
-  }
-  clearThumbCache();
-  location.reload();
-});
+if (forgetVaultBtnEl)
+  forgetVaultBtnEl.addEventListener('click', async () => {
+    const msg = pendingCloudVault
+      ? 'Забыть сейф и фото на ЭТОМ устройстве? Облачные данные пары не пострадают — при следующем входе они восстановятся.'
+      : 'Сбросить это устройство к «первому запуску»? Локальный сейф и фото будут удалены с ЭТОГО устройства.';
+    if (!confirm(msg)) return;
+    try {
+      localStorage.removeItem(VAULT_KEY);
+    } catch (e) {}
+    try {
+      localStorage.removeItem(VAULT_KEY_PREV);
+    } catch (e) {}
+    try {
+      localStorage.removeItem(SYNC_KEY);
+    } catch (e) {}
+    try {
+      localStorage.removeItem(KEY);
+    } catch (e) {}
+    if (photoStore && typeof photoStore.clear === 'function') {
+      try {
+        await photoStore.clear();
+      } catch (e) {}
+    }
+    clearThumbCache();
+    location.reload();
+  });
 document.addEventListener('click', e => {
   const au = e.target.closest('[data-auth-who]');
   if (au) {
@@ -385,4 +479,3 @@ document.addEventListener('click', e => {
   }
 });
 renderAuthWho();
-
