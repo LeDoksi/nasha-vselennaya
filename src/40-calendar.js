@@ -65,7 +65,13 @@ function renderCalendar() {
         `<span class="cal-num">${d}</span>` +
         evs
           .slice(0, 2)
-          .map(e => `<span class="cal-dot" title="${esc(e.title)}">${esc(e.emoji)} ${esc(e.title)}</span>`)
+          // .cal-dot-title скрыт на мобиле (см. styles.css, max-width:820px) —
+          // квадратные ячейки календаря (aspect-ratio:1) там слишком узкие,
+          // заголовок обрезался до «эмодзи…», нечитаемо. На мобиле остаётся
+          // только эмодзи (как у date-dot ниже) — полный текст всё равно
+          // виден в day-панели под календарём по тапу на день; title="" даёт
+          // подсказку по долгому нажатию.
+          .map(e => `<span class="cal-dot" title="${esc(e.title)}">${esc(e.emoji)}<span class="cal-dot-title"> ${esc(e.title)}</span></span>`)
           .join('') +
         (evs.length > 2 ? `<span class="cal-dot cal-dot-more" title="Ещё ${evs.length - 2} события">+${evs.length - 2}</span>` : '') +
         (dts.length ? `<span class="cal-dot date-dot" title="Свидание">${esc(dts[0].emoji || '💘')}</span>` : '') +
@@ -592,6 +598,16 @@ function renderDatePop() {
   const grid = $('#dpDays');
   if (grid) grid.innerHTML = cells;
 }
+// Клик по дню в попапе двигает фокус на саму кнопку дня, а не остаётся на
+// input — el.focus() ниже возвращает его обратно, но это НАСТОЯЩИЙ новый
+// focus-event (фокус реально был на кнопке), который слушатель '#evDate'
+// и др. (см. конец файла) ловит и тут же открывает попап заново — клик по
+// дате визуально «не закрывал» календарь, закрыть можно было только кликом
+// мимо. dpSuppressReopen — флаг-заслонка на время программного возврата
+// фокуса: тот же приём, что и everywhere в проекте для «наш код вызвал
+// событие, слушатель не должен реагировать как на настоящее действие
+// пользователя».
+let dpSuppressReopen = false;
 function pickDpDate(iso) {
   const el = dpInput;
   if (el) {
@@ -604,7 +620,11 @@ function pickDpDate(iso) {
     }
   }
   closeDatePop();
-  if (el && el.focus) el.focus();
+  if (el && el.focus) {
+    dpSuppressReopen = true;
+    el.focus();
+    dpSuppressReopen = false;
+  }
 }
 function closeDatePop() {
   const pop = $('#datePop');
@@ -698,7 +718,10 @@ document.addEventListener('keydown', e => {
 // Поля дат в модалках открывают свой календарь вместо системного
 ['#evDate', '#evEnd', '#dtDate'].forEach(sel => {
   const el = $(sel);
-  if (el) el.addEventListener('focus', () => openDatePop(el));
+  if (el)
+    el.addEventListener('focus', () => {
+      if (!dpSuppressReopen) openDatePop(el);
+    });
 });
 
 // Фото, прикреплённые к событию (живут, пока открыта модалка)

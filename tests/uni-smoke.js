@@ -699,7 +699,10 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>s.saveEventFromModal()');
   assert(registry['#calMonthSelect'].value === '7' && registry['#calYearSelect'].value === '2026', 'календарь перескочил на месяц сохранённого события (селекты)');
   assert(registry['#calendar'].innerHTML.includes('Отпуск на море'), 'событие сразу видно в календаре после сохранения');
-  assert(/💜 Отпуск на море/.test(registry['#calendar'].innerHTML), 'в ячейке календаря видно название события рядом с эмодзи');
+  // Заголовок теперь в отдельном .cal-dot-title (скрыт CSS-медиа-запросом на
+  // мобиле, но остаётся в DOM — см. src/40-calendar.js) — эмодзи и текст
+  // больше не идут литералом впритык, между ними тег span.
+  assert(/💜<span class="cal-dot-title"> Отпуск на море<\/span>/.test(registry['#calendar'].innerHTML), 'в ячейке календаря видно название события рядом с эмодзи');
   assert(w('(s)=>s.selectedDate') === '2026-08-20', 'после сохранения выделен день начала события');
 
   // --- Конец раньше начала — событие не сохраняется ---

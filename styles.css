@@ -207,8 +207,6 @@ h3{font-weight:800}
 }
 .hero-names{font-family:var(--font-display);font-size:clamp(22px,3.4vw,30px);font-weight:400;color:var(--pink)}
 .hero-names span{color:var(--violet);margin:0 8px}
-.hero-deco{position:absolute;font-size:var(--text-2xl);opacity:.5;animation:float 5s ease-in-out infinite;pointer-events:none}
-@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
 
 /* ===== Главная: герой ===== */
 .hero-zone{position:relative;margin-bottom:6px}
@@ -737,6 +735,13 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
   .lists-wrap{grid-template-columns:1fr}
   .header-inner{justify-content:center}
   .nav{justify-content:center}
+  /* Квадратные ячейки календаря (aspect-ratio:1, .cal-cell) на узком экране
+     становятся совсем небольшими — заголовок события в .cal-dot обрезался
+     до «эмодзи…», не давая понять, что это за событие, не читаясь как
+     информация вообще. На мобиле оставляем только эмодзи (как у .date-dot,
+     который так и делал всегда) — полный текст всё равно есть в day-панели
+     под календарём по тапу на день, и в title="" для долгого нажатия. */
+  .cal-dot-title{display:none}
   .history-photos{min-width:190px;height:110px} /* коллаж компактнее, но остаётся */
   .history-photo{width:70px !important;height:70px !important}
   .hp-badge{font-size:var(--text-xs);padding:2px 7px;top:auto;bottom:4%}
