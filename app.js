@@ -4968,10 +4968,15 @@ function makeCloudStorage() {
     // photo-sign проверяет Firebase ID-токен перед выдачей подписи (иначе
     // подписать мог бы кто угодно, кто откроет devtools — URL функции не
     // секрет). Токен берём у уже выполненного анонимного входа (initSync).
+    // Заголовок называется X-Firebase-Token, а не Authorization: Yandex
+    // Cloud перехватывает Authorization на уровне своей платформы (пытается
+    // прочитать его как СВОЙ IAM-токен) ещё до кода функции — с этим именем
+    // валидный Firebase-токен долетал бы до кода, но платформа режет запрос
+    // раньше 403-м, даже не заглянув внутрь (проверено 12.08.2026).
     let authHeaders = {};
     try {
       const user = syncFirebase && firebase.auth(syncFirebase).currentUser;
-      if (user) authHeaders = { Authorization: 'Bearer ' + await user.getIdToken() };
+      if (user) authHeaders = { 'X-Firebase-Token': await user.getIdToken() };
     } catch (e) { console.warn('[sync] не удалось получить ID-токен для photo-sign', e); }
     const signRes = await fetch(cfg.signFnUrl + '?method=' + method + '&part=' + encodeURIComponent(part) + '&id=' + encodeURIComponent(id), { headers: authHeaders });
     if (!signRes.ok) throw new Error('sign-fn ' + signRes.status);

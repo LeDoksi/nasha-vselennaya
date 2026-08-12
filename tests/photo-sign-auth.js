@@ -94,20 +94,27 @@ function makeToken(payloadOverrides, headerOverrides) {
     () => {}
   );
 
-  // --- handler(): без Authorization — 401, запрос до подписи не доходит ---
+  // --- handler(): без X-Firebase-Token — 401, запрос до подписи не доходит ---
   const evNoAuth = { httpMethod: 'GET', headers: {}, queryStringParameters: { method: 'PUT', part: 'orig', id: 'photo1' } };
   const resNoAuth = await fn.handler(evNoAuth);
-  assert(resNoAuth.statusCode === 401, 'handler без Authorization отвечает 401 (было: подписывал всем)');
+  assert(resNoAuth.statusCode === 401, 'handler без X-Firebase-Token отвечает 401 (было: подписывал всем)');
 
   // --- handler(): с валидным токеном — подписывает как раньше ---
-  const evAuth = { httpMethod: 'GET', headers: { Authorization: 'Bearer ' + good }, queryStringParameters: { method: 'PUT', part: 'orig', id: 'photo1' } };
+  // Заголовок называется X-Firebase-Token, а не Authorization — на живой
+  // функции Yandex Cloud перехватывает Authorization на уровне платформы
+  // (пытается прочитать его как свой IAM-токен) ещё до кода функции и режет
+  // запрос 403-м, даже с валидным Firebase-токеном внутри (см. комментарий
+  // в functions/photo-sign/index.js). Тест этого не поймает (мини-мок event,
+  // не настоящий вызов через Yandex), поэтому имя заголовка — тоже часть
+  // контракта, который важно не перепутать при следующей правке.
+  const evAuth = { httpMethod: 'GET', headers: { 'X-Firebase-Token': good }, queryStringParameters: { method: 'PUT', part: 'orig', id: 'photo1' } };
   const resAuth = await fn.handler(evAuth);
   assert(resAuth.statusCode === 200, 'handler с валидным токеном отвечает 200');
   const body = JSON.parse(resAuth.body);
   assert(typeof body.url === 'string' && body.url.includes('/photos/orig/photo1'), 'handler возвращает подписанную ссылку на нужный объект');
 
   // --- handler(): невалидные method/part/id всё ещё отклоняются ПОСЛЕ авторизации ---
-  const evBadMethod = { httpMethod: 'GET', headers: { Authorization: 'Bearer ' + good }, queryStringParameters: { method: 'GET', part: 'orig', id: 'photo1' } };
+  const evBadMethod = { httpMethod: 'GET', headers: { 'X-Firebase-Token': good }, queryStringParameters: { method: 'GET', part: 'orig', id: 'photo1' } };
   const resBadMethod = await fn.handler(evBadMethod);
   assert(resBadMethod.statusCode === 400, 'handler всё ещё валидирует method после авторизации');
 

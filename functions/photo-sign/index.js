@@ -11,7 +11,7 @@
 
    Как это используется (src/95-sync.js, makeCloudStorage): клиент делает
    GET на эту функцию с параметрами (method, part, id) и заголовком
-   Authorization: Bearer <Firebase ID-токен>, получает в ответ { url }, и сам
+   X-Firebase-Token: <Firebase ID-токен>, получает в ответ { url }, и сам
    делает fetch(url, {method, body}) НАПРЯМУЮ в бакет — тело файла через
    функцию не проходит (не упирается в лимит размера запроса функции),
    функция только подписывает.
@@ -25,6 +25,14 @@
    внутри Admin SDK). Анонимный вход не даёт «настоящей» личности (это и не
    нужно — оба партнёра всё равно равноправны), но требует пройти через
    Firebase Auth, а не просто знать URL функции.
+
+   Почему не стандартный заголовок Authorization: проверено на живой
+   функции (12.08.2026) — Yandex Cloud перехватывает Authorization на уровне
+   своей собственной платформы (пытается понять его как СВОЙ IAM-токен) ещё
+   ДО того, как запрос доходит до кода функции; любое значение там, не
+   являющееся валидным Yandex IAM-токеном, отклоняется платформой с 403
+   раньше, чем успевает сработать проверка ниже. Кастомный заголовок
+   X-Firebase-Token этим механизмом не перехватывается.
 
    Переменные окружения (задать в консоли при создании функции):
      YC_S3_KEY        — статический ключ доступа сервисного аккаунта с ролью
@@ -143,9 +151,11 @@ module.exports.handler = async (event) => {
   const cors = {
     'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    // '*' в Allow-Headers по спецификации fetch НЕ покрывает Authorization —
-    // его нужно перечислить явно, иначе браузер режет заголовок на преполёте.
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type'
+    // Не Authorization: Yandex Cloud перехватывает этот заголовок на уровне
+    // своей платформы как попытку IAM-авторизации ещё до кода функции (см.
+    // комментарий в шапке файла) — X-Firebase-Token этим не перехватывается,
+    // но должен быть явно разрешён здесь, иначе браузер срежет его на преполёте.
+    'Access-Control-Allow-Headers': 'X-Firebase-Token, Content-Type'
   };
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: cors, body: '' };
@@ -154,8 +164,7 @@ module.exports.handler = async (event) => {
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: 'function is missing YC_S3_KEY/YC_S3_SECRET env vars' }) };
   }
   const headers = event.headers || {};
-  const authHeader = headers.Authorization || headers.authorization || '';
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  const token = String(headers['X-Firebase-Token'] || headers['x-firebase-token'] || '').trim();
   try {
     await verifyFirebaseIdToken(token);
   } catch (e) {
