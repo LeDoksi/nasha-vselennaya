@@ -177,6 +177,14 @@ if (lbLabelBtn) lbLabelBtn.addEventListener('click', () => {
 });
 const lbImg = $('#lightboxImg');
 if (lbImg) lbImg.addEventListener('dblclick', () => lbZoomToggle());
+// Клик вне фото закрывает светбокс — не только крестик. Общий делегат
+// «клик по .overlay = закрыть» (60-lists-wishes.js) тут не срабатывает:
+// #lbStage растянут на весь #lightbox (inset:0), поэтому клик куда угодно
+// внутри оверлея попадает на #lbStage, а не на сам #lightbox. Закрываем,
+// только если клик пришёлся ровно на сам #lbStage (пустое место вокруг
+// фото), а не на фото/стрелки/счётчик/кнопки — те сами обрабатывают клик.
+const lbStageEl = $('#lbStage');
+if (lbStageEl) lbStageEl.addEventListener('click', e => { if (e.target === lbStageEl) closeOverlay('lightbox'); });
 if (typeof document !== 'undefined' && document.addEventListener) {
   // Клавиатура: ←/→ листают, +/−/0 зум, Esc закрывает (обработчик Esc — в 60-lists-wishes)
   document.addEventListener('keydown', e => {
