@@ -955,6 +955,13 @@ assert(w('(s)=>s.getThumbUrl("psOld")') !== null, 'warmThumbCache заполня
 assert(await w('(s)=>s.photoUrl(s.db.photos.find(p=>p.id==="psOld"), true)') !== '', 'photoUrl возвращает data-URL');
 // photoSrc синхронно отдаёт из кэша
 assert(w('(s)=>s.photoSrc(s.db.photos.find(p=>p.id==="psOld"))') !== '', 'photoSrc отдаёт src из кэша');
+// Регрессия: photoUrl(p,false) (светбокс, полный блоб) раньше читал/писал ТОТ
+// ЖЕ thumbCache, что и photoUrl(p,true) (сетка, миниатюра) — если миниатюра
+// уже в кэше (а она почти всегда есть), полный блоб не запрашивался вообще,
+// светбокс показывал крошечную 256px миниатюру вместо показ-версии/оригинала.
+w('(s)=>{s.db.photos.push({id:"cacheSep",title:"t",labels:[],pinned:false,ts:1,order:1});s.setThumbUrl("cacheSep","SENTINEL_THUMB_ONLY");return 1;}');
+assert(await w('(s)=>s.photoUrl(s.db.photos.find(p=>p.id==="cacheSep"), false)') !== 'SENTINEL_THUMB_ONLY',
+  'photoUrl(p,false) не подменяет полный блоб миниатюрой из thumbCache');
 // --- Легаси p.data убран из рендеров: photoSrc/photoUrl отдают только кэш и store ---
 w('(s)=>{s.db.photos.push({id:"nolegacy",data:"data:image/jpeg;base64,CC==",title:"x",labels:[],pinned:false,ts:99,order:99});return 1;}');
 assert(w('(s)=>s.photoSrc(s.db.photos.find(p=>p.id==="nolegacy"))') === '', 'photoSrc не отдаёт p.data — только кэш миниатюр');

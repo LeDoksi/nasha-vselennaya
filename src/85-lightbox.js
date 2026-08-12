@@ -111,8 +111,26 @@ function lbNav(dir) {
   lightboxZoom = 1; // новое фото — без зума
   lbRender();
 }
-function lbZoomTo(v) { lightboxZoom = Math.min(4, Math.max(1, v)); lbRender(); }
+function lbZoomTo(v) {
+  lightboxZoom = Math.min(4, Math.max(1, v));
+  lbRender();
+  // Зум масштабирует ту же картинку через CSS transform — на показ-версии
+  // (~900px) при 2.5-4× это быстро превращается в кашу. При первом же
+  // приближении подменяем src на оригинал (photoOrigUrl кэширует — повторные
+  // вызовы при пинче/повторном зуме ничего не перекачивают).
+  if (lightboxZoom > 1) upgradeLightboxToOrig();
+}
 function lbZoomToggle() { lbZoomTo(lightboxZoom > 1 ? 1 : 2.5); }
+function upgradeLightboxToOrig() {
+  const src = lightboxList[lightboxIdx];
+  if (!src || lbIsDataUrl(src)) return; // хотелки без сохранённого фото — не про них
+  const p = lbPhoto(src);
+  if (!p) return;
+  const img = $('#lightboxImg');
+  photoOrigUrl(p).then(url => {
+    if (url && img && lightboxList[lightboxIdx] === src) img.src = url;
+  });
+}
 
 function lbRender() {
   const img = $('#lightboxImg');

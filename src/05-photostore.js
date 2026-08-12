@@ -560,11 +560,20 @@ function setThumbUrl(id, url) { thumbCache.set(id, url); }
 function clearThumbCache() { thumbCache.clear(); }
 
 // ===== Единый источник URL фото для рендеров =====
-// Порядок: кэш миниатюры → блоб в photoStore. Возвращает data-URL для <img>.
-// Вызовы с одним id кэшируются в thumbCache.
+// Порядок: кэш → блоб в photoStore. Возвращает data-URL для <img>.
+// useThumb=true (сетки/карточки) кэшируется в thumbCache (256px миниатюра);
+// useThumb=false (светбокс) — в отдельном fullCache (показ-версия, ~900px).
+// Раньше оба случая читали и писали ОДИН и тот же thumbCache независимо от
+// useThumb — светбокс просил полный блоб (useThumb=false), но как только
+// миниатюра уже была в кэше (а она почти всегда есть — грид её прогревает
+// первым), photoUrl() тут же отдавал её и полный блоб не запрашивал вообще.
+// Отсюда крошечная картинка в светбоксе и «размыливание» при зуме — на
+// экран всегда шли те же 256px, что и в сетке, просто растянутые/увеличенные.
+const fullCache = new Map();
 async function photoUrl(p, useThumb = true) {
   if (!p) return '';
-  const cached = getThumbUrl(p.id);
+  const cache = useThumb ? thumbCache : fullCache;
+  const cached = cache.get(p.id);
   if (cached) return cached;
   if (photoStore && p.id) {
     try {
@@ -574,7 +583,28 @@ async function photoUrl(p, useThumb = true) {
       if (!blob) blob = await photoStore.getFull(p.id);
       if (blob) {
         const url = await blobToDataUrl(blob);
-        setThumbUrl(p.id, url);
+        cache.set(p.id, url);
+        return url;
+      }
+    } catch (e) {}
+  }
+  return '';
+}
+// Оригинал (максимальное качество) — только по требованию (зум в светбоксе,
+// скачивание), не прогревается заранее: оригиналы могут весить мегабайты,
+// незачем тянуть их для каждого открытого фото, если зум не понадобился.
+const origCache = new Map();
+async function photoOrigUrl(p) {
+  if (!p) return '';
+  const cached = origCache.get(p.id);
+  if (cached) return cached;
+  if (photoStore && p.id) {
+    try {
+      let blob = await photoStore.getOrig(p.id).catch(() => null);
+      if (!blob) blob = await photoStore.getFull(p.id).catch(() => null);
+      if (blob) {
+        const url = await blobToDataUrl(blob);
+        origCache.set(p.id, url);
         return url;
       }
     } catch (e) {}
