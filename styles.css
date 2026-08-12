@@ -495,7 +495,10 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
    кнопке 🏷), обязана лечь выше него. При равном z-index выигрывает тот, кто
    позже в DOM — а лайтбокс в разметке идёт позже всех модалок, поэтому без
    этого правила модалка визуально уходила под открытое фото. */
-#lightbox{background:rgba(20,10,40,.85);padding:0;cursor:zoom-out;z-index:95}
+/* Курсор zoom-out тут раньше стоял на весь фон оверлея — по клику ничего не
+   уменьшалось (сам зум — только на фото, курсор там свой, динамический,
+   см. lbRender()), а фон теперь по клику закрывает светбокс, не зумит. */
+#lightbox{background:rgba(20,10,40,.85);padding:0;z-index:95}
 .lb-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:56px 20px}
 .lb-stage img{
   max-width:92vw;max-height:88vh;border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.5);
