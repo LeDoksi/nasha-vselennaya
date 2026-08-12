@@ -52,6 +52,10 @@ function confirmDelete(msg) {
   return confirm(msg || 'Удалить? Это не отменить.');
 }
 let toastTimer = null;
+// Фаза 6: активная мобильная вкладка хотелок (renderWishlist в 60-lists-wishes.js)
+// — объявлено тут, а не там, чтобы прямая ссылка #/wishlist не ловила TDZ
+// (см. комментарий у renderWishlist). null → renderWishlist подставит getUser().
+let wishlistTab = null;
 function notify(msg, isError) {
   const t = $('#appToast');
   if (!t) return;
@@ -3413,6 +3417,68 @@ function saveEventFromModal() {
   renderHome();
 }
 $('#evSave').addEventListener('click', saveEventFromModal);
+
+/* ===== Экспорт памятных дат в .ics (Фаза 6) =====
+   Формат iCalendar (RFC 5545) — импортируется системным календарём телефона
+   (Google/Apple/Outlook), там реально приходят напоминания, в отличие от
+   db.events, которые живут только внутри этого сайта. Экспортируем db.events
+   (памятные даты), НЕ db.dates (свидания) — те эфемернее и не то, что люди
+   обычно хотят видеть в системном календаре год за годом.
+   Без сворачивания длинных строк (line folding из RFC 5545, 75 октетов) —
+   современные календарные приложения (Google/Apple/Outlook) читают
+   несвёрнутые строки нормально, а заголовки событий здесь короткие; ловить
+   гипотетический экзотический парсер ради этого не стоило усложнения. */
+function icsPad2(n) {
+  return String(n).padStart(2, '0');
+}
+function icsDateStamp(dateStr) {
+  return dateStr.replace(/-/g, '');
+}
+// DTEND в VEVENT с VALUE=DATE — «до» (эксклюзивно), поэтому конец
+// однодневного/многодневного события — следующий день после endDate/date.
+function icsDateStampNextDay(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + 1);
+  return dt.getFullYear() + icsPad2(dt.getMonth() + 1) + icsPad2(dt.getDate());
+}
+function icsEscape(s) {
+  return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+}
+function buildEventsIcs() {
+  const now = new Date();
+  const stamp =
+    now.getUTCFullYear() + icsPad2(now.getUTCMonth() + 1) + icsPad2(now.getUTCDate()) + 'T' + icsPad2(now.getUTCHours()) + icsPad2(now.getUTCMinutes()) + icsPad2(now.getUTCSeconds()) + 'Z';
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//nasha-vselennaya//ru', 'CALSCALE:GREGORIAN'];
+  for (const ev of db.events || []) {
+    if (!ev.date) continue;
+    lines.push('BEGIN:VEVENT');
+    lines.push('UID:' + ev.id + '@nasha-vselennaya');
+    lines.push('DTSTAMP:' + stamp);
+    lines.push('DTSTART;VALUE=DATE:' + icsDateStamp(ev.date));
+    lines.push('DTEND;VALUE=DATE:' + icsDateStampNextDay(ev.endDate || ev.date));
+    if (ev.repeat) lines.push('RRULE:FREQ=YEARLY');
+    lines.push('SUMMARY:' + icsEscape((ev.emoji ? ev.emoji + ' ' : '') + ev.title));
+    lines.push('END:VEVENT');
+  }
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+function exportEventsIcs() {
+  if (!db.events || !db.events.length) {
+    alert('Пока нет ни одной памятной даты — нечего экспортировать 💜');
+    return;
+  }
+  const blob = new Blob([buildEventsIcs()], { type: 'text/calendar;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'nasha-vselennaya-daty.ics';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+const exportIcsBtnEl = $('#exportIcsBtn');
+if (exportIcsBtnEl) exportIcsBtnEl.addEventListener('click', exportEventsIcs);
 /* ===== Заметки ===== */
 let editingNoteId = null; // id заметки в режиме инлайн-правки (null — не редактируем)
 function noteAuthorName(n) {
@@ -3885,15 +3951,34 @@ function wishCard(w) {
     </div>
   </div>`;
 }
+// Фаза 6: на мобиле секция Гоши шла целиком НАД секцией Даши — чтобы увидеть
+// хотелки партнёра, приходилось пролистать все свои (пункт 18 плана). На
+// десктопе это не проблема (обе секции всегда видны, короткие в высоту),
+// поэтому переключатель — чисто мобильный (см. .wish-tabs в styles.css,
+// media query max-width:820px), на десктопе он скрыт и обе секции видны
+// как раньше. wishlistTab влияет только на CSS-класс — сама разметка обеих
+// секций рендерится всегда, десктопу нечего скрывать. Само состояние
+// (`let wishlistTab`) объявлено в 00-core.js, не здесь — прямая ссылка
+// #/wishlist триггерит showView('wishlist')→renderWishlist() ещё во время
+// начального прохода hash-резолвинга в 20-theme-nav.js, который выполняется
+// раньше этого файла в собранном app.js; если бы `let` стоял тут, это была
+// бы TDZ-ошибка (тот же класс бага, что и с BOTTOM_PRIMARY/FIREBASE_CONFIG).
 function renderWishlist() {
   const grid = $('#wishlistGrid');
   if (!grid) return;
+  if (wishlistTab !== 'gosha' && wishlistTab !== 'dasha') wishlistTab = getUser();
   const byOwner = who => [...db.wishlist].filter(w => w.owner === who).sort((a, b) => a.done - b.done || b.ts - a.ts);
   const sec = (who, label, emoji, empty) =>
-    `<div class="wish-section"><h4>${esc(emoji)} Хотелки ${label}</h4>
+    `<div class="wish-section" data-wish-owner="${who}"><h4>${esc(emoji)} Хотелки ${label}</h4>
       ${byOwner(who).length ? `<div class="wishlist-grid">${byOwner(who).map(wishCard).join('')}</div>` : `<p class="cal-tip">${empty}</p>`}
     </div>`;
-  grid.innerHTML = sec('gosha', 'Гоши', '👦', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨') + sec('dasha', 'Даши', '👧', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨');
+  const tabs = `<div class="wish-tabs">
+      <button type="button" class="wish-tab${wishlistTab === 'gosha' ? ' active' : ''}" data-wish-tab="gosha">👦 Гоша</button>
+      <button type="button" class="wish-tab${wishlistTab === 'dasha' ? ' active' : ''}" data-wish-tab="dasha">👧 Даша</button>
+    </div>`;
+  grid.dataset.activeWish = wishlistTab;
+  grid.innerHTML =
+    tabs + sec('gosha', 'Гоши', '👦', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨') + sec('dasha', 'Даши', '👧', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨');
   if (typeof hydratePhotoImgs === 'function') hydratePhotoImgs(grid);
 }
 let editingWishId = null;
@@ -4210,6 +4295,12 @@ document.addEventListener('click', e => {
     if (!confirmDelete('Удалить хотелку? Это не отменить.')) return;
     db.wishlist = db.wishlist.filter(x => x.id !== wishDel.dataset.wishDel);
     save();
+    renderWishlist();
+    return;
+  }
+  const wishTab = e.target.closest('[data-wish-tab]');
+  if (wishTab) {
+    wishlistTab = wishTab.dataset.wishTab;
     renderWishlist();
     return;
   }

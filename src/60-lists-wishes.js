@@ -378,15 +378,34 @@ function wishCard(w) {
     </div>
   </div>`;
 }
+// Фаза 6: на мобиле секция Гоши шла целиком НАД секцией Даши — чтобы увидеть
+// хотелки партнёра, приходилось пролистать все свои (пункт 18 плана). На
+// десктопе это не проблема (обе секции всегда видны, короткие в высоту),
+// поэтому переключатель — чисто мобильный (см. .wish-tabs в styles.css,
+// media query max-width:820px), на десктопе он скрыт и обе секции видны
+// как раньше. wishlistTab влияет только на CSS-класс — сама разметка обеих
+// секций рендерится всегда, десктопу нечего скрывать. Само состояние
+// (`let wishlistTab`) объявлено в 00-core.js, не здесь — прямая ссылка
+// #/wishlist триггерит showView('wishlist')→renderWishlist() ещё во время
+// начального прохода hash-резолвинга в 20-theme-nav.js, который выполняется
+// раньше этого файла в собранном app.js; если бы `let` стоял тут, это была
+// бы TDZ-ошибка (тот же класс бага, что и с BOTTOM_PRIMARY/FIREBASE_CONFIG).
 function renderWishlist() {
   const grid = $('#wishlistGrid');
   if (!grid) return;
+  if (wishlistTab !== 'gosha' && wishlistTab !== 'dasha') wishlistTab = getUser();
   const byOwner = who => [...db.wishlist].filter(w => w.owner === who).sort((a, b) => a.done - b.done || b.ts - a.ts);
   const sec = (who, label, emoji, empty) =>
-    `<div class="wish-section"><h4>${esc(emoji)} Хотелки ${label}</h4>
+    `<div class="wish-section" data-wish-owner="${who}"><h4>${esc(emoji)} Хотелки ${label}</h4>
       ${byOwner(who).length ? `<div class="wishlist-grid">${byOwner(who).map(wishCard).join('')}</div>` : `<p class="cal-tip">${empty}</p>`}
     </div>`;
-  grid.innerHTML = sec('gosha', 'Гоши', '👦', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨') + sec('dasha', 'Даши', '👧', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨');
+  const tabs = `<div class="wish-tabs">
+      <button type="button" class="wish-tab${wishlistTab === 'gosha' ? ' active' : ''}" data-wish-tab="gosha">👦 Гоша</button>
+      <button type="button" class="wish-tab${wishlistTab === 'dasha' ? ' active' : ''}" data-wish-tab="dasha">👧 Даша</button>
+    </div>`;
+  grid.dataset.activeWish = wishlistTab;
+  grid.innerHTML =
+    tabs + sec('gosha', 'Гоши', '👦', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨') + sec('dasha', 'Даши', '👧', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨');
   if (typeof hydratePhotoImgs === 'function') hydratePhotoImgs(grid);
 }
 let editingWishId = null;
@@ -703,6 +722,12 @@ document.addEventListener('click', e => {
     if (!confirmDelete('Удалить хотелку? Это не отменить.')) return;
     db.wishlist = db.wishlist.filter(x => x.id !== wishDel.dataset.wishDel);
     save();
+    renderWishlist();
+    return;
+  }
+  const wishTab = e.target.closest('[data-wish-tab]');
+  if (wishTab) {
+    wishlistTab = wishTab.dataset.wishTab;
     renderWishlist();
     return;
   }

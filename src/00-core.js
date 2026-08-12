@@ -52,6 +52,10 @@ function confirmDelete(msg) {
   return confirm(msg || 'Удалить? Это не отменить.');
 }
 let toastTimer = null;
+// Фаза 6: активная мобильная вкладка хотелок (renderWishlist в 60-lists-wishes.js)
+// — объявлено тут, а не там, чтобы прямая ссылка #/wishlist не ловила TDZ
+// (см. комментарий у renderWishlist). null → renderWishlist подставит getUser().
+let wishlistTab = null;
 function notify(msg, isError) {
   const t = $('#appToast');
   if (!t) return;
