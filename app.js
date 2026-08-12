@@ -2015,7 +2015,7 @@ function renderDates() {
               : ''
           }
           <div class="date-btns">
-            <button class="mini-x" data-edit-date="${d.id}" title="Изменить">✏️</button>
+            <button class="mini-x" data-edit-date="${d.id}" title="Изменить">${navIconHtml('pencil')}</button>
             <button class="mini-x" data-done-date="${d.id}" title="Свидание прошло">💗</button>
             <button class="mini-x" data-del-date="${d.id}" title="Удалить">✕</button>
           </div>
@@ -2722,7 +2722,7 @@ function renderDayPanel() {
       ? evs
           .map(
             e =>
-              `<div class="day-event">${esc(e.emoji)} <span>${esc(e.title)}${e.endDate && e.endDate >= e.date ? ` <small class="ev-range">до ${fmtShort(e.endDate)}</small>` : ''}</span>${evThumbs(e)} <button class="mini-x" data-photo-event="${e.id}" title="Добавить фото">📷</button> <button class="mini-x" data-edit-event="${e.id}" title="Изменить">✏️</button> <button class="mini-x" data-del-event="${e.id}" title="Удалить">✕</button></div>`
+              `<div class="day-event">${esc(e.emoji)} <span>${esc(e.title)}${e.endDate && e.endDate >= e.date ? ` <small class="ev-range">до ${fmtShort(e.endDate)}</small>` : ''}</span>${evThumbs(e)} <button class="mini-x" data-photo-event="${e.id}" title="Добавить фото">${navIconHtml('photos')}</button> <button class="mini-x" data-edit-event="${e.id}" title="Изменить">${navIconHtml('pencil')}</button> <button class="mini-x" data-del-event="${e.id}" title="Удалить">✕</button></div>`
           )
           .join('')
       : '<p class="cal-tip">В этот день событий пока нет.</p>') +
@@ -2731,7 +2731,7 @@ function renderDayPanel() {
         dts
           .map(
             dt =>
-              `<div class="day-event date-evt${dt.done ? ' date-done' : ''}">${esc(dt.emoji || '💘')} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}${dt.done ? ' ✅' : ''}</span>${dtThumbs(dt)} <button class="mini-x" data-edit-date="${dt.id}" title="Изменить">✏️</button> <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${dt.done ? '💗' : '✅'}</button> <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото">📷</button> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`
+              `<div class="day-event date-evt${dt.done ? ' date-done' : ''}">${esc(dt.emoji || '💘')} <span>${dt.time ? '🕐 ' + esc(dt.time) + ' · ' : ''}${esc(dt.place || dt.note || 'Свидание')}${dt.done ? ' ✅' : ''}</span>${dtThumbs(dt)} <button class="mini-x" data-edit-date="${dt.id}" title="Изменить">${navIconHtml('pencil')}</button> <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${navIconHtml(dt.done ? 'heart' : 'check')}</button> <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото">${navIconHtml('photos')}</button> <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button></div>`
           )
           .join('')
       : '') +
@@ -3485,62 +3485,86 @@ function noteAuthorName(n) {
   return n.author === 'dasha' ? '👧 Даша' : n.author === 'gosha' ? '👦 Гоша' : '💜 Наши';
 }
 function renderNotes() {
-  const list = [...db.notes].sort((a, b) =>
-    (b.pinned - a.pinned) || ((a.order ?? 1e9) - (b.order ?? 1e9)) || (b.ts - a.ts));
-  $('#notesGrid').innerHTML = list.length ? list.map(n => `
+  const list = [...db.notes].sort((a, b) => b.pinned - a.pinned || (a.order ?? 1e9) - (b.order ?? 1e9) || b.ts - a.ts);
+  $('#notesGrid').innerHTML = list.length
+    ? list
+        .map(
+          n => `
     <div class="note${n.pinned ? ' pinned' : ''}" data-id="${n.id}">
       <div class="note-top">
         <button class="drag-handle note-drag" data-note-drag="${n.id}" title="Перетащить">⠿</button>
-        <button class="mini-x" data-pin-note="${n.id}" title="${n.pinned ? 'Открепить' : 'Закрепить'}">${n.pinned ? '📌' : '📍'}</button>
+        <button class="mini-x" data-pin-note="${n.id}" title="${n.pinned ? 'Открепить' : 'Закрепить'}">${navIconHtml(n.pinned ? 'pin-fill' : 'pin')}</button>
         <span class="note-author">${noteAuthorName(n)}</span>
         <span class="note-date">${new Date(n.ts).toLocaleDateString('ru-RU')}</span>
-        <button class="mini-x" data-edit-note="${n.id}" title="Редактировать">✏️</button>
+        <button class="mini-x" data-edit-note="${n.id}" title="Редактировать">${navIconHtml('pencil')}</button>
         <button class="mini-x" data-del-note="${n.id}" title="Удалить">✕</button>
       </div>
-      ${editingNoteId === n.id
-        ? `<div class="note-edit">
+      ${
+        editingNoteId === n.id
+          ? `<div class="note-edit">
              <textarea id="noteEdit-${n.id}" class="note-editor">${esc(n.text)}</textarea>
              <div class="note-edit-btns">
                <button class="btn btn-sm" data-save-note="${n.id}">💜 Сохранить</button>
                <button class="mini-x" data-cancel-note title="Отмена">✕</button>
              </div>
            </div>`
-        : `<p>${esc(n.text)}</p>`}
-    </div>`).join('')
+          : `<p>${esc(n.text)}</p>`
+      }
+    </div>`
+        )
+        .join('')
     : '<div class="empty-state">Пока пусто. Напиши первую записку! 💌</div>';
 }
 function addNote() {
   const t = $('#noteText').value.trim();
   if (!t) return;
   db.notes.unshift({ id: uid(), text: t, ts: Date.now(), pinned: false, author: getUser(), order: 0 });
-  save(); $('#noteText').value = ''; renderNotes();
+  save();
+  $('#noteText').value = '';
+  renderNotes();
 }
 $('#noteAddBtn').addEventListener('click', addNote);
-$('#noteText').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addNote(); });
+$('#noteText').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addNote();
+});
 
 // Закрепить/удалить может любой — отдельные функции, вызываются по клику ✕/📍
 function togglePinNote(id) {
   const n = db.notes.find(x => x.id === id);
   if (!n) return;
-  n.pinned = !n.pinned; save(); renderNotes();
+  n.pinned = !n.pinned;
+  save();
+  renderNotes();
 }
 function deleteNote(id) {
   if (!confirmDelete('Удалить заметку? Это не отменить.')) return;
   db.notes = db.notes.filter(x => x.id !== id);
   if (editingNoteId === id) editingNoteId = null;
-  save(); renderNotes();
+  save();
+  renderNotes();
 }
 
 // Редактирование: ✏️, двойной клик по карточке, Ctrl+Enter в редакторе
-function startEditNote(id) { editingNoteId = id; renderNotes(); }
-function cancelNoteEdit() { editingNoteId = null; renderNotes(); }
+function startEditNote(id) {
+  editingNoteId = id;
+  renderNotes();
+}
+function cancelNoteEdit() {
+  editingNoteId = null;
+  renderNotes();
+}
 function saveNoteEdit(id, text) {
   const n = db.notes.find(x => x.id === id);
   if (!n) return;
   const ta = $('#noteEdit-' + id);
   const t = (text !== undefined ? text : (ta && ta.value) || '').trim();
-  if (t) { n.text = t; n.ts = Date.now(); }
-  editingNoteId = null; save(); renderNotes();
+  if (t) {
+    n.text = t;
+    n.ts = Date.now();
+  }
+  editingNoteId = null;
+  save();
+  renderNotes();
 }
 $('#notesGrid').addEventListener('dblclick', e => {
   const card = e.target.closest('.note');
@@ -3554,23 +3578,32 @@ $('#notesGrid').addEventListener('dblclick', e => {
 // сверху — стабильно отсортируем итоговый DOM-порядок по pin, чтобы список не
 // «перепрыгивал» сразу после перерисовки.
 function notesSortEnd(evt) {
-  const ids = [...evt.to.children]
-    .filter(c => c.classList && c.classList.contains('note'))
-    .map(c => c.dataset.id);
-  const pinOf = id => { const n = db.notes.find(x => x.id === id); return n && n.pinned ? 0 : 1; };
-  ids.sort((a, b) => pinOf(a) - pinOf(b))
-    .forEach((id, i) => { const n = db.notes.find(x => x.id === id); if (n) n.order = i; });
-  save(); renderNotes();
+  const ids = [...evt.to.children].filter(c => c.classList && c.classList.contains('note')).map(c => c.dataset.id);
+  const pinOf = id => {
+    const n = db.notes.find(x => x.id === id);
+    return n && n.pinned ? 0 : 1;
+  };
+  ids
+    .sort((a, b) => pinOf(a) - pinOf(b))
+    .forEach((id, i) => {
+      const n = db.notes.find(x => x.id === id);
+      if (n) n.order = i;
+    });
+  save();
+  renderNotes();
 }
 if (typeof Sortable !== 'undefined') {
   Sortable.create($('#notesGrid'), {
-    handle: '.note-drag', forceFallback: true, fallbackOnBody: true, animation: 150,
-    scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
+    handle: '.note-drag',
+    forceFallback: true,
+    fallbackOnBody: true,
+    animation: 150,
+    scroll: true,
+    scrollSensitivity: 80,
+    scrollSpeed: 20,
     onEnd: notesSortEnd
   });
 }
-
-
 /* ===== Списки ===== */
 let editingSubtask = null; // {listId, itemId} в режиме инлайн-правки, иначе null
 let editingListId = null; // id списка, у которого сейчас правится название, иначе null
@@ -3585,7 +3618,7 @@ function listItemHTML(listId, it) {
          <button class="mini-x" data-save-item="${listId}" data-id="${it.id}" title="Сохранить">💜</button>
          <button class="mini-x" data-cancel-item title="Отмена">✕</button>`
         : `<span>${esc(it.text)}</span>
-         <button class="mini-x" data-edit-item="${listId}" data-id="${it.id}" title="Редактировать">✏️</button>
+         <button class="mini-x" data-edit-item="${listId}" data-id="${it.id}" title="Редактировать">${navIconHtml('pencil')}</button>
          <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>`
     }
   </li>`;
@@ -3665,7 +3698,7 @@ function renderLists() {
              <button class="mini-x" data-save-list="${list.id}" title="Сохранить">💜</button>
              <button class="mini-x" data-cancel-list title="Отмена">✕</button>`
             : `<h3>${esc(list.name)} <small class="list-count">${active} в работе</small></h3>
-             <button class="mini-x" data-edit-list="${list.id}" title="Переименовать список">✏️</button>`
+             <button class="mini-x" data-edit-list="${list.id}" title="Переименовать список">${navIconHtml('pencil')}</button>`
         }
         <button class="drag-handle list-drag" data-list-drag="${list.id}" title="Перетащить">⠿</button>
       </div>
@@ -3945,7 +3978,7 @@ function wishCard(w) {
       ${w.link ? `<a class="wish-link" href="${safeUrl(w.link)}" target="_blank" rel="noopener">🔗 Открыть ссылку</a>` : ''}
       <div class="wish-btns">
         ${wishToggleHTML(w)}
-        <button class="mini-x" data-edit-wish="${w.id}" title="Изменить">✏️</button>
+        <button class="mini-x" data-edit-wish="${w.id}" title="Изменить">${navIconHtml('pencil')}</button>
         <button class="mini-x" data-wish-del="${w.id}" title="Удалить">✕</button>
       </div>
     </div>
@@ -4427,9 +4460,14 @@ function readFile(file) {
       img.onload = () => {
         let { width: w, height: h } = img;
         const max = 900;
-        if (w > max || h > max) { const k = max / Math.max(w, h); w = Math.round(w * k); h = Math.round(h * k); }
+        if (w > max || h > max) {
+          const k = max / Math.max(w, h);
+          w = Math.round(w * k);
+          h = Math.round(h * k);
+        }
         const cv = document.createElement('canvas');
-        cv.width = w; cv.height = h;
+        cv.width = w;
+        cv.height = h;
         cv.getContext('2d').drawImage(img, 0, 0, w, h);
         // WebP, не JPEG: JPEG не умеет прозрачность — PNG-стикер/скриншот с
         // альфа-каналом заливался бы сплошным цветом. WebP её поддерживает;
@@ -4449,7 +4487,7 @@ function readFile(file) {
 let currentLabel = ''; // фильтр: '' = все фото
 let eventFilter = { year: '', month: '', title: '' }; // витрина «📅 События»: фильтр кнопками «год → месяц → событие»
 const selectedPhotos = new Set(); // id выбранных фото (для массовых операций)
-const photoSort = (a, b) => (b.pinned - a.pinned) || ((a.order || 0) - (b.order || 0));
+const photoSort = (a, b) => b.pinned - a.pinned || (a.order || 0) - (b.order || 0);
 // Раньше на каждой карточке одновременно висели 4 постоянные кнопки (выбор/
 // драг/закрепить/удалить) — на маленькой мобильной миниатюре они перекрывали
 // до половины фото. Теперь по умолчанию карточка чистая; выбор и сортировка —
@@ -4467,7 +4505,10 @@ function togglePhotoSelectMode() {
 }
 function togglePhotoReorderMode() {
   photoReorderMode = !photoReorderMode;
-  if (photoReorderMode) { photoSelectMode = false; selectedPhotos.clear(); }
+  if (photoReorderMode) {
+    photoSelectMode = false;
+    selectedPhotos.clear();
+  }
   renderPhotos();
 }
 $('#photoInput').addEventListener('change', async e => {
@@ -4478,7 +4519,9 @@ $('#photoInput').addEventListener('change', async e => {
       // Дата съёмки из EXIF (если камера её записала). Нужна для «В этот день»:
       // фото показывается только по EXIF-дате или по дате события, НЕ по дате загрузки.
       let takenAt = null;
-      try { takenAt = await extractExifDate(f); } catch (e) {}
+      try {
+        takenAt = await extractExifDate(f);
+      } catch (e) {}
       const ph = { id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0, takenAt };
       db.photos.unshift(ph);
       setThumbUrl(ph.id, data); // мгновенный показ из кэша миниатюр
@@ -4487,24 +4530,35 @@ $('#photoInput').addEventListener('change', async e => {
       try {
         const blob = dataUrlToBlob(data);
         if (blob && photoStore) {
-          let thumb = null, thumbType = null;
-          try { thumb = await makeThumbBlob(data, 256); thumbType = (thumb && thumb.type) || 'image/webp'; } catch (e) {}
+          let thumb = null,
+            thumbType = null;
+          try {
+            thumb = await makeThumbBlob(data, 256);
+            thumbType = (thumb && thumb.type) || 'image/webp';
+          } catch (e) {}
           const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size, takenAt, origType: f.type || '' };
           await photoStore.put(ph.id, blob, thumb, meta, f); // f — оригинал (сырой файл камеры)
-          delete ph.data;            // блоб в сторе — из памяти убираем base64
+          delete ph.data; // блоб в сторе — из памяти убираем base64
           if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // выгрузим в облако
         }
-      } catch (err) { console.warn('Не удалось сохранить фото в хранилище', err); }
-    } catch (err) { console.warn('Не удалось загрузить фото', err); }
+      } catch (err) {
+        console.warn('Не удалось сохранить фото в хранилище', err);
+      }
+    } catch (err) {
+      console.warn('Не удалось загрузить фото', err);
+    }
   }
   e.target.value = '';
-  save(); renderPhotos();
+  save();
+  renderPhotos();
 });
 // Лейблы — {id,name,color}. Полоса чипов теперь только фильтр (клик всегда
 // значит одно и то же); создание/переименование/цвет/удаление живут в
 // отдельной модалке «Управление лейблами» (см. openLabelManageOverlay ниже),
 // применение к фото — в модалке «Применить лейблы» (openLabelApplyOverlay).
-function labelById(id) { return db.labels.find(l => l.id === id) || null; }
+function labelById(id) {
+  return db.labels.find(l => l.id === id) || null;
+}
 function renderLabels() {
   const bar = $('#labelBar');
   if (!bar) return;
@@ -4514,7 +4568,12 @@ function renderLabels() {
     `<button class="album-chip${currentLabel === '' ? ' active' : ''}" data-label="">🖼 Все фото (${db.photos.length})</button>` +
     (evCount ? `<button class="album-chip${currentLabel === EVENT_LABEL ? ' active' : ''}" data-label="${esc(EVENT_LABEL)}">📅 События (${evCount})</button>` : '') +
     (dtCount ? `<button class="album-chip${currentLabel === DATE_LABEL ? ' active' : ''}" data-label="${esc(DATE_LABEL)}">💞 Свидания (${dtCount})</button>` : '') +
-    db.labels.map(l => `<button class="album-chip${currentLabel === l.id ? ' active' : ''}" data-label="${esc(l.id)}" title="Перетащи фото сюда, чтобы навесить лейбл"><span class="label-dot" style="background:${esc(l.color)}"></span>${esc(l.name)}</button>`).join('') +
+    db.labels
+      .map(
+        l =>
+          `<button class="album-chip${currentLabel === l.id ? ' active' : ''}" data-label="${esc(l.id)}" title="Перетащи фото сюда, чтобы навесить лейбл"><span class="label-dot" style="background:${esc(l.color)}"></span>${esc(l.name)}</button>`
+      )
+      .join('') +
     `<button class="btn album-add-btn" data-label-new title="Создать, переименовать, перекрасить или удалить лейблы">🏷 Лейблы</button>`;
 }
 // Чистка фото без подтверждения — общая часть deletePhoto()/deleteSelectedPhotos()
@@ -4544,7 +4603,10 @@ function deletePhoto(id) {
   const ph = db.photos.find(x => x.id === id);
   if (!confirmDelete('Удалить фото' + (ph && ph.title ? ' «' + ph.title + '»' : '') + '? Это не отменить.')) return;
   deletePhotoSilent(id);
-  save(); renderPhotos(); renderCalendar(); renderHome();
+  save();
+  renderPhotos();
+  renderCalendar();
+  renderHome();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // уберём и из облака
 }
 // Массовое удаление отмеченных фото (панель выбора «🗑 Удалить выбранные») —
@@ -4554,7 +4616,10 @@ function deleteSelectedPhotos() {
   if (!ids.length) return;
   if (!confirmDelete(`Удалить ${ids.length} фото? Это не отменить.`)) return;
   ids.forEach(deletePhotoSilent);
-  save(); renderPhotos(); renderCalendar(); renderHome();
+  save();
+  renderPhotos();
+  renderCalendar();
+  renderHome();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
 }
 // Массовое закрепление (панель выбора «⭐/☆ Закрепить») — тот же тоггл-приём,
@@ -4565,8 +4630,11 @@ function toggleSelectedPin() {
   if (!ids.length) return;
   const targets = db.photos.filter(p => ids.includes(p.id));
   const allPinned = targets.length > 0 && targets.every(p => p.pinned);
-  targets.forEach(p => { p.pinned = !allPinned; });
-  save(); renderPhotos();
+  targets.forEach(p => {
+    p.pinned = !allPinned;
+  });
+  save();
+  renderPhotos();
 }
 // К каким событиям привязано фото — для фильтра «год → месяц → событие».
 // ev.photos хранит id фото (v6+).
@@ -4628,19 +4696,30 @@ function renderPhotosNow() {
   const list = filteredPhotos();
   const hint = $('#dragHint');
   if (hint) {
-    if (photoReorderMode) { hint.textContent = '↕ Перетаскивай фото за ⠿ для порядка.'; hint.style.display = list.length > 1 ? 'block' : 'none'; }
-    else if (photoSelectMode) { hint.textContent = 'Нажми ○ на фото, чтобы выбрать несколько.'; hint.style.display = list.length ? 'block' : 'none'; }
-    else hint.style.display = 'none';
+    if (photoReorderMode) {
+      hint.textContent = '↕ Перетаскивай фото за ⠿ для порядка.';
+      hint.style.display = list.length > 1 ? 'block' : 'none';
+    } else if (photoSelectMode) {
+      hint.textContent = 'Нажми ○ на фото, чтобы выбрать несколько.';
+      hint.style.display = list.length ? 'block' : 'none';
+    } else hint.style.display = 'none';
   }
   const selectBtn = $('#photoSelectModeBtn');
-  if (selectBtn) { selectBtn.textContent = photoSelectMode ? '✓ Готово' : '☑️ Выбрать'; selectBtn.classList.toggle('active', photoSelectMode); }
+  if (selectBtn) {
+    selectBtn.textContent = photoSelectMode ? '✓ Готово' : '☑️ Выбрать';
+    selectBtn.classList.toggle('active', photoSelectMode);
+  }
   const reorderBtn = $('#photoReorderModeBtn');
-  if (reorderBtn) { reorderBtn.textContent = photoReorderMode ? '✓ Готово' : '↕ Порядок'; reorderBtn.classList.toggle('active', photoReorderMode); }
+  if (reorderBtn) {
+    reorderBtn.textContent = photoReorderMode ? '✓ Готово' : '↕ Порядок';
+    reorderBtn.classList.toggle('active', photoReorderMode);
+  }
   const selBar = $('#photoSelBar');
   if (selBar) {
     selBar.style.display = selectedPhotos.size ? 'flex' : 'none';
     if (selectedPhotos.size) {
-      const c = $('#selCount'); if (c) c.textContent = selectedPhotos.size;
+      const c = $('#selCount');
+      if (c) c.textContent = selectedPhotos.size;
       // Подпись отражает, что реально произойдёт: если уже закреплены ВСЕ
       // выбранные — кнопка снимет закрепление со всех, иначе закрепит все.
       const pinBtn = $('#selPinBtn');
@@ -4651,25 +4730,34 @@ function renderPhotosNow() {
       }
     }
   }
-  grid.innerHTML = list.length ? list.map(p => {
-    // Кэш миниатюр может быть ещё не прогрет — рисуем каркас и заполняем src
-    // асинхронно (как в «Памяти» и на «Главной»), чтобы миниатюры появлялись сами.
-    const url = photoSrc(p);
-    return `
+  grid.innerHTML = list.length
+    ? list
+        .map(p => {
+          // Кэш миниатюр может быть ещё не прогрет — рисуем каркас и заполняем src
+          // асинхронно (как в «Памяти» и на «Главной»), чтобы миниатюры появлялись сами.
+          const url = photoSrc(p);
+          return `
     <div class="photo${p.pinned ? ' pinned' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}">
       <img${url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"'} alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">
       ${photoSelectMode ? `<button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>` : ''}
       ${photoReorderMode ? `<button class="drag-handle photo-drag" data-photo-drag="${p.id}" title="Перетащить">⠿</button>` : ''}
-      ${(p.labels || []).length ? `<div class="photo-labels">${p.labels.map(id => {
-        const sys = id === EVENT_LABEL || id === DATE_LABEL;
-        const tag = sys ? null : labelById(id);
-        if (!sys && !tag) return ''; // ссылка на удалённый лейбл — не рисуем
-        const name = sys ? id : tag.name;
-        return `<span class="photo-label">${sys ? '' : `<span class="label-dot" style="background:${esc(tag.color)}"></span>`}${esc(name)}${sys ? '' : `<button type="button" class="photo-label-del" data-label-off="${esc(id)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</button>`}</span>`;
-      }).join('')}</div>` : ''}
+      ${
+        (p.labels || []).length
+          ? `<div class="photo-labels">${p.labels
+              .map(id => {
+                const sys = id === EVENT_LABEL || id === DATE_LABEL;
+                const tag = sys ? null : labelById(id);
+                if (!sys && !tag) return ''; // ссылка на удалённый лейбл — не рисуем
+                const name = sys ? id : tag.name;
+                return `<span class="photo-label">${sys ? '' : `<span class="label-dot" style="background:${esc(tag.color)}"></span>`}${esc(name)}${sys ? '' : `<button type="button" class="photo-label-del" data-label-off="${esc(id)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</button>`}</span>`;
+              })
+              .join('')}</div>`
+          : ''
+      }
       ${currentLabel === EVENT_LABEL && p.title ? `<span class="photo-caption">${esc(eventFilter.title || p.title)}</span>` : ''}
     </div>`;
-  }).join('')
+        })
+        .join('')
     : '<p class="cal-tip">📷 Загрузите ваши фото — они зашифруются и будут доступны с обоих устройств, если настроена синхронизация в Настройках.</p>';
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
 }
@@ -4678,8 +4766,7 @@ function eventPhotosCount(year, month, title) {
   let n = 0;
   for (const p of db.photos) {
     if (!(p.labels || []).includes(EVENT_LABEL)) continue;
-    if (eventsForPhoto(p).some(e =>
-      (!year || e.year === year) && (!month || e.month === month) && (!title || e.title === title))) n++;
+    if (eventsForPhoto(p).some(e => (!year || e.year === year) && (!month || e.month === month) && (!title || e.title === title))) n++;
   }
   return n;
 }
@@ -4694,7 +4781,15 @@ function renderEventBar() {
   const photoIds = new Set(db.photos.map(p => p.id));
   const evs = db.events.filter(ev => Array.isArray(ev.photos) && ev.photos.some(d => photoIds.has(d)));
   const years = [...new Set(evs.map(e => (e.date || '').slice(0, 4)).filter(Boolean))].sort((a, b) => b - a);
-  const monthsOf = year => [...new Set(evs.filter(e => (e.date || '').slice(0, 4) === year).map(e => (e.date || '').slice(5, 7)).filter(Boolean))].sort();
+  const monthsOf = year =>
+    [
+      ...new Set(
+        evs
+          .filter(e => (e.date || '').slice(0, 4) === year)
+          .map(e => (e.date || '').slice(5, 7))
+          .filter(Boolean)
+      )
+    ].sort();
   const titlesOf = (year, month) => {
     const set = new Set();
     for (const e of evs) {
@@ -4706,25 +4801,26 @@ function renderEventBar() {
   const yearsEl = $('#eventYears');
   if (yearsEl) {
     yearsEl.style.display = years.length ? 'flex' : 'none';
-    yearsEl.innerHTML = years.map(y =>
-      `<button class="ev-btn${f.year === y ? ' active' : ''}" data-ev-year="${y}">${y} <span class="cnt">${eventPhotosCount(y, '', '')}</span></button>`).join('');
+    yearsEl.innerHTML = years.map(y => `<button class="ev-btn${f.year === y ? ' active' : ''}" data-ev-year="${y}">${y} <span class="cnt">${eventPhotosCount(y, '', '')}</span></button>`).join('');
   }
   const monthsEl = $('#eventMonths');
   if (monthsEl) {
     const months = f.year ? monthsOf(f.year) : [];
     monthsEl.style.display = months.length ? 'flex' : 'none';
-    monthsEl.innerHTML = months.map(m =>
-      `<button class="ev-btn${f.month === m ? ' active' : ''}" data-ev-month="${m}">${MONTHS[Number(m) - 1]} <span class="cnt">${eventPhotosCount(f.year, m, '')}</span></button>`).join('');
+    monthsEl.innerHTML = months
+      .map(m => `<button class="ev-btn${f.month === m ? ' active' : ''}" data-ev-month="${m}">${MONTHS[Number(m) - 1]} <span class="cnt">${eventPhotosCount(f.year, m, '')}</span></button>`)
+      .join('');
   }
   const titlesEl = $('#eventTitles');
   if (titlesEl) {
     const titles = f.month ? titlesOf(f.year, f.month) : [];
     titlesEl.style.display = titles.length ? 'flex' : 'none';
-    titlesEl.innerHTML = titles.map(t =>
-      `<button class="ev-btn${f.title === t ? ' active' : ''}" data-ev-title="${esc(t)}">${esc(t)} <span class="cnt">${eventPhotosCount(f.year, f.month, t)}</span></button>`).join('');
+    titlesEl.innerHTML = titles
+      .map(t => `<button class="ev-btn${f.title === t ? ' active' : ''}" data-ev-title="${esc(t)}">${esc(t)} <span class="cnt">${eventPhotosCount(f.year, f.month, t)}</span></button>`)
+      .join('');
   }
   const reset = $('#eventReset');
-  if (reset) reset.style.display = (f.year || f.month || f.title) ? 'inline-block' : 'none';
+  if (reset) reset.style.display = f.year || f.month || f.title ? 'inline-block' : 'none';
 }
 // Лейблы: удаление (фото не трогаем), применение/снятие, создание.
 // p.labels хранит id — у служебных EVENT_LABEL/DATE_LABEL id равен имени,
@@ -4732,7 +4828,9 @@ function renderEventBar() {
 function deleteLabelSilent(id) {
   if (id === EVENT_LABEL || id === DATE_LABEL) return; // служебные лейблы защищены от удаления
   db.labels = db.labels.filter(l => l.id !== id);
-  db.photos.forEach(p => { if (p.labels) p.labels = p.labels.filter(l => l !== id); });
+  db.photos.forEach(p => {
+    if (p.labels) p.labels = p.labels.filter(l => l !== id);
+  });
   if (currentLabel === id) currentLabel = '';
 }
 function deleteLabel(id) {
@@ -4741,7 +4839,9 @@ function deleteLabel(id) {
   const count = db.photos.filter(p => (p.labels || []).includes(id)).length;
   if (!confirmDelete(`Удалить лейбл «${l.name}»${count ? ` (снимется с ${count} фото)` : ''}? Это не отменить.`)) return;
   deleteLabelSilent(id);
-  save(); renderLabelManageList(); renderPhotos();
+  save();
+  renderLabelManageList();
+  renderPhotos();
 }
 function applyLabelToPhotos(id, ids) {
   const set = new Set(ids);
@@ -4758,7 +4858,7 @@ function toggleLabelOnPhotos(id, ids) {
   const allHave = targets.length > 0 && targets.every(p => (p.labels || []).includes(id));
   targets.forEach(p => {
     if (!Array.isArray(p.labels)) p.labels = [];
-    p.labels = allHave ? p.labels.filter(l => l !== id) : (p.labels.includes(id) ? p.labels : [...p.labels, id]);
+    p.labels = allHave ? p.labels.filter(l => l !== id) : p.labels.includes(id) ? p.labels : [...p.labels, id];
   });
   save();
 }
@@ -4767,11 +4867,12 @@ function removeLabelFromPhoto(photoId, id) {
   const p = db.photos.find(x => x.id === photoId);
   if (!p || !Array.isArray(p.labels) || !p.labels.includes(id)) return;
   p.labels = p.labels.filter(l => l !== id);
-  save(); renderPhotos();
+  save();
+  renderPhotos();
 }
 
 /* ---- Модалка «Лейблы»: создание, переименование, цвет, удаление ---- */
-let editingLabelId = null;     // id лейбла, у которого сейчас правится название
+let editingLabelId = null; // id лейбла, у которого сейчас правится название
 let colorPickerLabelId = null; // id лейбла с открытой палитрой цвета
 function openLabelManageOverlay() {
   editingLabelId = null;
@@ -4788,33 +4889,49 @@ function renderLabelManageList() {
     box.innerHTML = '<p class="cal-tip">Пока нет ни одного лейбла — создай первый выше.</p>';
     return;
   }
-  box.innerHTML = db.labels.map(l => {
-    const count = db.photos.filter(p => (p.labels || []).includes(l.id)).length;
-    const editing = editingLabelId === l.id;
-    const pickerOpen = colorPickerLabelId === l.id;
-    return `<div class="label-row">
+  box.innerHTML = db.labels
+    .map(l => {
+      const count = db.photos.filter(p => (p.labels || []).includes(l.id)).length;
+      const editing = editingLabelId === l.id;
+      const pickerOpen = colorPickerLabelId === l.id;
+      return `<div class="label-row">
       <button type="button" class="label-dot-btn" data-label-color-toggle="${l.id}" style="background:${esc(l.color)}" title="Изменить цвет"></button>
-      ${editing
-        ? `<input type="text" class="label-name-editor" id="labelNameEdit-${l.id}" value="${esc(l.name)}">
+      ${
+        editing
+          ? `<input type="text" class="label-name-editor" id="labelNameEdit-${l.id}" value="${esc(l.name)}">
            <button class="mini-x" data-save-label="${l.id}" title="Сохранить">💜</button>
            <button class="mini-x" data-cancel-label title="Отмена">✕</button>`
-        : `<span class="label-row-name">${esc(l.name)}</span>
+          : `<span class="label-row-name">${esc(l.name)}</span>
            <span class="label-row-count">${count} фото</span>
-           <button class="mini-x" data-edit-label="${l.id}" title="Переименовать">✏️</button>
-           <button class="mini-x" data-del-label="${l.id}" title="Удалить лейбл">🗑</button>`}
+           <button class="mini-x" data-edit-label="${l.id}" title="Переименовать">${navIconHtml('pencil')}</button>
+           <button class="mini-x" data-del-label="${l.id}" title="Удалить лейбл">${navIconHtml('trash')}</button>`
+      }
     </div>${pickerOpen ? `<div class="label-color-picker">${LABEL_COLORS.map(c => `<button type="button" class="label-swatch${c === l.color ? ' active' : ''}" data-label-set-color="${l.id}" data-color="${c}" style="background:${c}"></button>`).join('')}</div>` : ''}`;
-  }).join('');
+    })
+    .join('');
 }
-function startEditLabelName(id) { editingLabelId = id; colorPickerLabelId = null; renderLabelManageList(); }
-function cancelLabelNameEdit() { editingLabelId = null; renderLabelManageList(); }
+function startEditLabelName(id) {
+  editingLabelId = id;
+  colorPickerLabelId = null;
+  renderLabelManageList();
+}
+function cancelLabelNameEdit() {
+  editingLabelId = null;
+  renderLabelManageList();
+}
 function saveLabelNameEdit(id, text) {
   const l = labelById(id);
   editingLabelId = null;
-  if (!l) { renderLabelManageList(); return; }
+  if (!l) {
+    renderLabelManageList();
+    return;
+  }
   const inp = $('#labelNameEdit-' + id);
   const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
   if (t) l.name = t;
-  save(); renderLabelManageList(); renderPhotos();
+  save();
+  renderLabelManageList();
+  renderPhotos();
 }
 function toggleLabelColorPicker(id) {
   colorPickerLabelId = colorPickerLabelId === id ? null : id;
@@ -4826,17 +4943,23 @@ function setLabelColor(id, color) {
   if (!l) return;
   l.color = color;
   colorPickerLabelId = null;
-  save(); renderLabelManageList(); renderPhotos();
+  save();
+  renderLabelManageList();
+  renderPhotos();
 }
 $('#labelNewBtn').addEventListener('click', () => {
   const name = $('#labelNewName').value.trim();
   if (!name) return;
   db.labels.push({ id: uid(), name, color: LABEL_COLORS[db.labels.length % LABEL_COLORS.length] });
   $('#labelNewName').value = '';
-  save(); renderLabelManageList(); renderPhotos();
+  save();
+  renderLabelManageList();
+  renderPhotos();
   $('#labelNewName').focus();
 });
-$('#labelNewName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#labelNewBtn').click(); });
+$('#labelNewName').addEventListener('keydown', e => {
+  if (e.key === 'Enter') $('#labelNewBtn').click();
+});
 
 /* ---- Модалка «Применить лейблы»: чек-лист для выбранных фото / лайтбокса ---- */
 let applyTargetIds = [];
@@ -4851,10 +4974,14 @@ function renderLabelApplyList() {
   const box = $('#labelApplyList');
   if (!box) return;
   const targets = db.photos.filter(p => applyTargetIds.includes(p.id));
-  box.innerHTML = db.labels.length ? db.labels.map(l => {
-    const on = targets.length > 0 && targets.every(p => (p.labels || []).includes(l.id));
-    return `<button type="button" class="album-chip label-apply-chip${on ? ' active' : ''}" data-label-apply-toggle="${l.id}"><span class="label-dot" style="background:${esc(l.color)}"></span>${esc(l.name)}${on ? ' ✓' : ''}</button>`;
-  }).join('') : '<p class="cal-tip">Лейблов пока нет — создай ниже.</p>';
+  box.innerHTML = db.labels.length
+    ? db.labels
+        .map(l => {
+          const on = targets.length > 0 && targets.every(p => (p.labels || []).includes(l.id));
+          return `<button type="button" class="album-chip label-apply-chip${on ? ' active' : ''}" data-label-apply-toggle="${l.id}"><span class="label-dot" style="background:${esc(l.color)}"></span>${esc(l.name)}${on ? ' ✓' : ''}</button>`;
+        })
+        .join('')
+    : '<p class="cal-tip">Лейблов пока нет — создай ниже.</p>';
 }
 $('#labelApplyNewBtn').addEventListener('click', () => {
   const name = $('#labelApplyNewName').value.trim();
@@ -4863,39 +4990,51 @@ $('#labelApplyNewBtn').addEventListener('click', () => {
   db.labels.push(l);
   applyLabelToPhotos(l.id, applyTargetIds);
   $('#labelApplyNewName').value = '';
-  save(); renderLabelApplyList(); renderPhotos();
+  save();
+  renderLabelApplyList();
+  renderPhotos();
 });
-$('#labelApplyNewName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#labelApplyNewBtn').click(); });
+$('#labelApplyNewName').addEventListener('keydown', e => {
+  if (e.key === 'Enter') $('#labelApplyNewBtn').click();
+});
 $('#selAddLabelBtn').addEventListener('click', () => openLabelApplyOverlay(selectedPhotos));
 $('#selPinBtn').addEventListener('click', toggleSelectedPin);
 $('#selDeleteBtn').addEventListener('click', deleteSelectedPhotos);
-$('#selClearBtn').addEventListener('click', () => { selectedPhotos.clear(); renderPhotos(); });
+$('#selClearBtn').addEventListener('click', () => {
+  selectedPhotos.clear();
+  renderPhotos();
+});
 // Фильтр витрины «📅 События»: клик по кнопкам «год → месяц → событие» (повторный клик сбрасывает уровень)
 document.addEventListener('click', e => {
   const yearBtn = e.target.closest('[data-ev-year]');
   if (yearBtn) {
     const val = yearBtn.dataset.evYear;
     eventFilter.year = eventFilter.year === val ? '' : val;
-    eventFilter.month = ''; eventFilter.title = '';
-    renderPhotos(); return;
+    eventFilter.month = '';
+    eventFilter.title = '';
+    renderPhotos();
+    return;
   }
   const monthBtn = e.target.closest('[data-ev-month]');
   if (monthBtn) {
     const val = monthBtn.dataset.evMonth;
     eventFilter.month = eventFilter.month === val ? '' : val;
     eventFilter.title = '';
-    renderPhotos(); return;
+    renderPhotos();
+    return;
   }
   const titleBtn = e.target.closest('[data-ev-title]');
   if (titleBtn) {
     const val = titleBtn.dataset.evTitle;
     eventFilter.title = eventFilter.title === val ? '' : val;
-    renderPhotos(); return;
+    renderPhotos();
+    return;
   }
   const resetBtn = e.target.closest('[data-ev-reset]');
   if (resetBtn) {
     eventFilter = { year: '', month: '', title: '' };
-    renderPhotos(); return;
+    renderPhotos();
+    return;
   }
 });
 // Перетаскивание фото — SortableJS (forceFallback: нативный HTML5 DnD не
@@ -4913,9 +5052,10 @@ function photoDropChip(evt) {
   // перехваченный элемент, а не на то, что реально под курсором); e.target —
   // запасной вариант, если elementFromPoint недоступен (напр. в тестах).
   let el = null;
-  if (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function'
-    && (oe.clientX !== undefined || oe.clientY !== undefined)) {
-    try { el = document.elementFromPoint(oe.clientX, oe.clientY); } catch (err) {}
+  if (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function' && (oe.clientX !== undefined || oe.clientY !== undefined)) {
+    try {
+      el = document.elementFromPoint(oe.clientX, oe.clientY);
+    } catch (err) {}
   }
   if (!el) el = oe.target;
   if (!el || !el.closest) return null;
@@ -4937,7 +5077,10 @@ function photoChipHoverCheck(e) {
 }
 function photosSortEnd(evt) {
   document.removeEventListener('pointermove', photoChipHoverCheck);
-  if (photoChipHoverEl && photoChipHoverEl.classList) { photoChipHoverEl.classList.remove('drag-over'); photoChipHoverEl = null; }
+  if (photoChipHoverEl && photoChipHoverEl.classList) {
+    photoChipHoverEl.classList.remove('drag-over');
+    photoChipHoverEl = null;
+  }
   const chip = photoDropChip(evt);
   if (chip) {
     // не реордер — навешивание лейбла. DOM-перестановку, которую уже сделал
@@ -4945,10 +5088,11 @@ function photosSortEnd(evt) {
     // ниже перерисовывает сетку целиком синхронно, до первой отрисовки браузера —
     // промежуточное состояние DOM никогда не попадает на экран.
     const targets = new Set(selectedPhotos); // массовое назначение: всем отмеченным…
-    targets.add(evt.item.dataset.id);        // …и перетаскиваемому фото
+    targets.add(evt.item.dataset.id); // …и перетаскиваемому фото
     applyLabelToPhotos(chip.dataset.label, targets);
     selectedPhotos.clear(); // действие выполнено — выделение снимаем
-    save(); renderPhotos();
+    save();
+    renderPhotos();
     return;
   }
   // обычный реордер: порядок из текущего DOM-порядка сетки, закреплённые сверху
@@ -4958,19 +5102,26 @@ function photosSortEnd(evt) {
     const ph = db.photos.find(x => x.id === p.id);
     if (ph) ph.order = i;
   });
-  save(); renderPhotos();
+  save();
+  renderPhotos();
 }
 if (typeof Sortable !== 'undefined') {
   Sortable.create($('#photosGrid'), {
-    handle: '.photo-drag', forceFallback: true, fallbackOnBody: true, animation: 150,
-    scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
-    onStart() { document.addEventListener('pointermove', photoChipHoverCheck); },
+    handle: '.photo-drag',
+    forceFallback: true,
+    fallbackOnBody: true,
+    animation: 150,
+    scroll: true,
+    scrollSensitivity: 80,
+    scrollSpeed: 20,
+    onStart() {
+      document.addEventListener('pointermove', photoChipHoverCheck);
+    },
     onEnd: photosSortEnd
   });
 }
 // Чип лейбла → фото (обратное направление) — см. 05-dnd.js/chipDragSetup.
 chipDragSetup($('#labelBar'));
-
 /* ===== Настройки ===== */
 /* ===== Настройки: резервная копия и место в браузере ===== */
 function renderSettings() {

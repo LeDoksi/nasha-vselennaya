@@ -12,7 +12,7 @@ function listItemHTML(listId, it) {
          <button class="mini-x" data-save-item="${listId}" data-id="${it.id}" title="Сохранить">💜</button>
          <button class="mini-x" data-cancel-item title="Отмена">✕</button>`
         : `<span>${esc(it.text)}</span>
-         <button class="mini-x" data-edit-item="${listId}" data-id="${it.id}" title="Редактировать">✏️</button>
+         <button class="mini-x" data-edit-item="${listId}" data-id="${it.id}" title="Редактировать">${navIconHtml('pencil')}</button>
          <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>`
     }
   </li>`;
@@ -92,7 +92,7 @@ function renderLists() {
              <button class="mini-x" data-save-list="${list.id}" title="Сохранить">💜</button>
              <button class="mini-x" data-cancel-list title="Отмена">✕</button>`
             : `<h3>${esc(list.name)} <small class="list-count">${active} в работе</small></h3>
-             <button class="mini-x" data-edit-list="${list.id}" title="Переименовать список">✏️</button>`
+             <button class="mini-x" data-edit-list="${list.id}" title="Переименовать список">${navIconHtml('pencil')}</button>`
         }
         <button class="drag-handle list-drag" data-list-drag="${list.id}" title="Перетащить">⠿</button>
       </div>
@@ -372,7 +372,7 @@ function wishCard(w) {
       ${w.link ? `<a class="wish-link" href="${safeUrl(w.link)}" target="_blank" rel="noopener">🔗 Открыть ссылку</a>` : ''}
       <div class="wish-btns">
         ${wishToggleHTML(w)}
-        <button class="mini-x" data-edit-wish="${w.id}" title="Изменить">✏️</button>
+        <button class="mini-x" data-edit-wish="${w.id}" title="Изменить">${navIconHtml('pencil')}</button>
         <button class="mini-x" data-wish-del="${w.id}" title="Удалить">✕</button>
       </div>
     </div>

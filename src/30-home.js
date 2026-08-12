@@ -227,7 +227,7 @@ function renderDates() {
               : ''
           }
           <div class="date-btns">
-            <button class="mini-x" data-edit-date="${d.id}" title="Изменить">✏️</button>
+            <button class="mini-x" data-edit-date="${d.id}" title="Изменить">${navIconHtml('pencil')}</button>
             <button class="mini-x" data-done-date="${d.id}" title="Свидание прошло">💗</button>
             <button class="mini-x" data-del-date="${d.id}" title="Удалить">✕</button>
           </div>
