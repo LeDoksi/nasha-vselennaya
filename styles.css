@@ -377,6 +377,15 @@ body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
 .photos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
 .photo{position:relative;border-radius:18px;overflow:hidden;border:1px solid var(--border);box-shadow:0 8px 20px rgba(139,92,246,.1);background:#fff}
 .photo img{width:100%;aspect-ratio:1;object-fit:cover;display:block;cursor:pointer;transition:transform .3s}
+/* Миниатюра ещё не докачана/расшифрована (data-photo-src ждёт hydratePhotoImgs,
+   см. src/05-photostore.js) — до этого у <img> нет src вообще. Без этого
+   правила такой <img> всё равно рисуется браузером как «битый»: рамка +
+   имя файла из alt поверх пустого места (особенно заметно на тёмной теме).
+   visibility:hidden прячет именно это, а не сам тайл — фон карточки
+   (.photo/.note/.wish и т.п.) остаётся виден как нейтральный «загрузка»,
+   и как только hydratePhotoImgs проставит src и снимет атрибут — правило
+   перестаёт совпадать, картинка появляется сама, без доп. JS-логики. */
+img[data-photo-src]{visibility:hidden}
 .photo:hover img{transform:scale(1.05)}
 .photo.pinned{border-color:var(--pink);box-shadow:0 0 0 3px var(--pink2)}
 .pin-photo,.del-photo{

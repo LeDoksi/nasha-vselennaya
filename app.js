@@ -989,11 +989,17 @@ async function warmThumbCache() {
       }
     } catch (e) {}
   }
-  // Кэш прогрет — обновляем вьюхи, которые могли отрисоваться с пустым кэшем
+  // Кэш прогрет — обновляем вьюхи, которые могли отрисоваться с пустым кэшем.
+  // Раньше тут не было renderMemory()/renderWishlist() — если фото докачивалось,
+  // пока пользователь уже на вкладке «Память» или «Хотелки», плейсхолдер
+  // (<img data-photo-src>) так и оставался пустым до следующего захода на
+  // вкладку: с виду «битая миниатюра», хотя реально просто не перерисовано.
   if (!authLocked) {
     renderHome();
     renderPhotos();
     renderCalendar();
+    if (typeof renderMemory === 'function') renderMemory();
+    if (typeof renderWishlist === 'function') renderWishlist();
   }
 }
 
