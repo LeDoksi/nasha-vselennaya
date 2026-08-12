@@ -112,7 +112,11 @@
     <section class="view" id="view-photos">
       <div class="photo-bar">
         <h3>📸 Наши моменты</h3>
-        <label class="btn file-btn">Загрузить фото<input type="file" id="photoInput" accept="image/*" multiple hidden></label>
+        <div class="photo-bar-actions">
+          <button type="button" class="btn album-add-btn" id="photoSelectModeBtn" data-photo-select-toggle title="Выбрать несколько фото">☑️ Выбрать</button>
+          <button type="button" class="btn album-add-btn" id="photoReorderModeBtn" data-photo-reorder-toggle title="Изменить порядок фото">↕ Порядок</button>
+          <label class="btn file-btn">Загрузить фото<input type="file" id="photoInput" accept="image/*" multiple hidden></label>
+        </div>
       </div>
       <div class="album-bar" id="labelBar"></div>
       <div class="ev-album-bar" id="eventBar" style="display:none">
@@ -333,9 +337,13 @@
       <img id="lightboxImg" alt="Фото">
       <button type="button" class="lb-btn lb-arrow lb-next" id="lbNext" aria-label="Следующее фото" title="Следующее (→)">›</button>
       <div class="lb-counter" id="lbCounter" aria-live="polite"></div>
-      <button type="button" class="lb-btn lb-zoom" id="lbZoomBtn" aria-label="Приблизить или отдалить" title="Зум: кнопка, двойной клик или щипок">🔍</button>
-      <button type="button" class="lb-btn lb-label" id="lbLabelBtn" aria-label="Лейблы" title="Добавить или снять лейбл">🏷</button>
-      <button type="button" class="lb-btn lb-download" id="lbDownload" aria-label="Скачать оригинал" title="Скачать оригинал (полное качество)">⬇️</button>
+      <div class="lb-actions">
+        <button type="button" class="lb-btn lb-zoom" id="lbZoomBtn" aria-label="Приблизить или отдалить" title="Зум: кнопка, двойной клик или щипок">🔍</button>
+        <button type="button" class="lb-btn lb-label" id="lbLabelBtn" aria-label="Лейблы" title="Добавить или снять лейбл">🏷</button>
+        <button type="button" class="lb-btn lb-pin" id="lbPinBtn" aria-label="Закрепить или открепить" title="Закрепить или открепить">☆</button>
+        <button type="button" class="lb-btn lb-delete" id="lbDeleteBtn" aria-label="Удалить фото" title="Удалить фото">🗑</button>
+        <button type="button" class="lb-btn lb-download" id="lbDownload" aria-label="Скачать оригинал" title="Скачать оригинал (полное качество)">⬇️</button>
+      </div>
     </div>
   </div>
 

@@ -205,6 +205,7 @@ function __TEST__(s){
   s.notesSortEnd = notesSortEnd; s.listsSortEnd = listsSortEnd;
   s.subtaskSortEnd = subtaskSortEnd; s.photosSortEnd = photosSortEnd;
   s.toggleSubtask = toggleSubtask;
+  s.togglePhotoReorderMode = togglePhotoReorderMode;
 }
 `;
 const wrapped = new Function('sandbox', 'document', 'localStorage', 'sessionStorage', 'alert', 'confirm', 'URL',
@@ -314,11 +315,14 @@ sandbox.db = sandbox.migrateDB({ events: [], notes: [], shopping: [], todos: [],
   ] });
 sandbox.currentLabel = '';
 sandbox.go('photos');
+// Ручка ⠿ теперь видна только в режиме «Порядок» (по умолчанию карточка
+// чистая — см. src/70-photos.js) — включаем его на всё время dnd-теста.
+sandbox.togglePhotoReorderMode();
 const photosGrid = sandbox.document.querySelector('#photosGrid');
 const photo = id => photosGrid.children.find(x => x.dataset.id === id);
 const chip = () => sandbox.document.querySelector('#labelBar').querySelector('.album-chip[data-label="lTrip"]');
 assert(!!photo('p1') && !!photo('p2') && !!chip(), 'фото и чип лейбла отрисованы');
-assert(!!photo('p1').querySelector('[data-photo-drag]'), 'у фото есть драг-ручка ⠿ (data-photo-drag)');
+assert(!!photo('p1').querySelector('[data-photo-drag]'), 'в режиме «Порядок» у фото есть драг-ручка ⠿ (data-photo-drag)');
 
 // 4а) обычный реордер: курсор не над чипом (elementFromPoint не задан, e.target
 //     указывает на пустой div — не чип и не фото)

@@ -326,8 +326,11 @@ h3{font-weight:800}
 .list-head{display:flex;align-items:flex-start;gap:10px}
 .list-head h3{flex:1}
 .list-name-editor{flex:1;padding:6px 10px;border-radius:10px;border:1px solid var(--border);font-family:inherit;font-size:16px;font-weight:800}
+/* top:8px;left:8px — тот же угол, что у .sel-photo: ручка и кружок выбора
+   теперь взаимоисключающие (режимы «Порядок»/«Выбрать» не активны разом),
+   один и тот же слот на карточке никогда не занят обоими сразу. */
 .photo .drag-handle{
-  position:absolute;top:8px;left:44px;width:30px;height:30px;border-radius:10px;
+  position:absolute;top:8px;left:8px;width:30px;height:30px;border-radius:10px;
   background:rgba(255,255,255,.92);box-shadow:0 2px 8px rgba(0,0,0,.18);z-index:2;
 }
 .drag-ghost{
@@ -387,16 +390,11 @@ body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
    перестаёт совпадать, картинка появляется сама, без доп. JS-логики. */
 img[data-photo-src]{visibility:hidden}
 .photo:hover img{transform:scale(1.05)}
+/* Закрепление/удаление одного фото переехали в светбокс (лишние постоянные
+   кнопки перекрывали половину маленькой миниатюры) — .photo.pinned остаётся
+   единственным индикатором «закреплено» прямо в сетке, пассивным, не кнопкой. */
 .photo.pinned{border-color:var(--pink);box-shadow:0 0 0 3px var(--pink2)}
-.pin-photo,.del-photo{
-  position:absolute;top:8px;width:30px;height:30px;border-radius:50%;border:none;cursor:pointer;
-  font-size:14px;background:rgba(255,255,255,.88);box-shadow:0 2px 8px rgba(0,0,0,.18);transition:.2s;
-}
-.pin-photo{right:44px;color:var(--violet-ink)} /* иначе ☆ рисуется бесцветным контуром — почти не видна на белом */
-.del-photo{right:8px;color:#dc2626}
-.pin-photo.active{background:var(--grad);color:#fff}
-.pin-photo:hover{transform:scale(1.15)}
-.del-photo:hover{background:#ffe4e6;transform:scale(1.15)}
+.photo-bar-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 
 /* ===== Настройки ===== */
 .settings-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow);margin-bottom:20px}
@@ -516,9 +514,14 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .lb-arrow:hover{transform:translateY(-50%) scale(1.08)}
 .lb-prev{left:14px}
 .lb-next{right:14px}
-.lb-zoom{position:absolute;right:14px;bottom:18px;width:46px;height:46px;font-size:20px}
-.lb-label{position:absolute;right:70px;bottom:18px;width:46px;height:46px;font-size:19px}
-.lb-download{position:absolute;right:126px;bottom:18px;width:46px;height:46px;font-size:20px}
+/* Ряд действий снизу справа — flex вместо индивидуального right-офсета на
+   каждую кнопку: раньше каждая новая кнопка (закрепить/удалить, добавлены
+   позже) требовала пересчитывать чужие отступы (14/70/126px…), flex считает
+   сам, независимо от того, сколько кнопок сейчас в ряду. */
+.lb-actions{position:absolute;right:14px;bottom:18px;display:flex;gap:10px}
+.lb-actions .lb-btn{width:46px;height:46px;font-size:20px}
+.lb-label{font-size:19px}
+.lb-pin.active{background:var(--grad)}
 .lb-counter{
   position:absolute;left:50%;bottom:16px;transform:translateX(-50%);
   background:rgba(20,10,40,.55);color:#fff;font-size:13px;font-weight:800;
@@ -631,10 +634,16 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
   color:rgba(255,255,255,.9);font-weight:900;cursor:pointer;pointer-events:auto;vertical-align:baseline;
 }
 .photo-label-del:hover{color:#fff}
+/* Липкая панель: раньше жила в обычном потоке страницы — выбрал фото №290 из
+   300, докрутил вверх применить действие, а панель осталась там, где
+   создалась, вне экрана. На десктопе прилипает под шапкой (64px — её
+   реальная высота), на мобиле (<=820px, свой блок ниже) — фиксируется снизу
+   над нижней навигацией: куда ни докрутишь после выбора, панель всегда на виду. */
 .sel-bar{
   display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;
   background:var(--grad);color:#fff;padding:10px 14px;border-radius:14px;
   box-shadow:0 6px 16px rgba(236,72,153,.25);
+  position:sticky;top:64px;z-index:40;
 }
 .sel-bar .btn{box-shadow:none}
 .sel-count{font-weight:800;font-size:14px;margin-right:auto}
@@ -665,15 +674,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
      сотни фото по одному неудобно. Три колонки — привычная плотность
      фотолент (Instagram/Google Photos). */
   .photos-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px}
-  /* На узкой карточке (100px) 4 кнопки в один ряд (выбор/драг/избранное/удаление,
-     по 30px) не помещаются без наложения — драг-ручка (left:44px) и «избранное»
-     (right:44px) перекрывали друг друга. Вместо одного ряда — два столбика по
-     углам: выбор+драг слева, избранное+удаление справа — влезает даже на 100px. */
-  .sel-photo,.photo .drag-handle,.pin-photo,.del-photo{width:26px;height:26px}
-  .sel-photo{top:6px;left:6px}
-  .photo .drag-handle{top:38px;left:6px}
-  .pin-photo{top:6px;right:6px}
-  .del-photo{top:38px;right:6px}
+  .sel-photo,.photo .drag-handle{width:26px;height:26px;top:6px;left:6px}
   /* Шапка на мобильном: лого + кнопки темы/пользователя не помещались в одну
      строку и переносились на вторую — sticky-шапка съедала заметную часть
      экрана. Уменьшаем и лого, и правую группу, чтобы гарантированно влезали
@@ -702,6 +703,11 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
   .bottom-nav-btn.active{background:var(--grad);color:#fff}
   .bottom-nav-btn.active:hover{background:var(--grad);color:#fff}
   [data-theme="dark"] .bottom-nav{background:rgba(42,31,58,.92)}
+  /* Мобиле: липкая панель выбора — не под шапкой (там тесно и её роль уже
+     занята логотипом), а фиксирована над нижней навигацией, ближе к пальцу —
+     тот же приём, что у Google/Apple Photos. 48px+10px — высота bottom-nav
+     плюс зазор, env(...) — под «чёлку»/индикатор жеста снизу на iPhone. */
+  .sel-bar{position:fixed;left:10px;right:10px;bottom:calc(58px + env(safe-area-inset-bottom));top:auto;margin-bottom:0;z-index:59}
 }
 @media(max-width:480px){
   .history-photos{height:96px;min-width:0;width:100%}

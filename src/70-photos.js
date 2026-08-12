@@ -30,6 +30,26 @@ let currentLabel = ''; // фильтр: '' = все фото
 let eventFilter = { year: '', month: '', title: '' }; // витрина «📅 События»: фильтр кнопками «год → месяц → событие»
 const selectedPhotos = new Set(); // id выбранных фото (для массовых операций)
 const photoSort = (a, b) => (b.pinned - a.pinned) || ((a.order || 0) - (b.order || 0));
+// Раньше на каждой карточке одновременно висели 4 постоянные кнопки (выбор/
+// драг/закрепить/удалить) — на маленькой мобильной миниатюре они перекрывали
+// до половины фото. Теперь по умолчанию карточка чистая; выбор и сортировка —
+// два явных режима по требованию (кнопки в .photo-bar-actions), взаимно
+// исключающие (нет смысла тащить фото и выбирать его одновременно — конфликт
+// жестов на одной и той же карточке). Закрепить/удалить одно фото — в
+// светбоксе (85-lightbox.js): не нужен отдельный режим ради одного действия.
+let photoSelectMode = false;
+let photoReorderMode = false;
+function togglePhotoSelectMode() {
+  photoSelectMode = !photoSelectMode;
+  if (photoSelectMode) photoReorderMode = false;
+  else selectedPhotos.clear();
+  renderPhotos();
+}
+function togglePhotoReorderMode() {
+  photoReorderMode = !photoReorderMode;
+  if (photoReorderMode) { photoSelectMode = false; selectedPhotos.clear(); }
+  renderPhotos();
+}
 $('#photoInput').addEventListener('change', async e => {
   const files = [...e.target.files].slice(0, 10);
   for (const f of files) {
@@ -176,7 +196,15 @@ function renderPhotosNow() {
   renderEventBar();
   const list = filteredPhotos();
   const hint = $('#dragHint');
-  if (hint) hint.style.display = list.length > 1 ? 'block' : 'none';
+  if (hint) {
+    if (photoReorderMode) { hint.textContent = '↕ Перетаскивай фото за ⠿ для порядка.'; hint.style.display = list.length > 1 ? 'block' : 'none'; }
+    else if (photoSelectMode) { hint.textContent = 'Нажми ○ на фото, чтобы выбрать несколько.'; hint.style.display = list.length ? 'block' : 'none'; }
+    else hint.style.display = 'none';
+  }
+  const selectBtn = $('#photoSelectModeBtn');
+  if (selectBtn) { selectBtn.textContent = photoSelectMode ? '✓ Готово' : '☑️ Выбрать'; selectBtn.classList.toggle('active', photoSelectMode); }
+  const reorderBtn = $('#photoReorderModeBtn');
+  if (reorderBtn) { reorderBtn.textContent = photoReorderMode ? '✓ Готово' : '↕ Порядок'; reorderBtn.classList.toggle('active', photoReorderMode); }
   const selBar = $('#photoSelBar');
   if (selBar) {
     selBar.style.display = selectedPhotos.size ? 'flex' : 'none';
@@ -189,10 +217,8 @@ function renderPhotosNow() {
     return `
     <div class="photo${p.pinned ? ' pinned' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}">
       <img${url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"'} alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">
-      <button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>
-      <button class="pin-photo${p.pinned ? ' active' : ''}" data-pin-photo="${p.id}" title="${p.pinned ? 'Открепить' : 'Закрепить'}">${p.pinned ? '⭐' : '☆'}</button>
-      <button class="del-photo" data-del-photo="${p.id}" title="Удалить">✕</button>
-      <button class="drag-handle photo-drag" data-photo-drag="${p.id}" title="Перетащить">⠿</button>
+      ${photoSelectMode ? `<button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>` : ''}
+      ${photoReorderMode ? `<button class="drag-handle photo-drag" data-photo-drag="${p.id}" title="Перетащить">⠿</button>` : ''}
       ${(p.labels || []).length ? `<div class="photo-labels">${p.labels.map(id => {
         const sys = id === EVENT_LABEL || id === DATE_LABEL;
         const tag = sys ? null : labelById(id);

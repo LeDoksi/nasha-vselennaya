@@ -142,10 +142,23 @@ function lbRender() {
   if (prev) prev.style.display = multi ? '' : 'none';
   if (next) next.style.display = multi ? '' : 'none';
   if (counter) counter.textContent = multi ? (lightboxIdx + 1) + ' / ' + lightboxList.length : '';
-  // Лейблы применимы только к настоящим фото галереи (db.photos) — не к
-  // data-URL (хотелки без сохранённого фото) и не к синтетическим записям.
+  // Лейблы/закрепление/удаление применимы только к настоящим фото галереи
+  // (db.photos) — не к data-URL (хотелки без сохранённого фото) и не к
+  // синтетическим записям.
+  const galleryPhoto = src && !lbIsDataUrl(src) && Array.isArray(db.photos) ? db.photos.find(p => p.id === src) : null;
   const lblBtn = $('#lbLabelBtn');
-  if (lblBtn) lblBtn.style.display = (src && !lbIsDataUrl(src) && Array.isArray(db.photos) && db.photos.some(p => p.id === src)) ? '' : 'none';
+  if (lblBtn) lblBtn.style.display = galleryPhoto ? '' : 'none';
+  const pinBtn = $('#lbPinBtn');
+  if (pinBtn) {
+    pinBtn.style.display = galleryPhoto ? '' : 'none';
+    if (galleryPhoto) {
+      pinBtn.textContent = galleryPhoto.pinned ? '⭐' : '☆';
+      pinBtn.classList.toggle('active', !!galleryPhoto.pinned);
+      pinBtn.title = galleryPhoto.pinned ? 'Открепить' : 'Закрепить';
+    }
+  }
+  const delBtn = $('#lbDeleteBtn');
+  if (delBtn) delBtn.style.display = galleryPhoto ? '' : 'none';
   if (!src) { if (img) img.src = ''; return; }
   if (img) {
     img.style.transform = 'scale(' + lightboxZoom + ')';
@@ -174,6 +187,30 @@ const lbLabelBtn = $('#lbLabelBtn');
 if (lbLabelBtn) lbLabelBtn.addEventListener('click', () => {
   const src = lightboxList[lightboxIdx];
   if (src && typeof openLabelApplyOverlay === 'function') openLabelApplyOverlay([src]);
+});
+// Закрепить/удалить одно фото — раньше были постоянными кнопками на каждой
+// миниатюре в сетке (перекрывали половину маленького фото), теперь только
+// здесь: открыл фото — сделал, без отдельного режима ради одного действия.
+const lbPinBtn = $('#lbPinBtn');
+if (lbPinBtn) lbPinBtn.addEventListener('click', () => {
+  const src = lightboxList[lightboxIdx];
+  const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
+  if (!p) return;
+  p.pinned = !p.pinned;
+  save(); renderPhotos(); lbRender();
+});
+const lbDeleteBtn = $('#lbDeleteBtn');
+if (lbDeleteBtn) lbDeleteBtn.addEventListener('click', () => {
+  const src = lightboxList[lightboxIdx];
+  const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
+  if (!p || typeof deletePhoto !== 'function') return;
+  const before = db.photos.length;
+  deletePhoto(p.id); // сам спрашивает подтверждение, чистит store/события/свидания, save+render+sync
+  if (db.photos.length === before) return; // отменил подтверждение — фото на месте, светбокс не трогаем
+  lightboxList = lightboxList.filter(s => s !== src);
+  if (!lightboxList.length) { lbClose(); return; }
+  lightboxIdx = Math.min(lightboxIdx, lightboxList.length - 1);
+  lbRender();
 });
 const lbImg = $('#lightboxImg');
 if (lbImg) lbImg.addEventListener('dblclick', () => lbZoomToggle());

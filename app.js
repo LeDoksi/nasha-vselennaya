@@ -3529,10 +3529,10 @@ document.addEventListener('click', e => {
   const cancelListBtn = e.target.closest('[data-cancel-list]');
   if (cancelListBtn) { cancelListNameEdit(); return; }
 
-  const delPhoto = e.target.closest('[data-del-photo]');
-  if (delPhoto) { deletePhoto(delPhoto.dataset.delPhoto); return; }
-  const pinPhoto = e.target.closest('[data-pin-photo]');
-  if (pinPhoto) { const p = db.photos.find(x => x.id === pinPhoto.dataset.pinPhoto); if (p) p.pinned = !p.pinned; save(); renderPhotos(); return; }
+  const photoSelectToggle = e.target.closest('[data-photo-select-toggle]');
+  if (photoSelectToggle) { togglePhotoSelectMode(); return; }
+  const photoReorderToggle = e.target.closest('[data-photo-reorder-toggle]');
+  if (photoReorderToggle) { togglePhotoReorderMode(); return; }
   const selPhoto = e.target.closest('[data-sel-photo]');
   if (selPhoto) {
     const id = selPhoto.dataset.selPhoto;
@@ -3671,6 +3671,26 @@ let currentLabel = ''; // фильтр: '' = все фото
 let eventFilter = { year: '', month: '', title: '' }; // витрина «📅 События»: фильтр кнопками «год → месяц → событие»
 const selectedPhotos = new Set(); // id выбранных фото (для массовых операций)
 const photoSort = (a, b) => (b.pinned - a.pinned) || ((a.order || 0) - (b.order || 0));
+// Раньше на каждой карточке одновременно висели 4 постоянные кнопки (выбор/
+// драг/закрепить/удалить) — на маленькой мобильной миниатюре они перекрывали
+// до половины фото. Теперь по умолчанию карточка чистая; выбор и сортировка —
+// два явных режима по требованию (кнопки в .photo-bar-actions), взаимно
+// исключающие (нет смысла тащить фото и выбирать его одновременно — конфликт
+// жестов на одной и той же карточке). Закрепить/удалить одно фото — в
+// светбоксе (85-lightbox.js): не нужен отдельный режим ради одного действия.
+let photoSelectMode = false;
+let photoReorderMode = false;
+function togglePhotoSelectMode() {
+  photoSelectMode = !photoSelectMode;
+  if (photoSelectMode) photoReorderMode = false;
+  else selectedPhotos.clear();
+  renderPhotos();
+}
+function togglePhotoReorderMode() {
+  photoReorderMode = !photoReorderMode;
+  if (photoReorderMode) { photoSelectMode = false; selectedPhotos.clear(); }
+  renderPhotos();
+}
 $('#photoInput').addEventListener('change', async e => {
   const files = [...e.target.files].slice(0, 10);
   for (const f of files) {
@@ -3817,7 +3837,15 @@ function renderPhotosNow() {
   renderEventBar();
   const list = filteredPhotos();
   const hint = $('#dragHint');
-  if (hint) hint.style.display = list.length > 1 ? 'block' : 'none';
+  if (hint) {
+    if (photoReorderMode) { hint.textContent = '↕ Перетаскивай фото за ⠿ для порядка.'; hint.style.display = list.length > 1 ? 'block' : 'none'; }
+    else if (photoSelectMode) { hint.textContent = 'Нажми ○ на фото, чтобы выбрать несколько.'; hint.style.display = list.length ? 'block' : 'none'; }
+    else hint.style.display = 'none';
+  }
+  const selectBtn = $('#photoSelectModeBtn');
+  if (selectBtn) { selectBtn.textContent = photoSelectMode ? '✓ Готово' : '☑️ Выбрать'; selectBtn.classList.toggle('active', photoSelectMode); }
+  const reorderBtn = $('#photoReorderModeBtn');
+  if (reorderBtn) { reorderBtn.textContent = photoReorderMode ? '✓ Готово' : '↕ Порядок'; reorderBtn.classList.toggle('active', photoReorderMode); }
   const selBar = $('#photoSelBar');
   if (selBar) {
     selBar.style.display = selectedPhotos.size ? 'flex' : 'none';
@@ -3830,10 +3858,8 @@ function renderPhotosNow() {
     return `
     <div class="photo${p.pinned ? ' pinned' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}">
       <img${url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"'} alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">
-      <button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>
-      <button class="pin-photo${p.pinned ? ' active' : ''}" data-pin-photo="${p.id}" title="${p.pinned ? 'Открепить' : 'Закрепить'}">${p.pinned ? '⭐' : '☆'}</button>
-      <button class="del-photo" data-del-photo="${p.id}" title="Удалить">✕</button>
-      <button class="drag-handle photo-drag" data-photo-drag="${p.id}" title="Перетащить">⠿</button>
+      ${photoSelectMode ? `<button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>` : ''}
+      ${photoReorderMode ? `<button class="drag-handle photo-drag" data-photo-drag="${p.id}" title="Перетащить">⠿</button>` : ''}
       ${(p.labels || []).length ? `<div class="photo-labels">${p.labels.map(id => {
         const sys = id === EVENT_LABEL || id === DATE_LABEL;
         const tag = sys ? null : labelById(id);
@@ -4481,10 +4507,23 @@ function lbRender() {
   if (prev) prev.style.display = multi ? '' : 'none';
   if (next) next.style.display = multi ? '' : 'none';
   if (counter) counter.textContent = multi ? (lightboxIdx + 1) + ' / ' + lightboxList.length : '';
-  // Лейблы применимы только к настоящим фото галереи (db.photos) — не к
-  // data-URL (хотелки без сохранённого фото) и не к синтетическим записям.
+  // Лейблы/закрепление/удаление применимы только к настоящим фото галереи
+  // (db.photos) — не к data-URL (хотелки без сохранённого фото) и не к
+  // синтетическим записям.
+  const galleryPhoto = src && !lbIsDataUrl(src) && Array.isArray(db.photos) ? db.photos.find(p => p.id === src) : null;
   const lblBtn = $('#lbLabelBtn');
-  if (lblBtn) lblBtn.style.display = (src && !lbIsDataUrl(src) && Array.isArray(db.photos) && db.photos.some(p => p.id === src)) ? '' : 'none';
+  if (lblBtn) lblBtn.style.display = galleryPhoto ? '' : 'none';
+  const pinBtn = $('#lbPinBtn');
+  if (pinBtn) {
+    pinBtn.style.display = galleryPhoto ? '' : 'none';
+    if (galleryPhoto) {
+      pinBtn.textContent = galleryPhoto.pinned ? '⭐' : '☆';
+      pinBtn.classList.toggle('active', !!galleryPhoto.pinned);
+      pinBtn.title = galleryPhoto.pinned ? 'Открепить' : 'Закрепить';
+    }
+  }
+  const delBtn = $('#lbDeleteBtn');
+  if (delBtn) delBtn.style.display = galleryPhoto ? '' : 'none';
   if (!src) { if (img) img.src = ''; return; }
   if (img) {
     img.style.transform = 'scale(' + lightboxZoom + ')';
@@ -4513,6 +4552,30 @@ const lbLabelBtn = $('#lbLabelBtn');
 if (lbLabelBtn) lbLabelBtn.addEventListener('click', () => {
   const src = lightboxList[lightboxIdx];
   if (src && typeof openLabelApplyOverlay === 'function') openLabelApplyOverlay([src]);
+});
+// Закрепить/удалить одно фото — раньше были постоянными кнопками на каждой
+// миниатюре в сетке (перекрывали половину маленького фото), теперь только
+// здесь: открыл фото — сделал, без отдельного режима ради одного действия.
+const lbPinBtn = $('#lbPinBtn');
+if (lbPinBtn) lbPinBtn.addEventListener('click', () => {
+  const src = lightboxList[lightboxIdx];
+  const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
+  if (!p) return;
+  p.pinned = !p.pinned;
+  save(); renderPhotos(); lbRender();
+});
+const lbDeleteBtn = $('#lbDeleteBtn');
+if (lbDeleteBtn) lbDeleteBtn.addEventListener('click', () => {
+  const src = lightboxList[lightboxIdx];
+  const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
+  if (!p || typeof deletePhoto !== 'function') return;
+  const before = db.photos.length;
+  deletePhoto(p.id); // сам спрашивает подтверждение, чистит store/события/свидания, save+render+sync
+  if (db.photos.length === before) return; // отменил подтверждение — фото на месте, светбокс не трогаем
+  lightboxList = lightboxList.filter(s => s !== src);
+  if (!lightboxList.length) { lbClose(); return; }
+  lightboxIdx = Math.min(lightboxIdx, lightboxList.length - 1);
+  lbRender();
 });
 const lbImg = $('#lightboxImg');
 if (lbImg) lbImg.addEventListener('dblclick', () => lbZoomToggle());

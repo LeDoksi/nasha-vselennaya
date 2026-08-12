@@ -479,10 +479,10 @@ document.addEventListener('click', e => {
   const cancelListBtn = e.target.closest('[data-cancel-list]');
   if (cancelListBtn) { cancelListNameEdit(); return; }
 
-  const delPhoto = e.target.closest('[data-del-photo]');
-  if (delPhoto) { deletePhoto(delPhoto.dataset.delPhoto); return; }
-  const pinPhoto = e.target.closest('[data-pin-photo]');
-  if (pinPhoto) { const p = db.photos.find(x => x.id === pinPhoto.dataset.pinPhoto); if (p) p.pinned = !p.pinned; save(); renderPhotos(); return; }
+  const photoSelectToggle = e.target.closest('[data-photo-select-toggle]');
+  if (photoSelectToggle) { togglePhotoSelectMode(); return; }
+  const photoReorderToggle = e.target.closest('[data-photo-reorder-toggle]');
+  if (photoReorderToggle) { togglePhotoReorderMode(); return; }
   const selPhoto = e.target.closest('[data-sel-photo]');
   if (selPhoto) {
     const id = selPhoto.dataset.selPhoto;

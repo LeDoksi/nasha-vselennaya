@@ -104,6 +104,9 @@ function __TEST__(s){
   s.getMotion = getMotion; s.applyMotion = applyMotion; s.setMotion = setMotion; s.motionReduced = motionReduced;
   Object.defineProperty(s, 'photosRenderQueued', { get: () => photosRenderQueued, set: v => { photosRenderQueued = v; }, configurable: true });
   s.selectedPhotos = selectedPhotos; s.renderLabels = renderLabels;
+  s.togglePhotoSelectMode = togglePhotoSelectMode; s.togglePhotoReorderMode = togglePhotoReorderMode;
+  Object.defineProperty(s, 'photoSelectMode', { get: () => photoSelectMode, configurable: true });
+  Object.defineProperty(s, 'photoReorderMode', { get: () => photoReorderMode, configurable: true });
   s.deleteLabelSilent = deleteLabelSilent; s.deletePhoto = deletePhoto;
   s.deleteLabel = deleteLabel; s.labelById = labelById;
   s.openLabelManageOverlay = openLabelManageOverlay; s.renderLabelManageList = renderLabelManageList;
@@ -725,11 +728,32 @@ w(`(s)=>{
   s.renderPhotos();
 }`);
 let phHtml = registry['#photosGrid'].innerHTML;
-assert(phHtml.includes('data-photo-drag'), 'у фото есть драг-ручка ⠿ (Pointer Events drag)');
-assert(phHtml.includes('data-sel-photo'), 'у фото есть кнопка выбора');
+// По умолчанию (без режимов «Выбрать»/«Порядок») карточка чистая — ни ручки
+// драга, ни кружка выбора, ни (тем более) старых постоянных pin/del-кнопок
+// (перекрывали половину маленькой миниатюры, убраны совсем — см. светбокс).
+assert(!phHtml.includes('data-photo-drag') && !phHtml.includes('data-sel-photo'),
+  'вне режимов «Выбрать»/«Порядок» на карточке нет ни ручки драга, ни кружка выбора');
+assert(!phHtml.includes('data-pin-photo') && !phHtml.includes('data-del-photo'),
+  'постоянных pin/del-кнопок на карточке больше нет — переехали в светбокс');
 assert(phHtml.includes('Поездка') && phHtml.includes('Свидание'), 'у фото несколько лейблов');
 assert(/<button[^>]*data-label-off=/.test(phHtml), 'крестик лейбла на фото — button (доступен с клавиатуры)');
 assert(!phHtml.includes('data-ren-photo'), 'переименование убрано');
+// Режим «Порядок» — ручка драга появляется, кружка выбора нет
+w('(s)=>s.togglePhotoReorderMode()');
+assert(w('(s)=>s.photoReorderMode') === true, 'режим сортировки включился');
+phHtml = registry['#photosGrid'].innerHTML;
+assert(phHtml.includes('data-photo-drag') && !phHtml.includes('data-sel-photo'), 'в режиме «Порядок» видна только ручка драга');
+w('(s)=>s.togglePhotoReorderMode()'); // выключаем обратно
+// Режим «Выбрать» — кружок выбора появляется, ручки драга нет; режимы
+// взаимоисключающие (включение одного гасит другой)
+w('(s)=>s.togglePhotoSelectMode()');
+assert(w('(s)=>s.photoSelectMode') === true, 'режим выбора включился');
+phHtml = registry['#photosGrid'].innerHTML;
+assert(!phHtml.includes('data-photo-drag') && phHtml.includes('data-sel-photo'), 'в режиме «Выбрать» видна только кнопка выбора');
+w('(s)=>s.togglePhotoReorderMode()'); // включаем «Порядок» — «Выбрать» должен погаснуть сам
+assert(w('(s)=>s.photoSelectMode') === false && w('(s)=>s.photoReorderMode') === true, 'режимы взаимоисключающие');
+w('(s)=>s.togglePhotoReorderMode()'); // возвращаем в обычный режим для следующих проверок
+phHtml = registry['#photosGrid'].innerHTML;
 const labHtml = registry['#labelBar'].innerHTML;
 assert(labHtml.includes('Все фото'), 'кнопка «Все фото» в фильтре');
 assert(labHtml.includes('Семья') && labHtml.includes('data-label-new') && !labHtml.includes('data-label-manage'),
