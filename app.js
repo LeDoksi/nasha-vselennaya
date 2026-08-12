@@ -64,13 +64,16 @@ if (typeof window !== 'undefined' && window.addEventListener) {
    Все данные зашифрованы мастер-ключом K (AES-GCM-256).
    K живёт только в памяти браузера.
    Для каждого пароля K «обёрнут» ключом, полученным из пароля через
-   PBKDF2-SHA256 (~150k итераций). В localStorage лежит только
-   зашифрованный «сейф» — прочитать его без пароля нельзя. */
+   PBKDF2-SHA256 (600k итераций — рекомендация OWASP; было 150k). В
+   localStorage лежит только зашифрованный «сейф» — прочитать его без
+   пароля нельзя. Число итераций хранится per-vault (vault.a) — у уже
+   существующих сейфов остаётся их исходное значение, апгрейд действует
+   только на новые (createVault) и не требует миграции старых. */
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 const VAULT_KEY = 'universe_vault';      // зашифрованный сейф
 const VAULT_KEY_PREV = 'universe_vault_prev'; // резервная копия старого сейфа при усыновлении облачного
-const PBKDF2_ITERS = 150000;             // стойкость обёртки паролем
+const PBKDF2_ITERS = 600000;             // стойкость обёртки паролем
 const AUTO_LOCK_MS = 30 * 60 * 1000;     // автозамок после 30 минут без действий
 
 function b64(u8) {
@@ -4962,7 +4965,15 @@ function makeCloudStorage() {
 
   async function presignedFetch(method, part, id, body) {
     if (!cfg.signFnUrl) throw new Error('YANDEX_CLOUD_CONFIG.signFnUrl не задан — запись фото невозможна');
-    const signRes = await fetch(cfg.signFnUrl + '?method=' + method + '&part=' + encodeURIComponent(part) + '&id=' + encodeURIComponent(id));
+    // photo-sign проверяет Firebase ID-токен перед выдачей подписи (иначе
+    // подписать мог бы кто угодно, кто откроет devtools — URL функции не
+    // секрет). Токен берём у уже выполненного анонимного входа (initSync).
+    let authHeaders = {};
+    try {
+      const user = syncFirebase && firebase.auth(syncFirebase).currentUser;
+      if (user) authHeaders = { Authorization: 'Bearer ' + await user.getIdToken() };
+    } catch (e) { console.warn('[sync] не удалось получить ID-токен для photo-sign', e); }
+    const signRes = await fetch(cfg.signFnUrl + '?method=' + method + '&part=' + encodeURIComponent(part) + '&id=' + encodeURIComponent(id), { headers: authHeaders });
     if (!signRes.ok) throw new Error('sign-fn ' + signRes.status);
     const { url } = await signRes.json();
     if (!url) throw new Error('sign-fn: пустая ссылка');

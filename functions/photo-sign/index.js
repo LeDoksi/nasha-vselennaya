@@ -10,28 +10,94 @@
    секрет и подписывает запрос вместо клиента.
 
    Как это используется (src/95-sync.js, makeCloudStorage): клиент делает
-   GET на эту функцию с параметрами (method, part, id), получает в ответ
-   { url }, и сам делает fetch(url, {method, body}) НАПРЯМУЮ в бакет — тело
-   файла через функцию не проходит (не упирается в лимит размера запроса
-   функции), функция только подписывает.
+   GET на эту функцию с параметрами (method, part, id) и заголовком
+   Authorization: Bearer <Firebase ID-токен>, получает в ответ { url }, и сам
+   делает fetch(url, {method, body}) НАПРЯМУЮ в бакет — тело файла через
+   функцию не проходит (не упирается в лимит размера запроса функции),
+   функция только подписывает.
+
+   Проверка вызывающего: без токена (или с невалидным) функция раньше
+   подписывала запрос вообще любому — значит любой, кто откроет devtools на
+   сайте (URL функции не секрет, он в открытом app.js), мог удалить/затереть
+   чужие фото в бакете. Firebase Admin SDK сюда не тащим (тяжёлая зависимость
+   ради одной проверки JWT) — вместо этого руками проверяем подпись Firebase
+   ID-токена по публичным сертификатам Google (RS256, тот же алгоритм, что и
+   внутри Admin SDK). Анонимный вход не даёт «настоящей» личности (это и не
+   нужно — оба партнёра всё равно равноправны), но требует пройти через
+   Firebase Auth, а не просто знать URL функции.
 
    Переменные окружения (задать в консоли при создании функции):
-     YC_S3_KEY     — статический ключ доступа сервисного аккаунта с ролью
-                     storage.editor на бакете (НЕ коммитить, только в консоли)
-     YC_S3_SECRET  — секретный ключ к нему
-     YC_BUCKET     — имя бакета (по умолчанию nasha-vselennaya)
-     YC_REGION     — регион (по умолчанию ru-central1)
-     ALLOWED_ORIGIN — домен сайта для CORS (по умолчанию * — можно сузить
-                     до https://ledoksi.github.io) */
+     YC_S3_KEY        — статический ключ доступа сервисного аккаунта с ролью
+                        storage.editor на бакете (НЕ коммитить, только в консоли)
+     YC_S3_SECRET     — секретный ключ к нему
+     YC_BUCKET        — имя бакета (по умолчанию nasha-vselennaya)
+     YC_REGION        — регион (по умолчанию ru-central1)
+     FIREBASE_PROJECT_ID — id проекта Firebase (по умолчанию nasha-vselennaya) —
+                        токен должен быть выписан именно для этого проекта
+     ALLOWED_ORIGIN    — домен сайта для CORS (по умолчанию https://ledoksi.github.io) */
 
 const crypto = require('crypto');
+const https = require('https');
 
 const BUCKET = process.env.YC_BUCKET || 'nasha-vselennaya';
 const REGION = process.env.YC_REGION || 'ru-central1';
 const ACCESS_KEY = process.env.YC_S3_KEY;
 const SECRET_KEY = process.env.YC_S3_SECRET;
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'nasha-vselennaya';
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://ledoksi.github.io';
 const EXPIRES_SECONDS = 60; // ссылка живёт минуту — достаточно, чтобы сразу ей воспользоваться
+
+/* ===== Проверка Firebase ID-токена (RS256, без firebase-admin) =====
+   Google публикует свои текущие публичные сертификаты по фиксированному
+   URL — кэшируем на время их собственного Cache-Control, чтобы не ходить в
+   сеть на каждый запрос. */
+const GOOGLE_CERTS_URL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
+let certsCache = null; // { certs, expiresAt }
+function httpGetJson(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, res => {
+      let data = '';
+      res.on('data', c => { data += c; });
+      res.on('end', () => {
+        try { resolve({ body: JSON.parse(data), headers: res.headers }); }
+        catch (e) { reject(e); }
+      });
+    }).on('error', reject);
+  });
+}
+async function getGoogleCerts() {
+  if (certsCache && certsCache.expiresAt > Date.now()) return certsCache.certs;
+  const { body, headers } = await httpGetJson(GOOGLE_CERTS_URL);
+  const maxAgeMatch = /max-age=(\d+)/.exec(headers['cache-control'] || '');
+  const maxAge = maxAgeMatch ? parseInt(maxAgeMatch[1], 10) : 3600;
+  certsCache = { certs: body, expiresAt: Date.now() + maxAge * 1000 };
+  return body;
+}
+function b64urlDecode(str) {
+  return Buffer.from(String(str).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+}
+// Бросает исключение на любой невалидности; возвращает payload токена (с uid в .sub) на успехе.
+async function verifyFirebaseIdToken(token) {
+  if (!token) throw new Error('нет токена');
+  const parts = token.split('.');
+  if (parts.length !== 3) throw new Error('битый токен');
+  const header = JSON.parse(b64urlDecode(parts[0]).toString('utf8'));
+  const payload = JSON.parse(b64urlDecode(parts[1]).toString('utf8'));
+  if (header.alg !== 'RS256') throw new Error('неверный алгоритм');
+  const certs = await getGoogleCerts();
+  const cert = certs[header.kid];
+  if (!cert) throw new Error('неизвестный kid');
+  const verifier = crypto.createVerify('RSA-SHA256');
+  verifier.update(parts[0] + '.' + parts[1]);
+  if (!verifier.verify(cert, b64urlDecode(parts[2]))) throw new Error('подпись не сходится');
+  const now = Math.floor(Date.now() / 1000);
+  if (typeof payload.exp !== 'number' || payload.exp < now) throw new Error('токен просрочен');
+  if (typeof payload.iat !== 'number' || payload.iat > now + 300) throw new Error('токен из будущего');
+  if (payload.aud !== FIREBASE_PROJECT_ID) throw new Error('чужой проект (aud)');
+  if (payload.iss !== 'https://securetoken.google.com/' + FIREBASE_PROJECT_ID) throw new Error('чужой issuer');
+  if (!payload.sub) throw new Error('нет subject');
+  return payload;
+}
 
 function hmac(key, msg) {
   return crypto.createHmac('sha256', key).update(msg, 'utf8').digest();
@@ -77,13 +143,23 @@ module.exports.handler = async (event) => {
   const cors = {
     'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': '*'
+    // '*' в Allow-Headers по спецификации fetch НЕ покрывает Authorization —
+    // его нужно перечислить явно, иначе браузер режет заголовок на преполёте.
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type'
   };
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: cors, body: '' };
   }
   if (!ACCESS_KEY || !SECRET_KEY) {
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: 'function is missing YC_S3_KEY/YC_S3_SECRET env vars' }) };
+  }
+  const headers = event.headers || {};
+  const authHeader = headers.Authorization || headers.authorization || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  try {
+    await verifyFirebaseIdToken(token);
+  } catch (e) {
+    return { statusCode: 401, headers: cors, body: JSON.stringify({ error: 'unauthorized: ' + e.message }) };
   }
   const q = event.queryStringParameters || {};
   const method = String(q.method || '').toUpperCase();
@@ -105,4 +181,11 @@ module.exports.handler = async (event) => {
     headers: { ...cors, 'Content-Type': 'application/json' },
     body: JSON.stringify({ url })
   };
+};
+
+// Только для tests/photo-sign-auth.js — доступ к внутренностям верификации
+// токена без сети (подмена кэша сертификатов) и без реальных ключей S3.
+module.exports._testing = {
+  verifyFirebaseIdToken,
+  setCertsForTest(certs) { certsCache = { certs, expiresAt: Date.now() + 3600000 }; }
 };

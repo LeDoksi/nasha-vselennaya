@@ -375,7 +375,15 @@ function makeCloudStorage() {
 
   async function presignedFetch(method, part, id, body) {
     if (!cfg.signFnUrl) throw new Error('YANDEX_CLOUD_CONFIG.signFnUrl не задан — запись фото невозможна');
-    const signRes = await fetch(cfg.signFnUrl + '?method=' + method + '&part=' + encodeURIComponent(part) + '&id=' + encodeURIComponent(id));
+    // photo-sign проверяет Firebase ID-токен перед выдачей подписи (иначе
+    // подписать мог бы кто угодно, кто откроет devtools — URL функции не
+    // секрет). Токен берём у уже выполненного анонимного входа (initSync).
+    let authHeaders = {};
+    try {
+      const user = syncFirebase && firebase.auth(syncFirebase).currentUser;
+      if (user) authHeaders = { Authorization: 'Bearer ' + await user.getIdToken() };
+    } catch (e) { console.warn('[sync] не удалось получить ID-токен для photo-sign', e); }
+    const signRes = await fetch(cfg.signFnUrl + '?method=' + method + '&part=' + encodeURIComponent(part) + '&id=' + encodeURIComponent(id), { headers: authHeaders });
     if (!signRes.ok) throw new Error('sign-fn ' + signRes.status);
     const { url } = await signRes.json();
     if (!url) throw new Error('sign-fn: пустая ссылка');
