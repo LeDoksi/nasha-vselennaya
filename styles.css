@@ -166,6 +166,10 @@ body{
 }
 .nav-btn:hover{transform:translateY(-2px);border-color:var(--violet2);color:var(--violet)}
 .nav-btn.active{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 6px 18px rgba(236,72,153,.45);transform:scale(1.06);font-weight:900}
+/* Фаза 4: SVG-иконки вместо эмодзи в кнопках (нижняя навигация, шапка) —
+   размер относительно font-size кнопки, красятся вместе с текстом через
+   currentColor (эмодзи оставались цветными в .active, эти — нет). */
+.nav-icon{width:1.15em;height:1.15em;display:inline-block;vertical-align:-0.2em;fill:currentColor}
 
 /* ===== Общее ===== */
 main{max-width:1100px;margin:0 auto;padding:28px 20px 90px}

@@ -1626,30 +1626,43 @@ function runViewTransition(apply) {
   if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function' || motionReduced()) return false;
   try {
     const t = document.startViewTransition(() => {
-      try { apply(); } catch (e) { console.warn('Ошибка при переключении', e); }
+      try {
+        apply();
+      } catch (e) {
+        console.warn('Ошибка при переключении', e);
+      }
     });
     if (t) {
       if (t.finished && typeof t.finished.catch === 'function') t.finished.catch(() => {});
       if (t.updateCallbackDone && typeof t.updateCallbackDone.catch === 'function') t.updateCallbackDone.catch(() => {});
     }
     return true;
-  } catch (e) { return false; } // переход уже идёт — применяем мгновенно
+  } catch (e) {
+    return false;
+  } // переход уже идёт — применяем мгновенно
 }
 
 function setTheme(t) {
   const apply = () => {
-    try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
+    try {
+      localStorage.setItem(THEME_KEY, t);
+    } catch (e) {}
     const root = document.documentElement;
     if (root) root.dataset.theme = t;
     const btn = $('#themeToggle');
-    if (btn) { btn.textContent = t === 'dark' ? '☀️' : '🌙'; btn.setAttribute('aria-pressed', String(t === 'dark')); }
+    if (btn) {
+      btn.innerHTML = '<svg class="nav-icon" aria-hidden="true"><use href="#icon-' + (t === 'dark' ? 'sun' : 'moon') + '"></use></svg>';
+      btn.setAttribute('aria-pressed', String(t === 'dark'));
+    }
     const sbtn = $('#settingsThemeBtn');
     if (sbtn) sbtn.textContent = t === 'dark' ? '☀️ Включить светлую тему' : '🌙 Включить тёмную тему';
   };
   // Фаза D: смена темы — тоже плавным переходом (если браузер умеет и анимации не выключены)
   if (!runViewTransition(apply)) apply();
 }
-function toggleTheme() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
+function toggleTheme() {
+  setTheme(getTheme() === 'dark' ? 'light' : 'dark');
+}
 
 /* ===== Навигация ===== */
 let activeView = 'home'; // текущая вкладка — для hash-роутинга и кнопки «назад»
@@ -1662,11 +1675,23 @@ let activeView = 'home'; // текущая вкладка — для hash-роу
 // момент была бы TDZ-ошибка.
 const BOTTOM_PRIMARY = ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'memory'];
 // Иконки для нижней панели (мобильные): текстовые подписи физически не
-// помещаются в ряд на узком экране без обрезки («Календ…» — было). Значки
-// повторяют эмодзи, уже используемые в самих разделах (📅 у событий,
-// 📸 у фото, 📋 у списков, 🕰 у «Памяти», 💌 у заметок, 🎁 у хотелок), а
-// полный текст остаётся для скринридеров через aria-label.
-const BOTTOM_ICON = { home: '🏠', calendar: '📅', notes: '💌', lists: '📋', wishlist: '🎁', photos: '📸', memory: '🕰' };
+// помещаются в ряд на узком экране без обрезки («Календ…» — было). Раньше
+// тут были эмодзи — заменены на SVG из общего sprite в index.html (Фаза 4):
+// одинаково выглядят на всех платформах и красятся через currentColor вместе
+// с текстом кнопки (эмодзи так не умеют — оставались цветными в .active).
+// Полный текст остаётся для скринридеров через aria-label.
+function navIconHtml(id) {
+  return '<svg class="nav-icon" aria-hidden="true"><use href="#icon-' + id + '"></use></svg>';
+}
+const BOTTOM_ICON = {
+  home: navIconHtml('home'),
+  calendar: navIconHtml('calendar'),
+  notes: navIconHtml('notes'),
+  lists: navIconHtml('lists'),
+  wishlist: navIconHtml('wishlist'),
+  photos: navIconHtml('photos'),
+  memory: navIconHtml('memory')
+};
 function showView(view) {
   if (!$('#view-' + view)) return; // неизвестная вкладка — не трогаем экран
   activeView = view;
@@ -1674,7 +1699,12 @@ function showView(view) {
     $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
     $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
     if (view === 'home') renderHome();
-    if (view === 'calendar') { calY = new Date().getFullYear(); calM = new Date().getMonth(); selectedDate = null; renderCalendar(); }
+    if (view === 'calendar') {
+      calY = new Date().getFullYear();
+      calM = new Date().getMonth();
+      selectedDate = null;
+      renderCalendar();
+    }
     if (view === 'notes') renderNotes();
     if (view === 'lists') renderLists();
     if (view === 'wishlist') renderWishlist();
@@ -1693,7 +1723,9 @@ function go(view) {
   // hash-роутинг: #/view — кнопка «назад» в браузере и прямые ссылки на вкладку.
   // location нет в песочнице тестов — там остаёмся на синхронном показе.
   if (typeof location !== 'undefined' && location.hash !== '#/' + view) {
-    try { location.hash = '#/' + view; } catch (e) {}
+    try {
+      location.hash = '#/' + view;
+    } catch (e) {}
   }
 }
 function hashView() {
@@ -1736,7 +1768,7 @@ function buildBottomNav() {
     const label = clone.textContent.trim();
     clone.setAttribute('aria-label', label);
     clone.title = label;
-    clone.textContent = BOTTOM_ICON[view] || label;
+    clone.innerHTML = BOTTOM_ICON[view] || esc(label);
     bar.appendChild(clone);
   });
 }
@@ -1750,7 +1782,6 @@ if (typeof document !== 'undefined' && document.addEventListener) {
   document.addEventListener('click', onNavDocClick);
 }
 buildBottomNav();
-
 /* ===== Главная: счётчик дней ===== */
 function daysTogether() {
   const [y, m, d] = START_DATE.split('-').map(Number);
