@@ -17,6 +17,27 @@
   src:url(fonts/nunito-latin.woff2) format('woff2');
   unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
 }
+/* Фаза 4: второй, характерный шрифт для заголовков и крупных чисел — тёплая
+   декоративная антиква (не нейтральный Nunito) для мест, где уместен акцент:
+   H1, «Наша память»/аналогичные заголовки разделов, «N лет/дней вместе».
+   Один статичный начерк (400) — display-гарнитуры обычно и используются одним
+   весом на крупном размере, вариативность тут не нужна. */
+@font-face{
+  font-family:'Yeseva One';
+  font-style:normal;
+  font-weight:400;
+  font-display:swap;
+  src:url(fonts/yeseva-one-cyrillic.woff2) format('woff2');
+  unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;
+}
+@font-face{
+  font-family:'Yeseva One';
+  font-style:normal;
+  font-weight:400;
+  font-display:swap;
+  src:url(fonts/yeseva-one-latin.woff2) format('woff2');
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   --bg1:#f5eaff;
@@ -61,6 +82,7 @@
   --text-lg:19px;    /* заголовки карточек/секций (было 18/19/20px) */
   --text-xl:24px;    /* крупные числа/заголовки (было 22/24/26px) */
   --text-2xl:34px;   /* hero-цифры (было 28/34px; clamp()-заголовки не трогали — уже адаптивные) */
+  --font-display:'Yeseva One',Georgia,'Times New Roman',serif; /* тёплая антиква для заголовков/чисел — см. @font-face выше */
 }
 [data-theme="dark"]{
   --bg1:#120b1f;
@@ -176,10 +198,10 @@ h3{font-weight:800}
   padding:46px 24px;box-shadow:var(--shadow);
 }
 .hero-card h1{
-  font-size:clamp(34px,6vw,54px);font-weight:900;margin-bottom:6px;
+  font-family:var(--font-display);font-size:clamp(34px,6vw,54px);font-weight:400;margin-bottom:6px;
   background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;
 }
-.hero-names{font-size:clamp(20px,3vw,28px);font-weight:800;color:var(--pink)}
+.hero-names{font-family:var(--font-display);font-size:clamp(22px,3.4vw,30px);font-weight:400;color:var(--pink)}
 .hero-names span{color:var(--violet);margin:0 8px}
 .hero-deco{position:absolute;font-size:var(--text-2xl);opacity:.5;animation:float 5s ease-in-out infinite;pointer-events:none}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
@@ -803,7 +825,7 @@ body:not(.auth) .auth-screen{display:none}
   display:flex;flex-direction:column;gap:12px;animation:pop .4s ease;
 }
 .auth-logo{font-size:44px;line-height:1}
-.auth-card h1{font-size:var(--text-xl);font-weight:900;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.auth-card h1{font-family:var(--font-display);font-size:28px;font-weight:400;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
 .auth-sub{color:var(--muted);font-size:var(--text-base);margin:-4px 0 6px;line-height:1.5}
 .auth-who{display:flex;gap:14px;justify-content:center;margin:6px 0}
 .auth-user{width:auto;flex:1;padding:16px 8px;border-radius:var(--radius-md)}
@@ -881,10 +903,10 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .ring-bg{fill:none;stroke:var(--border);stroke-width:8}
 .ring-fg{fill:none;stroke:var(--pink);stroke-width:8;stroke-linecap:round;transition:stroke-dashoffset .6s ease}
 .ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
-.ring-center b{font-size:var(--text-lg);color:var(--pink-ink)}
+.ring-center b{font-family:var(--font-display);font-size:var(--text-xl);color:var(--pink-ink)}
 .ring-center small{font-size:var(--text-xs);color:var(--muted)}
 .ring-info{flex:0 1 auto;min-width:170px}
-.ring-info h4{margin:0 0 2px;color:var(--pink-ink)}
+.ring-info h4{font-family:var(--font-display);font-weight:400;font-size:var(--text-lg);margin:0 0 2px;color:var(--pink-ink)}
 .ring-info p{margin:0;font-weight:700;color:var(--ink)}
 .ring-info small{color:var(--muted)}
 
@@ -930,7 +952,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 [data-theme="dark"] .hs-otd-chip{background:linear-gradient(135deg,#3d2a50,#33244a);border-color:#4c3a66}
 
 /* Таймлайн-дерево «Память» */
-.view-title{text-align:center;margin:6px 0 2px;color:var(--pink-ink)}
+.view-title{font-family:var(--font-display);font-weight:400;font-size:var(--text-xl);text-align:center;margin:6px 0 2px;color:var(--pink-ink)}
 .rem-empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:var(--text-base)}
 .tl{position:relative;max-width:720px;margin:16px auto 40px;padding:10px 0}
 .tl-stem{position:absolute;left:50%;top:0;bottom:0;width:3px;background:linear-gradient(to bottom,var(--pink),var(--violet),var(--pink));border-radius:2px;transform:translateX(-50%)}
