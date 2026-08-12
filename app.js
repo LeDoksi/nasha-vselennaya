@@ -5108,7 +5108,7 @@ if (mt) mt.addEventListener('change', e => setMotion(e.target.checked ? 'reduced
    Единая точка открытия фото: по id из галереи/календаря/«Памяти» или по
    data-URL напрямую (хотелки). Стрелки ‹ ›, свайп и клавиши ←/→ листают;
    зум — кнопка 🔍, двойной клик, щипок, клавиши +/-/0; счётчик «N / M». */
-let lightboxList = [];   // источники: id фото из db.photos ИЛИ data-URL
+let lightboxList = []; // источники: id фото из db.photos ИЛИ data-URL
 let lightboxIdx = 0;
 let lightboxZoom = 1;
 
@@ -5118,7 +5118,11 @@ function extFromMime(type) {
   return m[type || ''] || '';
 }
 function safeFileName(name) {
-  const clean = String(name || '').replace(/[^\wа-яёА-ЯЁ\s\-()]+/gi, '_').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const clean = String(name || '')
+    .replace(/[^\wа-яёА-ЯЁ\s\-()]+/gi, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
   return clean || 'photo';
 }
 function downloadBlobAsFile(blob, name) {
@@ -5165,17 +5169,28 @@ function downloadDataUrl(dataUrl, name) {
 async function downloadCurrentPhoto() {
   const src = lightboxList[lightboxIdx];
   if (!src) return;
-  if (lbIsDataUrl(src)) { downloadDataUrl(src, 'photo'); return; }
+  if (lbIsDataUrl(src)) {
+    downloadDataUrl(src, 'photo');
+    return;
+  }
   const p = lbPhoto(src);
   if (!p || !photoStore || !p.id) return;
   const name = p.title || 'photo';
   let blob = null;
-  try { blob = await photoStore.getOrig(p.id); } catch (e) {}
-  if (!blob) { try { blob = await photoStore.getFull(p.id); } catch (e) {} }
+  try {
+    blob = await photoStore.getOrig(p.id);
+  } catch (e) {}
+  if (!blob) {
+    try {
+      blob = await photoStore.getFull(p.id);
+    } catch (e) {}
+  }
   if (blob) await downloadBlob(blob, name);
 }
 
-function lbIsDataUrl(src) { return typeof src === 'string' && src.indexOf('data:') === 0; }
+function lbIsDataUrl(src) {
+  return typeof src === 'string' && src.indexOf('data:') === 0;
+}
 function lbPhoto(src) {
   const p = Array.isArray(db.photos) ? db.photos.find(p => p.id === src) : null;
   if (p) return p;
@@ -5205,7 +5220,11 @@ function openLightboxFrom(el) {
   if (at < 0) at = 0;
   openLightbox(list, at);
 }
-function lbResetState() { lightboxList = []; lightboxIdx = 0; lightboxZoom = 1; }
+function lbResetState() {
+  lightboxList = [];
+  lightboxIdx = 0;
+  lightboxZoom = 1;
+}
 function lbClose() {
   const lb = $('#lightbox');
   if (lb) lb.hidden = true;
@@ -5226,7 +5245,9 @@ function lbZoomTo(v) {
   // вызовы при пинче/повторном зуме ничего не перекачивают).
   if (lightboxZoom > 1) upgradeLightboxToOrig();
 }
-function lbZoomToggle() { lbZoomTo(lightboxZoom > 1 ? 1 : 2.5); }
+function lbZoomToggle() {
+  lbZoomTo(lightboxZoom > 1 ? 1 : 2.5);
+}
 function upgradeLightboxToOrig() {
   const src = lightboxList[lightboxIdx];
   if (!src || lbIsDataUrl(src)) return; // хотелки без сохранённого фото — не про них
@@ -5247,7 +5268,7 @@ function lbRender() {
   const multi = lightboxList.length > 1;
   if (prev) prev.style.display = multi ? '' : 'none';
   if (next) next.style.display = multi ? '' : 'none';
-  if (counter) counter.textContent = multi ? (lightboxIdx + 1) + ' / ' + lightboxList.length : '';
+  if (counter) counter.textContent = multi ? lightboxIdx + 1 + ' / ' + lightboxList.length : '';
   // Лейблы/закрепление/удаление применимы только к настоящим фото галереи
   // (db.photos) — не к data-URL (хотелки без сохранённого фото) и не к
   // синтетическим записям.
@@ -5258,21 +5279,30 @@ function lbRender() {
   if (pinBtn) {
     pinBtn.style.display = galleryPhoto ? '' : 'none';
     if (galleryPhoto) {
-      pinBtn.textContent = galleryPhoto.pinned ? '⭐' : '☆';
+      pinBtn.innerHTML = '<svg class="nav-icon" aria-hidden="true"><use href="#icon-' + (galleryPhoto.pinned ? 'star-fill' : 'star') + '"></use></svg>';
       pinBtn.classList.toggle('active', !!galleryPhoto.pinned);
       pinBtn.title = galleryPhoto.pinned ? 'Открепить' : 'Закрепить';
     }
   }
   const delBtn = $('#lbDeleteBtn');
   if (delBtn) delBtn.style.display = galleryPhoto ? '' : 'none';
-  if (!src) { if (img) img.src = ''; return; }
+  if (!src) {
+    if (img) img.src = '';
+    return;
+  }
   if (img) {
     img.style.transform = 'scale(' + lightboxZoom + ')';
     img.style.cursor = lightboxZoom > 1 ? 'zoom-out' : 'zoom-in';
   }
-  if (lbIsDataUrl(src)) { if (img) img.src = src; return; }
+  if (lbIsDataUrl(src)) {
+    if (img) img.src = src;
+    return;
+  }
   const p = lbPhoto(src);
-  if (!p) { if (img) img.src = ''; return; }
+  if (!p) {
+    if (img) img.src = '';
+    return;
+  }
   const cached = photoSrc(p); // миниатюра из кэша — мгновенный показ
   if (cached && img) img.src = cached;
   photoUrl(p, false).then(url => {
@@ -5290,34 +5320,42 @@ if (lbZoomBtn) lbZoomBtn.addEventListener('click', () => lbZoomToggle());
 const lbDlBtn = $('#lbDownload');
 if (lbDlBtn) lbDlBtn.addEventListener('click', () => downloadCurrentPhoto());
 const lbLabelBtn = $('#lbLabelBtn');
-if (lbLabelBtn) lbLabelBtn.addEventListener('click', () => {
-  const src = lightboxList[lightboxIdx];
-  if (src && typeof openLabelApplyOverlay === 'function') openLabelApplyOverlay([src]);
-});
+if (lbLabelBtn)
+  lbLabelBtn.addEventListener('click', () => {
+    const src = lightboxList[lightboxIdx];
+    if (src && typeof openLabelApplyOverlay === 'function') openLabelApplyOverlay([src]);
+  });
 // Закрепить/удалить одно фото — раньше были постоянными кнопками на каждой
 // миниатюре в сетке (перекрывали половину маленького фото), теперь только
 // здесь: открыл фото — сделал, без отдельного режима ради одного действия.
 const lbPinBtn = $('#lbPinBtn');
-if (lbPinBtn) lbPinBtn.addEventListener('click', () => {
-  const src = lightboxList[lightboxIdx];
-  const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
-  if (!p) return;
-  p.pinned = !p.pinned;
-  save(); renderPhotos(); lbRender();
-});
+if (lbPinBtn)
+  lbPinBtn.addEventListener('click', () => {
+    const src = lightboxList[lightboxIdx];
+    const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
+    if (!p) return;
+    p.pinned = !p.pinned;
+    save();
+    renderPhotos();
+    lbRender();
+  });
 const lbDeleteBtn = $('#lbDeleteBtn');
-if (lbDeleteBtn) lbDeleteBtn.addEventListener('click', () => {
-  const src = lightboxList[lightboxIdx];
-  const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
-  if (!p || typeof deletePhoto !== 'function') return;
-  const before = db.photos.length;
-  deletePhoto(p.id); // сам спрашивает подтверждение, чистит store/события/свидания, save+render+sync
-  if (db.photos.length === before) return; // отменил подтверждение — фото на месте, светбокс не трогаем
-  lightboxList = lightboxList.filter(s => s !== src);
-  if (!lightboxList.length) { lbClose(); return; }
-  lightboxIdx = Math.min(lightboxIdx, lightboxList.length - 1);
-  lbRender();
-});
+if (lbDeleteBtn)
+  lbDeleteBtn.addEventListener('click', () => {
+    const src = lightboxList[lightboxIdx];
+    const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
+    if (!p || typeof deletePhoto !== 'function') return;
+    const before = db.photos.length;
+    deletePhoto(p.id); // сам спрашивает подтверждение, чистит store/события/свидания, save+render+sync
+    if (db.photos.length === before) return; // отменил подтверждение — фото на месте, светбокс не трогаем
+    lightboxList = lightboxList.filter(s => s !== src);
+    if (!lightboxList.length) {
+      lbClose();
+      return;
+    }
+    lightboxIdx = Math.min(lightboxIdx, lightboxList.length - 1);
+    lbRender();
+  });
 const lbImg = $('#lightboxImg');
 if (lbImg) lbImg.addEventListener('dblclick', () => lbZoomToggle());
 // Клик вне фото закрывает светбокс — не только крестик. Общий делегат
@@ -5327,17 +5365,31 @@ if (lbImg) lbImg.addEventListener('dblclick', () => lbZoomToggle());
 // только если клик пришёлся ровно на сам #lbStage (пустое место вокруг
 // фото), а не на фото/стрелки/счётчик/кнопки — те сами обрабатывают клик.
 const lbStageEl = $('#lbStage');
-if (lbStageEl) lbStageEl.addEventListener('click', e => { if (e.target === lbStageEl) closeOverlay('lightbox'); });
+if (lbStageEl)
+  lbStageEl.addEventListener('click', e => {
+    if (e.target === lbStageEl) closeOverlay('lightbox');
+  });
 if (typeof document !== 'undefined' && document.addEventListener) {
   // Клавиатура: ←/→ листают, +/−/0 зум, Esc закрывает (обработчик Esc — в 60-lists-wishes)
   document.addEventListener('keydown', e => {
     const lb = $('#lightbox');
     if (!lb || lb.hidden) return;
-    if (e.key === 'ArrowLeft') { e.preventDefault(); lbNav(-1); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); lbNav(1); }
-    else if (e.key === '+' || e.key === '=') { e.preventDefault(); lbZoomTo(lightboxZoom + 0.5); }
-    else if (e.key === '-') { e.preventDefault(); lbZoomTo(lightboxZoom - 0.5); }
-    else if (e.key === '0') { e.preventDefault(); lbZoomTo(1); }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      lbNav(-1);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      lbNav(1);
+    } else if (e.key === '+' || e.key === '=') {
+      e.preventDefault();
+      lbZoomTo(lightboxZoom + 0.5);
+    } else if (e.key === '-') {
+      e.preventDefault();
+      lbZoomTo(lightboxZoom - 0.5);
+    } else if (e.key === '0') {
+      e.preventDefault();
+      lbZoomTo(1);
+    }
   });
 }
 // Свайп (горизонтальный — листание) и щипок (пинч — зум)
@@ -5352,17 +5404,30 @@ function lbTouchDist(e) {
 }
 const lbStage = $('#lbStage');
 if (lbStage) {
-  lbStage.addEventListener('touchstart', e => {
-    if (!e.touches) return;
-    if (e.touches.length === 1) { lbTouchX = e.touches[0].clientX; lbTouchY = e.touches[0].clientY; }
-    else if (e.touches.length === 2) { lbPinch = { d: lbTouchDist(e), s: lightboxZoom }; lbTouchX = null; }
-  }, { passive: true });
-  lbStage.addEventListener('touchmove', e => {
-    if (e.touches && e.touches.length === 2 && lbPinch) {
-      e.preventDefault(); // без этого браузер листает страницу
-      lbZoomTo(lbPinch.s * (lbTouchDist(e) / lbPinch.d));
-    }
-  }, { passive: false });
+  lbStage.addEventListener(
+    'touchstart',
+    e => {
+      if (!e.touches) return;
+      if (e.touches.length === 1) {
+        lbTouchX = e.touches[0].clientX;
+        lbTouchY = e.touches[0].clientY;
+      } else if (e.touches.length === 2) {
+        lbPinch = { d: lbTouchDist(e), s: lightboxZoom };
+        lbTouchX = null;
+      }
+    },
+    { passive: true }
+  );
+  lbStage.addEventListener(
+    'touchmove',
+    e => {
+      if (e.touches && e.touches.length === 2 && lbPinch) {
+        e.preventDefault(); // без этого браузер листает страницу
+        lbZoomTo(lbPinch.s * (lbTouchDist(e) / lbPinch.d));
+      }
+    },
+    { passive: false }
+  );
   lbStage.addEventListener('touchend', e => {
     if (lbTouchX != null && e.changedTouches && e.changedTouches[0]) {
       const dx = e.changedTouches[0].clientX - lbTouchX;
