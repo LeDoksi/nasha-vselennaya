@@ -28,9 +28,10 @@ jobs:
         run: node build.js
       - name: Собрать публикуемые файлы
         run: |
-          mkdir -p _site/fonts
+          mkdir -p _site/fonts _site/vendor
           cp index.html app.js styles.css icon.svg manifest.webmanifest _site/
           cp -r fonts/* _site/fonts/
+          cp -r vendor/* _site/vendor/
       - name: Загрузить артефакт
         uses: actions/upload-pages-artifact@v3
         with:
