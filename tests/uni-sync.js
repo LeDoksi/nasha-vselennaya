@@ -8,33 +8,82 @@ let src = fs.readFileSync(file, 'utf8');
 
 const registry = {};
 function makeEl() {
-  return { id: '', dataset: {}, children: [], hidden: false, innerHTML: '', textContent: '',
-    style: {}, value: '', options: [], _handlers: {}, _attrs: {},
-    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
-    addEventListener(t, fn) { (this._handlers[t] = this._handlers[t] || []).push(fn); }, querySelectorAll() { return []; },
-    appendChild() {}, remove() {}, focus() {}, click() {},
-    setAttribute(k, v) { this._attrs[k] = String(v); }, getAttribute(k) { return this._attrs[k] ?? null; }, removeAttribute(k) { delete this._attrs[k]; } };
+  return {
+    id: '',
+    dataset: {},
+    children: [],
+    hidden: false,
+    innerHTML: '',
+    textContent: '',
+    style: {},
+    value: '',
+    options: [],
+    _handlers: {},
+    _attrs: {},
+    classList: {
+      add() {},
+      remove() {},
+      toggle() {},
+      contains() {
+        return false;
+      }
+    },
+    addEventListener(t, fn) {
+      (this._handlers[t] = this._handlers[t] || []).push(fn);
+    },
+    querySelectorAll() {
+      return [];
+    },
+    appendChild() {},
+    remove() {},
+    focus() {},
+    click() {},
+    setAttribute(k, v) {
+      this._attrs[k] = String(v);
+    },
+    getAttribute(k) {
+      return this._attrs[k] ?? null;
+    },
+    removeAttribute(k) {
+      delete this._attrs[k];
+    }
+  };
 }
 // Мок Firebase: хранилище-объект, set/once/on/off
 const mockDb = { data: {}, _onCb: null };
 const firebase = {
-  initializeApp(config, name) { return { name: name || 'default', config }; },
-  auth() { return { signInAnonymously: async () => ({ user: { uid: 'mock-uid' } }), signOut: async () => {} }; },
+  initializeApp(config, name) {
+    return { name: name || 'default', config };
+  },
+  auth() {
+    return { signInAnonymously: async () => ({ user: { uid: 'mock-uid' } }), signOut: async () => {} };
+  },
   database() {
     return {
       ref(path) {
         const get = () => path.split('/').reduce((o, k) => (o == null ? o : o[k]), mockDb.data);
-        const put = (obj) => {
+        const put = obj => {
           const keys = path.split('/');
           let o = mockDb.data;
-          for (let i = 0; i < keys.length - 1; i++) { o = o[keys[i]] = o[keys[i]] || {}; }
+          for (let i = 0; i < keys.length - 1; i++) {
+            o = o[keys[i]] = o[keys[i]] || {};
+          }
           o[keys[keys.length - 1]] = obj;
         };
         return {
-          set(obj) { put(obj); return Promise.resolve(); },
-          once() { return Promise.resolve({ val: () => get() }); },
-          on(type, cb) { mockDb._onCb = cb; },
-          off() { mockDb._onCb = null; }
+          set(obj) {
+            put(obj);
+            return Promise.resolve();
+          },
+          once() {
+            return Promise.resolve({ val: () => get() });
+          },
+          on(type, cb) {
+            mockDb._onCb = cb;
+          },
+          off() {
+            mockDb._onCb = null;
+          }
         };
       }
     };
@@ -42,24 +91,85 @@ const firebase = {
 };
 const sandbox = {
   document: {
-    body: makeEl(), documentElement: { dataset: {} }, createElement() { return makeEl(); }, addEventListener() {},
-    querySelector(sel) { return registry[sel] || (registry[sel] = makeEl()); },
-    querySelectorAll() { return []; }
+    body: makeEl(),
+    documentElement: { dataset: {} },
+    createElement() {
+      return makeEl();
+    },
+    addEventListener() {},
+    querySelector(sel) {
+      return registry[sel] || (registry[sel] = makeEl());
+    },
+    querySelectorAll() {
+      return [];
+    }
   },
-  localStorage: { getItem(k) { return sandbox._store[k] ?? null; }, setItem(k, v) { sandbox._store[k] = String(v); }, removeItem(k) { delete sandbox._store[k]; } },
-  sessionStorage: { getItem(k) { return sandbox._ss[k] ?? null; }, setItem(k, v) { sandbox._ss[k] = String(v); }, removeItem(k) { delete sandbox._ss[k]; } },
-  alert() {}, confirm() { return true; },
-  URL: { createObjectURL() { return 'blob:x'; }, revokeObjectURL() {} },
-  FileReader: function () {}, Blob: function (parts) { this.size = (parts || []).join('').length; this.arrayBuffer = () => Promise.resolve(new Uint8Array(0).buffer); },
-  HTMLAudioElement: function () {}, Image: function () {},
-  setTimeout() { return 0; }, setInterval() { return 1; }, addEventListener() {},
-  isNaN, console, Date, Math, JSON, Object, Array, Number, String, RegExp,
+  localStorage: {
+    getItem(k) {
+      return sandbox._store[k] ?? null;
+    },
+    setItem(k, v) {
+      sandbox._store[k] = String(v);
+    },
+    removeItem(k) {
+      delete sandbox._store[k];
+    }
+  },
+  sessionStorage: {
+    getItem(k) {
+      return sandbox._ss[k] ?? null;
+    },
+    setItem(k, v) {
+      sandbox._ss[k] = String(v);
+    },
+    removeItem(k) {
+      delete sandbox._ss[k];
+    }
+  },
+  alert() {},
+  confirm() {
+    return true;
+  },
+  URL: {
+    createObjectURL() {
+      return 'blob:x';
+    },
+    revokeObjectURL() {}
+  },
+  FileReader: function () {},
+  Blob: function (parts) {
+    this.size = (parts || []).join('').length;
+    this.arrayBuffer = () => Promise.resolve(new Uint8Array(0).buffer);
+  },
+  HTMLAudioElement: function () {},
+  Image: function () {},
+  setTimeout() {
+    return 0;
+  },
+  setInterval() {
+    return 1;
+  },
+  addEventListener() {},
+  isNaN,
+  console,
+  Date,
+  Math,
+  JSON,
+  Object,
+  Array,
+  Number,
+  String,
+  RegExp,
   firebase,
-  _store: {}, _ss: {}
+  _store: {},
+  _ss: {}
 };
 const sleep = ms => new Promise(res => setTimeout(res, ms));
 function assert(cond, msg) {
-  if (!cond) { console.log('FAIL: ' + msg); process.exit(1); }
+  if (!cond) {
+    console.log('FAIL: ' + msg);
+    process.exit(1);
+  }
   results.push(msg);
 }
 let results = [];
@@ -81,14 +191,45 @@ function __TEST__(s){
 }
 `;
 
-const wrapped = new Function('sandbox', 'document', 'localStorage', 'sessionStorage', 'alert', 'confirm', 'URL',
-  'FileReader', 'Blob', 'HTMLAudioElement', 'Image', 'setTimeout', 'setInterval', 'addEventListener', 'firebase',
-  src + suffix);
-wrapped(sandbox, sandbox.document, sandbox.localStorage, sandbox.sessionStorage, sandbox.alert, sandbox.confirm,
-  sandbox.URL, sandbox.FileReader, sandbox.Blob, sandbox.HTMLAudioElement, sandbox.Image,
-  sandbox.setTimeout, sandbox.setInterval, sandbox.addEventListener, firebase);
+const wrapped = new Function(
+  'sandbox',
+  'document',
+  'localStorage',
+  'sessionStorage',
+  'alert',
+  'confirm',
+  'URL',
+  'FileReader',
+  'Blob',
+  'HTMLAudioElement',
+  'Image',
+  'setTimeout',
+  'setInterval',
+  'addEventListener',
+  'firebase',
+  // sourceURL — даёт npm run coverage (c8) сопоставить покрытие с app.js
+  // вместо анонимного eval внутри new Function().
+  src + suffix + '\n//# sourceURL=' + file
+);
+wrapped(
+  sandbox,
+  sandbox.document,
+  sandbox.localStorage,
+  sandbox.sessionStorage,
+  sandbox.alert,
+  sandbox.confirm,
+  sandbox.URL,
+  sandbox.FileReader,
+  sandbox.Blob,
+  sandbox.HTMLAudioElement,
+  sandbox.Image,
+  sandbox.setTimeout,
+  sandbox.setInterval,
+  sandbox.addEventListener,
+  firebase
+);
 
-const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
+const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
 
 (async () => {
   // 1. config + сейф
@@ -145,15 +286,13 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   await w('(s)=>s.initSync()');
   await w('(s)=>s.pushVault()');
   assert(w('(s)=>s.syncPushBlocked') === true, 'push заблокирован: чужой облачный сейф не затирается');
-  assert(JSON.stringify(mockDb.data.vaults.shared.vault) === cloudVaultLiteral,
-    'облачный сейф не тронут при конфликте');
+  assert(JSON.stringify(mockDb.data.vaults.shared.vault) === cloudVaultLiteral, 'облачный сейф не тронут при конфликте');
   await w('(s)=>s.forcePushVault()'); // явное восстановление — человек нажал кнопку
   assert(w('(s)=>s.syncPushBlocked') === false, 'forcePushVault снимает блокировку');
-  assert(JSON.stringify(mockDb.data.vaults.shared.vault) !== cloudVaultLiteral,
-    'forcePushVault записал сейф этого устройства');
+  assert(JSON.stringify(mockDb.data.vaults.shared.vault) !== cloudVaultLiteral, 'forcePushVault записал сейф этого устройства');
   // 11. Пустое облако → fetchCloudVault возвращает null
   mockDb.data.vaults.shared = null;
-  assert(await w('(s)=>s.fetchCloudVault()') === null, 'пустое облако → null');
+  assert((await w('(s)=>s.fetchCloudVault()')) === null, 'пустое облако → null');
   // 12. Устройство держит локальный сейф с ДРУГИМ паролем, а пользователь вводит
   // пароль ОБЛАЧНОГО сейфа → вход идёт по облачному сейфу, данные приходят
   // из облака, старый локальный не затирает облако и уходит в резервную копию.
@@ -174,10 +313,8 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   await w('(s)=>s.tryUnlock()');
   assert(w('(s)=>s.isLocked()') === false, '12: вход паролем облачного сейфа прошёл');
   const adopted12 = w('(s)=>s.loadVault()');
-  assert(await w('(s)=>s.tryUnwrapKey("gosha","cldpass",' + JSON.stringify(adopted12) + ')') !== null,
-    '12: облачный пароль открывает сейф на устройстве (усыновлён)');
-  assert(await w('(s)=>s.tryUnwrapKey("gosha","locpass",' + JSON.stringify(adopted12) + ')') === null,
-    '12: старый локальный пароль больше не подходит — на устройстве облачный сейф');
+  assert((await w('(s)=>s.tryUnwrapKey("gosha","cldpass",' + JSON.stringify(adopted12) + ')')) !== null, '12: облачный пароль открывает сейф на устройстве (усыновлён)');
+  assert((await w('(s)=>s.tryUnwrapKey("gosha","locpass",' + JSON.stringify(adopted12) + ')')) === null, '12: старый локальный пароль больше не подходит — на устройстве облачный сейф');
   assert(JSON.stringify(w('(s)=>s.db')) === cloudDb, '12: данные пришли из облака');
   assert(sandbox._store['universe_vault_prev'] !== undefined, '12: старый сейф сохранён в резервную копию');
   // 13. Устройство держит сейф, созданный тем ЖЕ паролем, но это отдельный сейф
@@ -185,13 +322,11 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   // не терять облачные данные.
   sandbox._store = {};
   await w('(s)=>s.createVault("gosha","cldpass")'); // «второй» сейф тем же паролем
-  assert(JSON.stringify(w('(s)=>s.loadVault()')) !== JSON.stringify(cloudVault),
-    '13: это отдельный сейф (новая соль, другой ключ)');
+  assert(JSON.stringify(w('(s)=>s.loadVault()')) !== JSON.stringify(cloudVault), '13: это отдельный сейф (новая соль, другой ключ)');
   w('(s)=>{s.__setPendingCloudVault(' + JSON.stringify(cloudVault) + '); return 1;}');
   sandbox.document.querySelector('#authPass').value = 'cldpass';
   await w('(s)=>s.tryUnlock()');
-  assert(w('(s)=>s.db.wishlist.some(x => x.id === "from-cloud")') === true,
-    '13: открыт облачный сейф (данные из облака), а не локальный близнец');
+  assert(w('(s)=>s.db.wishlist.some(x => x.id === "from-cloud")') === true, '13: открыт облачный сейф (данные из облака), а не локальный близнец');
   // 14. Пароль локального сейфа ≠ паролю облака: вход локальным паролем остаётся
   // на локальном сейфе, облачный не усыновляется и НЕ затирается.
   sandbox._store = {};
@@ -201,12 +336,9 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   await w('(s)=>s.tryUnlock()');
   assert(w('(s)=>s.isLocked()') === false, '14: локальный вход прошёл');
   const stayed14 = w('(s)=>s.loadVault()');
-  assert(await w('(s)=>s.tryUnwrapKey("gosha","locpass",' + JSON.stringify(stayed14) + ')') !== null,
-    '14: на устройстве остался локальный сейф');
-  assert(await w('(s)=>s.tryUnwrapKey("gosha","cldpass",' + JSON.stringify(stayed14) + ')') === null,
-    '14: облачный сейф не усыновлён');
-  assert(JSON.stringify(mockDb.data.vaults.shared.vault) === JSON.stringify(cloudVault),
-    '14: облако не тронуто');
+  assert((await w('(s)=>s.tryUnwrapKey("gosha","locpass",' + JSON.stringify(stayed14) + ')')) !== null, '14: на устройстве остался локальный сейф');
+  assert((await w('(s)=>s.tryUnwrapKey("gosha","cldpass",' + JSON.stringify(stayed14) + ')')) === null, '14: облачный сейф не усыновлён');
+  assert(JSON.stringify(mockDb.data.vaults.shared.vault) === JSON.stringify(cloudVault), '14: облако не тронуто');
   // 15. Неверный пароль — ни локальный, ни облачный не открылись: остаёмся на замке.
   await w('(s)=>s.lock()');
   sandbox.document.querySelector('#authPass').value = 'nope';
@@ -226,8 +358,9 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   w('(s)=>{s.__setPendingCloudVault(' + JSON.stringify(cloudCopy) + '); return 1;}');
   sandbox.document.querySelector('#authPass').value = 'cldpass';
   await w('(s)=>s.tryUnlock()');
-  assert(w('(s)=>s.db.wishlist.some(x => x.id === "local-edit")') === true,
-    '16: свежая правка устройства сохранена (облачная копия не заменила её)');
+  assert(w('(s)=>s.db.wishlist.some(x => x.id === "local-edit")') === true, '16: свежая правка устройства сохранена (облачная копия не заменила её)');
   console.log('OK: ' + results.length + ' sync checks passed');
-})().catch(e => { console.log('FAIL: sync: ' + (e && e.message)); process.exit(1); });
-
+})().catch(e => {
+  console.log('FAIL: sync: ' + (e && e.message));
+  process.exit(1);
+});

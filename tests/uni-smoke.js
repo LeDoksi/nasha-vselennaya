@@ -258,7 +258,11 @@ const wrapped = new Function(
   'setTimeout',
   'setInterval',
   'addEventListener',
-  src + suffix
+  // sourceURL — не для отладки, а чтобы npm run coverage (c8) отличал строки
+  // app.js от собственного кода этого файла: без него весь код внутри
+  // new Function() всплывает как анонимный eval, c8 не может сопоставить
+  // покрытие с реальным файлом.
+  src + suffix + '\n//# sourceURL=' + file
 );
 wrapped(
   sandbox,

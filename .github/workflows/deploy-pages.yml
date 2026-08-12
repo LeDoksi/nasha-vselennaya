@@ -24,12 +24,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Собрать app.js из src/
+      - name: Установить зависимости
+        run: npm install
+      - name: Собрать app.js/app.min.js из src/
         run: node build.js
       - name: Собрать публикуемые файлы
         run: |
           mkdir -p _site/fonts _site/vendor
-          cp index.html app.js styles.css icon.svg manifest.webmanifest sw.js _site/
+          cp index.html app.min.js styles.css icon.svg manifest.webmanifest sw.js _site/
           cp -r fonts/* _site/fonts/
           cp -r vendor/* _site/vendor/
       - name: Загрузить артефакт

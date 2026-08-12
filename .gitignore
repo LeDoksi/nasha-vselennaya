@@ -28,3 +28,12 @@ secrets.js
 
 # Dev-зависимости (ESLint/Prettier/husky) — ставятся через npm install
 node_modules/
+
+# Минифицированный продакшен-бандл (Фаза 5) — генерируется node build.js
+# заново локально и в CI/деплое, коммитить нечитаемый минифицированный diff
+# смысла нет (в отличие от app.js — тот коммитим, чтобы CI проверял
+# консистентность со src/, см. .github/workflows/ci.yml).
+app.min.js
+
+# Отчёт покрытия тестов (Фаза 5, npm run coverage) — генерируется заново
+coverage/

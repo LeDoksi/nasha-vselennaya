@@ -12,8 +12,8 @@
    CACHE_NAME версионируется вручную — меняешь состав SHELL_FILES или логику
    fetch, бампни версию, иначе часть пользователей будет обслуживаться старым
    активным воркером до следующей полной перезагрузки. */
-const CACHE_NAME = 'nasha-vselennaya-shell-v1';
-const SHELL_FILES = ['./', './index.html', './app.js', './styles.css', './icon.svg', './manifest.webmanifest', './vendor/sortable.min.js'];
+const CACHE_NAME = 'nasha-vselennaya-shell-v2';
+const SHELL_FILES = ['./', './index.html', './app.min.js', './styles.css', './icon.svg', './manifest.webmanifest', './vendor/sortable.min.js'];
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -35,7 +35,7 @@ self.addEventListener('activate', event => {
 
 // Stale-while-revalidate только для собственного origin: отдаём кэш сразу
 // (мгновенная загрузка, работает офлайн), в фоне подтягиваем свежую версию в
-// кэш на следующий раз — не залипаем на старом app.js неделями, но и не ждём
+// кэш на следующий раз — не залипаем на старом app.min.js неделями, но и не ждём
 // сеть при каждой загрузке. Firebase/Yandex/Google — чужой origin, не трогаем.
 self.addEventListener('fetch', event => {
   const req = event.request;

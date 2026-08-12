@@ -14,33 +14,82 @@ let src = fs.readFileSync(file, 'utf8');
 
 const registry = {};
 function makeEl() {
-  return { id: '', dataset: {}, children: [], hidden: false, innerHTML: '', textContent: '',
-    style: {}, value: '', options: [], _handlers: {}, _attrs: {},
-    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
-    addEventListener(t, fn) { (this._handlers[t] = this._handlers[t] || []).push(fn); }, querySelectorAll() { return []; },
-    appendChild() {}, remove() {}, focus() {}, click() {},
-    setAttribute(k, v) { this._attrs[k] = String(v); }, getAttribute(k) { return this._attrs[k] ?? null; }, removeAttribute(k) { delete this._attrs[k]; } };
+  return {
+    id: '',
+    dataset: {},
+    children: [],
+    hidden: false,
+    innerHTML: '',
+    textContent: '',
+    style: {},
+    value: '',
+    options: [],
+    _handlers: {},
+    _attrs: {},
+    classList: {
+      add() {},
+      remove() {},
+      toggle() {},
+      contains() {
+        return false;
+      }
+    },
+    addEventListener(t, fn) {
+      (this._handlers[t] = this._handlers[t] || []).push(fn);
+    },
+    querySelectorAll() {
+      return [];
+    },
+    appendChild() {},
+    remove() {},
+    focus() {},
+    click() {},
+    setAttribute(k, v) {
+      this._attrs[k] = String(v);
+    },
+    getAttribute(k) {
+      return this._attrs[k] ?? null;
+    },
+    removeAttribute(k) {
+      delete this._attrs[k];
+    }
+  };
 }
 // Мок Firebase: только RTDB (сейф). Фото больше не идут через Firebase.
 const mockDb = { data: {}, _onCb: null };
 const firebase = {
-  initializeApp(config, name) { return { name: name || 'default', config }; },
-  auth() { return { signInAnonymously: async () => ({ user: { uid: 'mock-uid' } }), signOut: async () => {} }; },
+  initializeApp(config, name) {
+    return { name: name || 'default', config };
+  },
+  auth() {
+    return { signInAnonymously: async () => ({ user: { uid: 'mock-uid' } }), signOut: async () => {} };
+  },
   database() {
     return {
       ref(path) {
         const get = () => path.split('/').reduce((o, k) => (o == null ? o : o[k]), mockDb.data);
-        const put = (obj) => {
+        const put = obj => {
           const keys = path.split('/');
           let o = mockDb.data;
-          for (let i = 0; i < keys.length - 1; i++) { o = o[keys[i]] = o[keys[i]] || {}; }
+          for (let i = 0; i < keys.length - 1; i++) {
+            o = o[keys[i]] = o[keys[i]] || {};
+          }
           o[keys[keys.length - 1]] = obj;
         };
         return {
-          set(obj) { put(obj); return Promise.resolve(); },
-          once() { return Promise.resolve({ val: () => get() }); },
-          on(type, cb) { mockDb._onCb = cb; },
-          off() { mockDb._onCb = null; }
+          set(obj) {
+            put(obj);
+            return Promise.resolve();
+          },
+          once() {
+            return Promise.resolve({ val: () => get() });
+          },
+          on(type, cb) {
+            mockDb._onCb = cb;
+          },
+          off() {
+            mockDb._onCb = null;
+          }
         };
       }
     };
@@ -52,21 +101,29 @@ const firebase = {
 const mockBucket = {};
 const SIGN_FN_URL = 'https://functions.yandexcloud.net/mock-photo-sign';
 const signCalls = []; // для проверки, что запись реально идёт через функцию
-const getCalls = [];  // GET-запросы к конкретным объектам (не список) — для проверки, что уже свои фото не перепроверяются заново
+const getCalls = []; // GET-запросы к конкретным объектам (не список) — для проверки, что уже свои фото не перепроверяются заново
 const timeoutCalls = []; // задержки setTimeout из sync-модуля — проверить, что «висящее» фото планирует быстрый повтор (3с), а не 20с
 let paginateLimit = null; // не null в тесте пагинации — режет список на страницы по N ключей
 function xmlList(prefix, token) {
-  const keys = Object.keys(mockBucket).filter(k => k.slice(1).startsWith(prefix)).map(k => k.slice(1)).sort();
+  const keys = Object.keys(mockBucket)
+    .filter(k => k.slice(1).startsWith(prefix))
+    .map(k => k.slice(1))
+    .sort();
   if (!paginateLimit) {
     return '<ListBucketResult>' + keys.map(k => '<Contents><Key>' + k + '</Key></Contents>').join('') + '</ListBucketResult>';
   }
   const start = token ? keys.indexOf(token) + 1 : 0;
   const page = keys.slice(start, start + paginateLimit);
   const truncated = start + paginateLimit < keys.length;
-  return '<ListBucketResult>' + page.map(k => '<Contents><Key>' + k + '</Key></Contents>').join('') +
-    '<IsTruncated>' + (truncated ? 'true' : 'false') + '</IsTruncated>' +
+  return (
+    '<ListBucketResult>' +
+    page.map(k => '<Contents><Key>' + k + '</Key></Contents>').join('') +
+    '<IsTruncated>' +
+    (truncated ? 'true' : 'false') +
+    '</IsTruncated>' +
     (truncated ? '<NextContinuationToken>' + page[page.length - 1] + '</NextContinuationToken>' : '') +
-    '</ListBucketResult>';
+    '</ListBucketResult>'
+  );
 }
 async function fetchMock(url, opts) {
   const method = (opts && opts.method) || 'GET';
@@ -107,19 +164,56 @@ async function fetchMock(url, opts) {
 
 const sandbox = {
   document: {
-    body: makeEl(), documentElement: { dataset: {} }, createElement() { return makeEl(); }, addEventListener() {},
-    querySelector(sel) { return registry[sel] || (registry[sel] = makeEl()); },
-    querySelectorAll() { return []; }
+    body: makeEl(),
+    documentElement: { dataset: {} },
+    createElement() {
+      return makeEl();
+    },
+    addEventListener() {},
+    querySelector(sel) {
+      return registry[sel] || (registry[sel] = makeEl());
+    },
+    querySelectorAll() {
+      return [];
+    }
   },
-  localStorage: { getItem(k) { return sandbox._store[k] ?? null; }, setItem(k, v) { sandbox._store[k] = String(v); }, removeItem(k) { delete sandbox._store[k]; } },
-  sessionStorage: { getItem(k) { return sandbox._ss[k] ?? null; }, setItem(k, v) { sandbox._ss[k] = String(v); }, removeItem(k) { delete sandbox._ss[k]; } },
-  alert() {}, confirm() { return true; },
-  URL: { createObjectURL() { return 'blob:x'; }, revokeObjectURL() {} },
+  localStorage: {
+    getItem(k) {
+      return sandbox._store[k] ?? null;
+    },
+    setItem(k, v) {
+      sandbox._store[k] = String(v);
+    },
+    removeItem(k) {
+      delete sandbox._store[k];
+    }
+  },
+  sessionStorage: {
+    getItem(k) {
+      return sandbox._ss[k] ?? null;
+    },
+    setItem(k, v) {
+      sandbox._ss[k] = String(v);
+    },
+    removeItem(k) {
+      delete sandbox._ss[k];
+    }
+  },
+  alert() {},
+  confirm() {
+    return true;
+  },
+  URL: {
+    createObjectURL() {
+      return 'blob:x';
+    },
+    revokeObjectURL() {}
+  },
   FileReader: function () {},
   Blob: function (parts, opts) {
     this.type = (opts && opts.type) || '';
     const chunks = [];
-    for (const p of (parts || [])) {
+    for (const p of parts || []) {
       if (p instanceof Uint8Array) chunks.push(String.fromCharCode(...p));
       else if (p != null) chunks.push(String(p));
     }
@@ -128,14 +222,36 @@ const sandbox = {
     this.arrayBuffer = () => Promise.resolve(new TextEncoder().encode(this._text).buffer);
     this.text = () => Promise.resolve(this._text);
   },
-  HTMLAudioElement: function () {}, Image: function () {},
-  setTimeout(fn, ms) { timeoutCalls.push(ms); return 0; }, setInterval() { return 1; }, addEventListener() {},
-  isNaN, console, Date, Math, JSON, Object, Array, Number, String, RegExp,
-  firebase, fetch: fetchMock,
-  _store: {}, _ss: {}
+  HTMLAudioElement: function () {},
+  Image: function () {},
+  setTimeout(fn, ms) {
+    timeoutCalls.push(ms);
+    return 0;
+  },
+  setInterval() {
+    return 1;
+  },
+  addEventListener() {},
+  isNaN,
+  console,
+  Date,
+  Math,
+  JSON,
+  Object,
+  Array,
+  Number,
+  String,
+  RegExp,
+  firebase,
+  fetch: fetchMock,
+  _store: {},
+  _ss: {}
 };
 function assert(cond, msg) {
-  if (!cond) { console.log('FAIL: ' + msg); process.exit(1); }
+  if (!cond) {
+    console.log('FAIL: ' + msg);
+    process.exit(1);
+  }
   results.push(msg);
 }
 let results = [];
@@ -157,14 +273,47 @@ function __TEST__(s){
 }
 `;
 
-const wrapped = new Function('sandbox', 'document', 'localStorage', 'sessionStorage', 'alert', 'confirm', 'URL',
-  'FileReader', 'Blob', 'HTMLAudioElement', 'Image', 'setTimeout', 'setInterval', 'addEventListener', 'firebase', 'fetch',
-  src + suffix);
-wrapped(sandbox, sandbox.document, sandbox.localStorage, sandbox.sessionStorage, sandbox.alert, sandbox.confirm,
-  sandbox.URL, sandbox.FileReader, sandbox.Blob, sandbox.HTMLAudioElement, sandbox.Image,
-  sandbox.setTimeout, sandbox.setInterval, sandbox.addEventListener, firebase, fetchMock);
+const wrapped = new Function(
+  'sandbox',
+  'document',
+  'localStorage',
+  'sessionStorage',
+  'alert',
+  'confirm',
+  'URL',
+  'FileReader',
+  'Blob',
+  'HTMLAudioElement',
+  'Image',
+  'setTimeout',
+  'setInterval',
+  'addEventListener',
+  'firebase',
+  'fetch',
+  // sourceURL — даёт npm run coverage (c8) сопоставить покрытие с app.js
+  // вместо анонимного eval внутри new Function().
+  src + suffix + '\n//# sourceURL=' + file
+);
+wrapped(
+  sandbox,
+  sandbox.document,
+  sandbox.localStorage,
+  sandbox.sessionStorage,
+  sandbox.alert,
+  sandbox.confirm,
+  sandbox.URL,
+  sandbox.FileReader,
+  sandbox.Blob,
+  sandbox.HTMLAudioElement,
+  sandbox.Image,
+  sandbox.setTimeout,
+  sandbox.setInterval,
+  sandbox.addEventListener,
+  firebase,
+  fetchMock
+);
 
-const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
+const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
 
 (async () => {
   // 1. config + сейф + инициализация (Yandex Object Storage подключился)
@@ -183,10 +332,14 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   assert(!!mockBucket['/photos/orig/pA'], 'оригинал ушёл в облако');
   assert(!!mockBucket['/photos/full/pA'], 'показ-версия ушла в облако');
   assert(!!mockBucket['/photos/thumb/pA'], 'миниатюра ушла в облако');
-  assert(!String(mockBucket['/photos/orig/pA'] || '').includes('ORIG-A') && !String(mockBucket['/photos/full/pA'] || '').includes('FULL-A'),
-    'в облаке лежит шифртекст, а не открытое фото (zero-knowledge)');
-  assert(signCalls.some(c => c.method === 'PUT' && c.part === 'orig' && c.id === 'pA'),
-    'запись оригинала запросила подписанную ссылку у функции photo-sign (не голый PUT в бакет)');
+  assert(
+    !String(mockBucket['/photos/orig/pA'] || '').includes('ORIG-A') && !String(mockBucket['/photos/full/pA'] || '').includes('FULL-A'),
+    'в облаке лежит шифртекст, а не открытое фото (zero-knowledge)'
+  );
+  assert(
+    signCalls.some(c => c.method === 'PUT' && c.part === 'orig' && c.id === 'pA'),
+    'запись оригинала запросила подписанную ссылку у функции photo-sign (не голый PUT в бакет)'
+  );
 
   // 2b. Повторная сверка без изменений: pA уже полностью локально и всё ещё в
   // db.photos — повторно проверять его расшифровку (сетевой GET) не нужно,
@@ -194,8 +347,7 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   // ВСЕ облачные фото при каждой сверке — эта проверка ловит регресс.
   getCalls.length = 0;
   await w('(s)=>s.syncPhotos()');
-  assert(!getCalls.some(p => p.indexOf('/pA') !== -1),
-    'уже свои фото (в db.photos + полностью локально) не перепроверяются заново при повторной сверке');
+  assert(!getCalls.some(p => p.indexOf('/pA') !== -1), 'уже свои фото (в db.photos + полностью локально) не перепроверяются заново при повторной сверке');
 
   // 2c. Гонка с другим устройством: сейф (через живой слушатель) уже принёс
   // запись о новом фото pRace в db.photos, а сам файл другое устройство ещё
@@ -218,9 +370,12 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   // 3. «Второе устройство»: стор пуст, облако уже знает фото — скачиваем всё назад
   await w('(s)=>{s.photoStore.clear(); return 1;}');
   await w('(s)=>s.syncPhotos()');
-  assert(await w('(s)=>s.photoStore.getMeta("pA")') !== null, 'фото скачано из облака в store');
+  assert((await w('(s)=>s.photoStore.getMeta("pA")')) !== null, 'фото скачано из облака в store');
   const idsA = await w('(s)=>s.photoStore.listIds()');
-  assert(idsA.some(i => i.id === 'pA' && i.hasOrig && i.hasFull && i.hasThumb), 'скачаны все три части фото');
+  assert(
+    idsA.some(i => i.id === 'pA' && i.hasOrig && i.hasFull && i.hasThumb),
+    'скачаны все три части фото'
+  );
 
   // 4. Фото, загруженное партнёром (в облаке есть pB, локально нет) — докачивается.
   await w('(s)=>s.photoStore.put("pB", new Blob(["FULL-B"]), new Blob(["THUMB-B"]), {type:"image/png",thumbType:"image/webp",title:"Фото Б"}, new Blob(["ORIG-B"]))');
@@ -228,7 +383,7 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   await w('(s)=>s.syncPhotos()');
   await w('(s)=>{s.photoStore.delete("pB"); return 1;}');
   await w('(s)=>s.syncPhotos()');
-  assert(await w('(s)=>s.photoStore.getMeta("pB")') !== null, 'фото pB скачано из облака');
+  assert((await w('(s)=>s.photoStore.getMeta("pB")')) !== null, 'фото pB скачано из облака');
   const origB = await w('(s)=>s.photoStore.getOrig("pB")');
   assert(origB && origB.type === 'image/png', 'оригинал pB сохранил свой тип после кругосветки');
 
@@ -243,9 +398,8 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   // 6. Удаление фото → исчезает из облака и из локального стора
   w('(s)=>{s.db.photos = s.db.photos.filter(p => p.id !== "pA"); return 1;}');
   await w('(s)=>s.syncPhotos()');
-  assert(!mockBucket['/photos/orig/pA'] && !mockBucket['/photos/full/pA'] && !mockBucket['/photos/thumb/pA'],
-    'удалённое фото убрано из облака');
-  assert(await w('(s)=>s.photoStore.getMeta("pA")') === null, 'удалённое фото убрано из локального стора');
+  assert(!mockBucket['/photos/orig/pA'] && !mockBucket['/photos/full/pA'] && !mockBucket['/photos/thumb/pA'], 'удалённое фото убрано из облака');
+  assert((await w('(s)=>s.photoStore.getMeta("pA")')) === null, 'удалённое фото убрано из локального стора');
 
   // 7. stopSync отключает и фото-синхронизацию
   w('(s)=>{s.stopSync(); return 1;}');
@@ -263,23 +417,21 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   mockBucket['/photos/thumb/pZ'] = foreignBody;
   await w('(s)=>{s.db.photos = []; return 1;}'); // локально пусто (новое устройство)
   await w('(s)=>s.syncPhotos()');
-  assert(!!mockBucket['/photos/full/pZ'] && !!mockBucket['/photos/thumb/pZ'],
-    'фото чужого ключа не удаляются из облака (это не мусор)');
-  assert(!!mockBucket['/photos/full/pB'] && !!mockBucket['/photos/full/pOld'],
-    'смесь «наших» и «чужих»: чужие не удаляются, наши не затираются (want пуст — синхронизировать нечего)');
-  assert(await w('(s)=>s.photoStore.getMeta("pZ")') === null,
-    'фото чужого ключа не скачиваются в локальный стор');
+  assert(!!mockBucket['/photos/full/pZ'] && !!mockBucket['/photos/thumb/pZ'], 'фото чужого ключа не удаляются из облака (это не мусор)');
+  assert(!!mockBucket['/photos/full/pB'] && !!mockBucket['/photos/full/pOld'], 'смесь «наших» и «чужих»: чужие не удаляются, наши не затираются (want пуст — синхронизировать нечего)');
+  assert((await w('(s)=>s.photoStore.getMeta("pZ")')) === null, 'фото чужого ключа не скачиваются в локальный стор');
   assert(w('(s)=>s.photoSyncing') === false, 'syncPhotos завершился штатно (флаг сброшен)');
 
   // 9. Чисто чужое облако (свежий браузер, сейф создан заново): в облаке ТОЛЬКО
   // фото старого ключа, локальный «want» пуст — главный сценарий защиты от «мусора».
-  delete mockBucket['/photos/full/pB']; delete mockBucket['/photos/thumb/pB']; delete mockBucket['/photos/orig/pB'];
-  delete mockBucket['/photos/full/pOld']; delete mockBucket['/photos/thumb/pOld'];
+  delete mockBucket['/photos/full/pB'];
+  delete mockBucket['/photos/thumb/pB'];
+  delete mockBucket['/photos/orig/pB'];
+  delete mockBucket['/photos/full/pOld'];
+  delete mockBucket['/photos/thumb/pOld'];
   await w('(s)=>s.syncPhotos()');
-  assert(!!mockBucket['/photos/full/pZ'] && !!mockBucket['/photos/thumb/pZ'],
-    'свежий браузер: чужое облако не стирается как «мусор»');
-  assert(await w('(s)=>s.photoStore.getMeta("pZ")') === null,
-    'свежий браузер: чужое облако не скачивается');
+  assert(!!mockBucket['/photos/full/pZ'] && !!mockBucket['/photos/thumb/pZ'], 'свежий браузер: чужое облако не стирается как «мусор»');
+  assert((await w('(s)=>s.photoStore.getMeta("pZ")')) === null, 'свежий браузер: чужое облако не скачивается');
   assert(w('(s)=>s.photoSyncing') === false, 'свежий браузер: syncPhotos завершился штатно');
 
   // 10. ГЛАВНЫЙ СЦЕНАРИЙ: локальные свои фото + чужое фото в облаке.
@@ -288,12 +440,9 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   await w('(s)=>s.photoStore.put("pN", new Blob(["FULL-N"]), new Blob(["THUMB-N"]), {type:"image/jpeg",thumbType:"image/webp",title:"N"}, new Blob(["ORIG-N"]))');
   w('(s)=>{s.db.photos = [{id:"pN",title:"N",labels:[],pinned:false,ts:5,order:1}]; return 1;}');
   await w('(s)=>s.syncPhotos()');
-  assert(!!mockBucket['/photos/orig/pN'] && !!mockBucket['/photos/full/pN'] && !!mockBucket['/photos/thumb/pN'],
-    'своё фото выгружается, даже когда в облаке есть чужое');
-  assert(!!mockBucket['/photos/full/pZ'] && !!mockBucket['/photos/thumb/pZ'],
-    'чужое фото остаётся нетронутым при выгрузке своих');
-  assert(await w('(s)=>s.photoStore.getMeta("pN")') !== null,
-    'своё фото осталось в локальном сторе');
+  assert(!!mockBucket['/photos/orig/pN'] && !!mockBucket['/photos/full/pN'] && !!mockBucket['/photos/thumb/pN'], 'своё фото выгружается, даже когда в облаке есть чужое');
+  assert(!!mockBucket['/photos/full/pZ'] && !!mockBucket['/photos/thumb/pZ'], 'чужое фото остаётся нетронутым при выгрузке своих');
+  assert((await w('(s)=>s.photoStore.getMeta("pN")')) !== null, 'своё фото осталось в локальном сторе');
   assert(w('(s)=>s.photoSyncing') === false, 'syncPhotos завершился штатно');
 
   // 11. Пагинация листинга: ListObjectsV2 у настоящего Yandex Object Storage
@@ -306,8 +455,13 @@ const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox)
   const paged = await w('(s)=>s.listCloudPhotos()');
   paginateLimit = null;
   for (const n of ['q1', 'q2', 'q3', 'q4', 'q5']) delete mockBucket['/photos/thumb/' + n];
-  assert(['q1', 'q2', 'q3', 'q4', 'q5'].every(n => paged[n] && paged[n].thumb),
-    'постраничный список (лимит 2 на страницу) всё равно собирает все 5 ключей через continuation-token');
+  assert(
+    ['q1', 'q2', 'q3', 'q4', 'q5'].every(n => paged[n] && paged[n].thumb),
+    'постраничный список (лимит 2 на страницу) всё равно собирает все 5 ключей через continuation-token'
+  );
 
   console.log('OK: ' + results.length + ' photo-sync checks passed');
-})().catch(e => { process.stdout.write('FAIL: photo-sync: ' + (e && (e.stack || e.message) || e) + '\n'); process.exit(1); });
+})().catch(e => {
+  process.stdout.write('FAIL: photo-sync: ' + ((e && (e.stack || e.message)) || e) + '\n');
+  process.exit(1);
+});
