@@ -5,9 +5,9 @@
   "description": "«Наша вселенная» — личное приложение пары: календарь, заметки, фото, сейф с шифрованием.",
   "scripts": {
     "build": "node build.js",
-    "test": "node tests/uni-smoke.js app.js && node tests/uni-dnd.js app.js && node tests/uni-hash.js app.js && node tests/uni-sync.js app.js && node tests/uni-photo-sync.js app.js && node tests/photo-sign-auth.js",
-    "lint": "eslint app.js tests build.js functions",
-    "check": "node build.js && node tests/uni-smoke.js app.js && node tests/uni-dnd.js app.js && node tests/uni-hash.js app.js && node tests/uni-sync.js app.js && node tests/uni-photo-sync.js app.js && node tests/photo-sign-auth.js && npm run lint",
+    "test": "node tests/uni-smoke.js app.js && node tests/uni-dnd.js app.js && node tests/uni-hash.js app.js && node tests/uni-sync.js app.js && node tests/uni-photo-sync.js app.js && node tests/photo-sign-auth.js && node tests/send-push-auth.js",
+    "lint": "eslint app.js sw.js tests build.js functions",
+    "check": "node build.js && node tests/uni-smoke.js app.js && node tests/uni-dnd.js app.js && node tests/uni-hash.js app.js && node tests/uni-sync.js app.js && node tests/uni-photo-sync.js app.js && node tests/photo-sign-auth.js && node tests/send-push-auth.js && npm run lint",
     "prepare": "husky"
   },
   "devDependencies": {
@@ -18,11 +18,15 @@
     "lint-staged": "^17.3.0",
     "prettier": "^3.9.6"
   },
+  "dependencies": {
+    "web-push": "^3.6.7"
+  },
   "lint-staged": {
     "src/**/*.js": "prettier --write",
     "tests/**/*.js": "prettier --write",
     "functions/**/*.js": "prettier --write",
     "build.js": "prettier --write",
-    "eslint.config.js": "prettier --write"
+    "eslint.config.js": "prettier --write",
+    "sw.js": "prettier --write"
   }
 }

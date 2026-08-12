@@ -78,8 +78,14 @@ function renderCompliment() {
 let countdownTarget = null;
 function nextTarget() {
   const now = Date.now();
-  let best = null, bestT = Infinity;
-  const trySet = (t, obj) => { if (t > now && t < bestT) { bestT = t; best = { ...obj, t }; } };
+  let best = null,
+    bestT = Infinity;
+  const trySet = (t, obj) => {
+    if (t > now && t < bestT) {
+      bestT = t;
+      best = { ...obj, t };
+    }
+  };
   for (const ev of db.events) trySet(nextOcc(ev).getTime(), { title: ev.title, emoji: ev.emoji || '💜' });
   for (const dt of db.dates) {
     if (dt.done) continue;
@@ -93,7 +99,12 @@ function renderCountdown() {
   const box = $('#countdown');
   if (!box) return;
   const n = nextTarget();
-  if (!n) { box.hidden = true; box.innerHTML = ''; countdownTarget = null; return; }
+  if (!n) {
+    box.hidden = true;
+    box.innerHTML = '';
+    countdownTarget = null;
+    return;
+  }
   countdownTarget = n.t;
   box.hidden = false;
   box.innerHTML = `<div class="compliment-card">
@@ -105,14 +116,22 @@ function renderCountdown() {
 function tickCountdown() {
   const el = $('#countdownTick');
   if (!el || countdownTarget == null) return;
-  if (countdownTarget - Date.now() <= 0) { renderCountdown(); return; } // цель наступила — сразу берём следующую
+  if (countdownTarget - Date.now() <= 0) {
+    renderCountdown();
+    return;
+  } // цель наступила — сразу берём следующую
   const left = countdownTarget - Date.now();
   const s = Math.floor(left / 1000);
-  const dd = Math.floor(s / 86400), hh = Math.floor(s % 86400 / 3600), mm = Math.floor(s % 3600 / 60), ss = s % 60;
+  const dd = Math.floor(s / 86400),
+    hh = Math.floor((s % 86400) / 3600),
+    mm = Math.floor((s % 3600) / 60),
+    ss = s % 60;
   const p = n => String(n).padStart(2, '0');
   el.textContent = dd > 0 ? `${dd} дн. ${p(hh)}:${p(mm)}:${p(ss)}` : `${p(hh)}:${p(mm)}:${p(ss)}`;
 }
-setInterval(() => { if (!isHidden()) tickCountdown(); }, 1000);
+setInterval(() => {
+  if (!isHidden()) tickCountdown();
+}, 1000);
 
 /* ===== Конфетти ===== */
 function celebrate() {
@@ -123,10 +142,10 @@ function celebrate() {
     c.className = 'confetti';
     c.textContent = emojis[Math.floor(Math.random() * emojis.length)];
     c.style.left = Math.random() * 100 + 'vw';
-    c.style.fontSize = (14 + Math.random() * 18) + 'px';
+    c.style.fontSize = 14 + Math.random() * 18 + 'px';
     c.style.top = '-20px';
-    c.style.animationDuration = (2.2 + Math.random() * 2.4) + 's';
-    c.style.animationDelay = (Math.random() * 0.7) + 's';
+    c.style.animationDuration = 2.2 + Math.random() * 2.4 + 's';
+    c.style.animationDelay = Math.random() * 0.7 + 's';
     document.body.appendChild(c);
     setTimeout(() => c.remove(), 6000);
   }
@@ -170,22 +189,21 @@ function renderDates() {
     .filter(o => o.days >= 0 && !o.d.done)
     .sort((a, b) => a.when - b.when || (a.d.time || '').localeCompare(b.d.time || ''))
     .slice(0, 8);
-  box.innerHTML = '<h3>💘 Наши свидания</h3>' +
-    (list.length ? list.map(o => {
-      const d = o.d;
-      const who = getUser();
-      const resp = d.responses || {};
-      const from = d.from;
-      // Пригласивший уже согласился — ему кнопки «Да/Нет» не нужны
-      const status = p => from === p
-        ? (p === 'gosha' ? '💌 позвал' : '💌 позвала')
-        : fmtResp(resp[p]);
-      const canAnswer = !from || from === 'both' || from !== who;
-      const bothYes = resp.gosha === 'yes' && resp.dasha === 'yes';
-      const whenTag = o.days === 0
-        ? '<span class="tag tag-today">сегодня</span>'
-        : o.days === 1 ? '<span class="tag">завтра</span>' : '';
-      return `<div class="date-card">
+  box.innerHTML =
+    '<h3>💘 Наши свидания</h3>' +
+    (list.length
+      ? list
+          .map(o => {
+            const d = o.d;
+            const who = getUser();
+            const resp = d.responses || {};
+            const from = d.from;
+            // Пригласивший уже согласился — ему кнопки «Да/Нет» не нужны
+            const status = p => (from === p ? (p === 'gosha' ? '💌 позвал' : '💌 позвала') : fmtResp(resp[p]));
+            const canAnswer = !from || from === 'both' || from !== who;
+            const bothYes = resp.gosha === 'yes' && resp.dasha === 'yes';
+            const whenTag = o.days === 0 ? '<span class="tag tag-today">сегодня</span>' : o.days === 1 ? '<span class="tag">завтра</span>' : '';
+            return `<div class="date-card">
         <div class="date-emoji">${esc(d.emoji || '💘')}</div>
         <div class="date-info">
           <b>${fmtDateLong(d.date)}${whenTag}</b>
@@ -200,10 +218,14 @@ function renderDates() {
             <span class="${who === 'dasha' ? 'resp-me' : ''}">Даша: ${status('dasha')}</span>
           </div>
           ${bothYes ? '<div class="both-yes">💞 Мы идём на свидание!</div>' : ''}
-          ${canAnswer ? `<div class="resp-btns">
+          ${
+            canAnswer
+              ? `<div class="resp-btns">
             <button class="resp-btn ${resp[who] === 'yes' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="yes">Да 👍</button>
             <button class="resp-btn no ${resp[who] === 'no' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="no">Нет 👎</button>
-          </div>` : ''}
+          </div>`
+              : ''
+          }
           <div class="date-btns">
             <button class="mini-x" data-edit-date="${d.id}" title="Изменить">✏️</button>
             <button class="mini-x" data-done-date="${d.id}" title="Свидание прошло">💗</button>
@@ -211,7 +233,9 @@ function renderDates() {
           </div>
         </div>
       </div>`;
-    }).join('') : '<p class="cal-tip">Ближайших свиданий пока нет. Самое время назначить новое! ✨</p>');
+          })
+          .join('')
+      : '<p class="cal-tip">Ближайших свиданий пока нет. Самое время назначить новое! ✨</p>');
 }
 
 /* ===== Неотвеченные приглашения на свидание =====
@@ -266,10 +290,16 @@ function renderDateInvites() {
 // главную. Новое, ещё не виденное приглашение всё равно покажется.
 const DISMISSED_INVITES_KEY = 'universe_dismissed_invites';
 function getDismissedInviteIds() {
-  try { return new Set(JSON.parse(sessionStorage.getItem(DISMISSED_INVITES_KEY) || '[]')); } catch (e) { return new Set(); }
+  try {
+    return new Set(JSON.parse(sessionStorage.getItem(DISMISSED_INVITES_KEY) || '[]'));
+  } catch (e) {
+    return new Set();
+  }
 }
 function markInvitesDismissed(ids) {
-  try { sessionStorage.setItem(DISMISSED_INVITES_KEY, JSON.stringify(ids)); } catch (e) {}
+  try {
+    sessionStorage.setItem(DISMISSED_INVITES_KEY, JSON.stringify(ids));
+  } catch (e) {}
 }
 function openDateInviteOverlay() {
   renderDateInvites();
@@ -314,7 +344,10 @@ $('#addDateBtn').addEventListener('click', () => openDateModal());
 // Свидание всегда от имени вошедшего — выбора «кто приглашает» нет.
 function saveDateFromModal() {
   const date = $('#dtDate').value;
-  if (!date) { alert('Выбери дату свидания 💘'); return; }
+  if (!date) {
+    alert('Выбери дату свидания 💘');
+    return;
+  }
   const existing = editingDateId ? db.dates.find(x => x.id === editingDateId) : null;
   if (existing) {
     // Правка не трогает from/responses — кто позвал и кто уже ответил, остаётся как было.
@@ -324,7 +357,10 @@ function saveDateFromModal() {
     existing.note = $('#dtNote').value.trim();
     existing.emoji = $('#dtEmoji').value.trim() || '💘';
     editingDateId = null;
-    save(); $('#dateOverlay').hidden = true; renderHome(); renderCalendar();
+    save();
+    $('#dateOverlay').hidden = true;
+    renderHome();
+    renderCalendar();
     return;
   }
   const from = getUser();
@@ -335,13 +371,22 @@ function saveDateFromModal() {
   // обоих буквально, из-за чего «Мы идём на свидание!» не срабатывало
   // НИКОГДА ни при каком сценарии использования.
   db.dates.push({
-    id: uid(), date, time: $('#dtTime').value,
-    from, responses: { gosha: from === 'gosha' ? 'yes' : null, dasha: from === 'dasha' ? 'yes' : null },
-    place: $('#dtPlace').value.trim(), note: $('#dtNote').value.trim(),
-    emoji: $('#dtEmoji').value.trim() || '💘', done: false
+    id: uid(),
+    date,
+    time: $('#dtTime').value,
+    from,
+    responses: { gosha: from === 'gosha' ? 'yes' : null, dasha: from === 'dasha' ? 'yes' : null },
+    place: $('#dtPlace').value.trim(),
+    note: $('#dtNote').value.trim(),
+    emoji: $('#dtEmoji').value.trim() || '💘',
+    done: false
   });
-  save(); $('#dateOverlay').hidden = true;
-  renderHome(); renderCalendar();
+  save();
+  $('#dateOverlay').hidden = true;
+  renderHome();
+  renderCalendar();
+  // Пуш — без деталей свидания (дата/место/заметка), см. src/96-push.js
+  notifyPartner('💘 Тебе назначили свидание', 'Открой приложение, чтобы посмотреть детали 💜');
 }
 $('#dtSave').addEventListener('click', saveDateFromModal);
 
@@ -352,7 +397,7 @@ $('#dtSave').addEventListener('click', saveDateFromModal);
 // слоты заполняются случайными. Выбор стабилен в течение дня (seed по дате);
 // кнопка «🎲 Перемешать» меняет коллаж вручную, но тоже фиксирует его до конца дня.
 const HISTORY_PHOTO_SLOTS = [
-  { st: 'left:1%; top:16%; width:84px; height:84px; rotate:-7deg',  dur: 6.4, delay: 0 },
+  { st: 'left:1%; top:16%; width:84px; height:84px; rotate:-7deg', dur: 6.4, delay: 0 },
   { st: 'left:29%; top:5%; width:100px; height:100px; rotate:5deg', dur: 5.8, delay: 0.6 },
   { st: 'left:58%; top:24%; width:72px; height:72px; rotate:-3deg', dur: 6.9, delay: 1.2 }
 ];
@@ -363,7 +408,8 @@ function daySeed(str) {
 }
 function mulberry32(a) {
   return function () {
-    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
@@ -371,13 +417,18 @@ function mulberry32(a) {
 }
 // Фото «в этот день» из прошлых лет (по EXIF или дате события/свидания)
 function onThisDayPhotos(at) {
-  return onThisDayItems(at).filter(it => it.kind === 'photo' && it.p).map(it => it.p);
+  return onThisDayItems(at)
+    .filter(it => it.kind === 'photo' && it.p)
+    .map(it => it.p);
 }
 // Зафиксированный на день выбор коллажа {day, sig, ids}; ручной перемес живёт до полуночи.
 // sig — сигнатура состава галереи: при добавлении/удалении фото коллаж пересобирается.
 let historyCollage = null;
 function photoSignature() {
-  return [...db.photos].map(p => p.id).sort().join(',');
+  return [...db.photos]
+    .map(p => p.id)
+    .sort()
+    .join(',');
 }
 function shufflePick(photos, rnd) {
   for (let i = photos.length - 1; i > 0; i--) {
@@ -389,8 +440,14 @@ function shufflePick(photos, rnd) {
 function pinOnThisDay(photos, n, at) {
   const picks = [];
   const otd = onThisDayPhotos(at);
-  for (const p of otd) { if (picks.length >= n) break; if (!picks.includes(p)) picks.push(p); }
-  for (const p of photos) { if (picks.length >= n) break; if (!picks.includes(p)) picks.push(p); }
+  for (const p of otd) {
+    if (picks.length >= n) break;
+    if (!picks.includes(p)) picks.push(p);
+  }
+  for (const p of photos) {
+    if (picks.length >= n) break;
+    if (!picks.includes(p)) picks.push(p);
+  }
   return picks;
 }
 function pickHistoryPhotos(at) {
@@ -421,13 +478,30 @@ function historyPhotosHtml(at) {
   const picks = pickHistoryPhotos(at);
   const otdIds = new Set(onThisDayPhotos(at).map(p => p.id));
   const badge = picks.some(p => otdIds.has(p.id)) ? '<span class="hp-badge">✨ В этот день</span>' : '';
-  return badge + picks.map((p, i) => {
-    const s = HISTORY_PHOTO_SLOTS[i];
-    const url = photoSrc(p); // кэш миниатюр может быть не прогрет — ставим fallback
-    return '<img class="history-photo" data-photo="' + esc(p.id) + '" alt="' + esc(p.title || '') + '"' +
-      (url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"') +
-      ' style="' + s.st + 'animation-duration:' + s.dur + 's;animation-delay:' + s.delay + 's" loading="lazy">';
-  }).join('');
+  return (
+    badge +
+    picks
+      .map((p, i) => {
+        const s = HISTORY_PHOTO_SLOTS[i];
+        const url = photoSrc(p); // кэш миниатюр может быть не прогрет — ставим fallback
+        return (
+          '<img class="history-photo" data-photo="' +
+          esc(p.id) +
+          '" alt="' +
+          esc(p.title || '') +
+          '"' +
+          (url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"') +
+          ' style="' +
+          s.st +
+          'animation-duration:' +
+          s.dur +
+          's;animation-delay:' +
+          s.delay +
+          's" loading="lazy">'
+        );
+      })
+      .join('')
+  );
 }
 // Делегирование: innerHTML #progressRing перерисовывается на каждом рендере
 $('#progressRing').addEventListener('click', e => {
@@ -435,7 +509,7 @@ $('#progressRing').addEventListener('click', e => {
 });
 $('#progressRing').addEventListener('keydown', e => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('#shuffleHistoryBtn')) {
-    e.preventDefault(); shuffleHistoryPhotos();
+    e.preventDefault();
+    shuffleHistoryPhotos();
   }
 });
-

@@ -7,23 +7,28 @@ function renderSettings() {
   if (si) si.textContent = kb >= 1024 ? (kb / 1024).toFixed(1) + ' МБ' : kb + ' КБ';
   // Фото-хранилище (IndexedDB) считаем асинхронно и показываем отдельной строкой
   if (photoStore) {
-    photoStore.refreshSizes().then(sz => {
-      const fk = Math.max(1, Math.round((sz.bytes || 0) / 1024));
-      const fs = $('#photoStorageInfo');
-      if (fs) fs.textContent = `${sz.count} фото · ${fk >= 1024 ? (fk / 1024).toFixed(1) + ' МБ' : fk + ' КБ'}`;
-    }).catch(() => {});
+    photoStore
+      .refreshSizes()
+      .then(sz => {
+        const fk = Math.max(1, Math.round((sz.bytes || 0) / 1024));
+        const fs = $('#photoStorageInfo');
+        if (fs) fs.textContent = `${sz.count} фото · ${fk >= 1024 ? (fk / 1024).toFixed(1) + ' МБ' : fk + ' КБ'}`;
+      })
+      .catch(() => {});
   }
   const hint = $('#backupHint');
   if (!hint) return;
   // Статус облачной синхронизации (модуль 95-sync.js)
   if (typeof renderSyncStatus === 'function') renderSyncStatus(syncUiState, syncUiTs);
+  renderPushSettings(); // модуль 96-push.js — асинхронно проверяет текущую PushManager-подписку
   if (!db.backupDate) {
     hint.innerHTML = '<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Резервная копия ещё не делалась. Нажми «Скачать копию» — так ничего не потеряется.</span>';
   } else {
     const days = Math.floor((Date.now() - db.backupDate) / 86400000);
-    hint.innerHTML = days >= 30
-      ? `<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Последняя копия была ${days} дн. назад. Самое время обновить её.</span>`
-      : `<span style="color:#059669;font-weight:700;font-size:14px">✅ Копия сделана ${days === 0 ? 'сегодня' : days + ' дн. назад'}. Всё под защитой.</span>`;
+    hint.innerHTML =
+      days >= 30
+        ? `<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Последняя копия была ${days} дн. назад. Самое время обновить её.</span>`
+        : `<span style="color:#059669;font-weight:700;font-size:14px">✅ Копия сделана ${days === 0 ? 'сегодня' : days + ' дн. назад'}. Всё под защитой.</span>`;
   }
   // Личный кабинет: кто вошёл, чьи пароли есть
   const lkUser = $('#lkUser');
@@ -31,13 +36,14 @@ function renderSettings() {
   const vault = loadVault();
   const hasPass = who => !!(vault && (vault.keys || []).some(k => k.who === who));
   const info = $('#lkPassInfo');
-  if (info) info.innerHTML =
-    `<span><b>Гоша:</b> ${hasPass('gosha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>` +
-    `<span><b>Даша:</b> ${hasPass('dasha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>`;
+  if (info)
+    info.innerHTML =
+      `<span><b>Гоша:</b> ${hasPass('gosha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>` +
+      `<span><b>Даша:</b> ${hasPass('dasha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>`;
   const addBtn = $('#addPassBtn');
   if (addBtn) {
     addBtn.style.display = '';
-    addBtn.textContent = (hasPass('gosha') && hasPass('dasha')) ? '🔑 Сменить пароль партнёра' : '🔑 Добавить пароль для партнёра';
+    addBtn.textContent = hasPass('gosha') && hasPass('dasha') ? '🔑 Сменить пароль партнёра' : '🔑 Добавить пароль для партнёра';
   }
 }
 // Экспорт — зашифрованный сейф: без пароля файл не прочитать.
@@ -52,7 +58,9 @@ async function exportData() {
     try {
       const blobs = await photoStore.exportBlobs();
       if (blobs.length) photoSection = { ver: 1, blobs };
-    } catch (e) { console.warn('Не удалось собрать фото для бэкапа', e); }
+    } catch (e) {
+      console.warn('Не удалось собрать фото для бэкапа', e);
+    }
   }
   const out = photoSection ? { ...vault, photos: photoSection } : vault;
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
@@ -69,7 +77,9 @@ async function exportData() {
   renderSettings();
   return out;
 }
-$('#exportBtn').addEventListener('click', () => { exportData(); });
+$('#exportBtn').addEventListener('click', () => {
+  exportData();
+});
 async function importData(text) {
   try {
     const d = JSON.parse(text);
@@ -78,7 +88,11 @@ async function importData(text) {
       store.set(VAULT_KEY, JSON.stringify(d));
       // Фото-секция v6: зашифрованные блобы возвращаем в хранилище
       if (d.photos && d.photos.ver === 1 && Array.isArray(d.photos.blobs) && photoStore) {
-        try { await photoStore.importBlobs(d.photos.blobs); } catch (e) { console.warn('Не удалось восстановить фото', e); }
+        try {
+          await photoStore.importBlobs(d.photos.blobs);
+        } catch (e) {
+          console.warn('Не удалось восстановить фото', e);
+        }
       }
       return true;
     }
@@ -86,7 +100,9 @@ async function importData(text) {
     db = migrateDB({ ...defaultDB(), ...d });
     save();
     return true;
-  } catch (err) { return null; }
+  } catch (err) {
+    return null;
+  }
 }
 $('#importInput').addEventListener('change', e => {
   const f = e.target.files[0];
@@ -94,7 +110,10 @@ $('#importInput').addEventListener('change', e => {
   const fr = new FileReader();
   fr.onload = async () => {
     const ok = await importData(fr.result); // ждём и сейф, и фото-блобы
-    if (!ok) { alert('Не получилось прочитать файл:('); return; }
+    if (!ok) {
+      alert('Не получилось прочитать файл:(');
+      return;
+    }
     e.target.value = '';
     location.reload();
   };
@@ -134,12 +153,21 @@ async function savePass() {
   const err = $('#passErr');
   const p1 = $('#passNew').value;
   const p2 = $('#passNew2').value;
-  if (p1.length < 6) { if (err) err.textContent = 'Пароль должен быть не короче 6 символов.'; return; }
-  if (p1 !== p2) { if (err) err.textContent = 'Пароли не совпадают — проверь ещё раз.'; return; }
+  if (p1.length < 6) {
+    if (err) err.textContent = 'Пароль должен быть не короче 6 символов.';
+    return;
+  }
+  if (p1 !== p2) {
+    if (err) err.textContent = 'Пароли не совпадают — проверь ещё раз.';
+    return;
+  }
   let ok;
   if (passMode === 'change') ok = await changePass($('#passCur').value, p1);
   else ok = await savePassFor($('#passWho').value, p1);
-  if (!ok) { if (err) err.textContent = 'Не получилось. Проверь текущий пароль и попробуй ещё раз.'; return; }
+  if (!ok) {
+    if (err) err.textContent = 'Не получилось. Проверь текущий пароль и попробуй ещё раз.';
+    return;
+  }
   $('#passOverlay').hidden = true;
   renderSettings();
   if (passMode === 'change') alert('Пароль обновлён 💜');
@@ -159,18 +187,22 @@ $('#lockNowBtn').addEventListener('click', lock);
 const MOTION_KEY = 'universe_motion';
 function getMotion() {
   const v = store.get(MOTION_KEY);
-  return (v === 'reduced' || v === 'full') ? v : null;
+  return v === 'reduced' || v === 'full' ? v : null;
 }
 function applyMotion(m) {
   const doc = document.documentElement;
   if (!doc || !doc.dataset) return;
   if (m === 'reduced' || m === 'full') doc.dataset.motion = m;
   else {
-    try { doc.removeAttribute('data-motion'); } catch (e) {}
-    try { delete doc.dataset.motion; } catch (e) {}
+    try {
+      doc.removeAttribute('data-motion');
+    } catch (e) {}
+    try {
+      delete doc.dataset.motion;
+    } catch (e) {}
   }
   const t = $('#motionToggle');
-  if (t) t.checked = (m === 'reduced');
+  if (t) t.checked = m === 'reduced';
 }
 function setMotion(m) {
   const v = m === 'reduced' ? 'reduced' : 'full';
@@ -190,4 +222,3 @@ function motionReduced() {
 }
 const mt = $('#motionToggle');
 if (mt) mt.addEventListener('change', e => setMotion(e.target.checked ? 'reduced' : 'full'));
-

@@ -6,12 +6,10 @@
 const START_DATE = '2026-03-30';
 const KEY = 'universe';
 
-const $  = s => document.querySelector(s);
+const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
-const esc = s => String(s).replace(/[&<>"']/g, c => (
-  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
-));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 // Только настоящие http/https-ссылки; javascript:, data:html и прочее — в заглушку.
 const safeUrl = u => (/^https?:\/\//i.test(String(u || '')) ? String(u) : '#');
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -22,14 +20,27 @@ const isHidden = () => !!(document.hidden || document.visibilityState === 'hidde
    все обращения идут через store, а сбои показываются ненавязчивым тостом. */
 const store = {
   get(key) {
-    try { return localStorage.getItem(key); } catch (e) { return null; }
+    try {
+      return localStorage.getItem(key);
+    } catch (e) {
+      return null;
+    }
   },
   set(key, val) {
-    try { localStorage.setItem(key, val); return true; }
-    catch (e) { notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true); return false; }
+    try {
+      localStorage.setItem(key, val);
+      return true;
+    } catch (e) {
+      notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true);
+      return false;
+    }
   },
   remove(key) {
-    try { localStorage.removeItem(key); } catch (e) { /* не критично */ }
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      /* не критично */
+    }
   }
 };
 // Единое подтверждение для необратимых удалений (фото/заметка/свидание/
@@ -48,7 +59,9 @@ function notify(msg, isError) {
   t.classList.toggle('toast-error', !!isError);
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
+  toastTimer = setTimeout(() => {
+    t.hidden = true;
+  }, 5000);
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('error', e => notify('Что-то пошло не так — данные не потеряны, перезагрузи страницу 💜', true));
@@ -71,10 +84,10 @@ if (typeof window !== 'undefined' && window.addEventListener) {
    только на новые (createVault) и не требует миграции старых. */
 const enc = new TextEncoder();
 const dec = new TextDecoder();
-const VAULT_KEY = 'universe_vault';      // зашифрованный сейф
+const VAULT_KEY = 'universe_vault'; // зашифрованный сейф
 const VAULT_KEY_PREV = 'universe_vault_prev'; // резервная копия старого сейфа при усыновлении облачного
-const PBKDF2_ITERS = 600000;             // стойкость обёртки паролем
-const AUTO_LOCK_MS = 30 * 60 * 1000;     // автозамок после 30 минут без действий
+const PBKDF2_ITERS = 600000; // стойкость обёртки паролем
+const AUTO_LOCK_MS = 30 * 60 * 1000; // автозамок после 30 минут без действий
 
 function b64(u8) {
   let s = '';
@@ -87,13 +100,15 @@ function unb64(s) {
   for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
   return u8;
 }
-function randBytes(n) { const a = new Uint8Array(n); crypto.getRandomValues(a); return a; }
+function randBytes(n) {
+  const a = new Uint8Array(n);
+  crypto.getRandomValues(a);
+  return a;
+}
 
 async function pbkdf2Key(pass, salt, iters) {
   const base = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iters }, base,
-    { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iters }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
 async function aesEnc(key, bytes) {
   const iv = randBytes(12);
@@ -113,8 +128,20 @@ function defaultDB() {
   return {
     version: DB_VERSION,
     events: [{ id: uid(), title: 'Мы начали встречаться', date: START_DATE, emoji: '💜', repeat: true }],
-    notes: [], shopping: [], todos: [], photos: [], dates: [], lists: [],
-    wishlist: [], labels: [], backupDate: null, moods: []
+    notes: [],
+    shopping: [],
+    todos: [],
+    photos: [],
+    dates: [],
+    lists: [],
+    wishlist: [],
+    labels: [],
+    backupDate: null,
+    moods: [],
+    // Push-подписки (PushManager.subscribe().toJSON()) обоих партнёров — живут
+    // внутри сейфа, а не отдельно в открытом виде: оба и так расшифровывают
+    // одним мастер-ключом, так что это не новая утечка. См. src/96-push.js.
+    pushSubs: {}
   };
 }
 // Миграции: аккуратно добавляем поля, которых ещё не было в старых версиях.
@@ -133,11 +160,11 @@ function migrateDB(d) {
   // мусорные записи — id фото попадал бы в db.labels как отдельный «лейбл».
   if (fromVersion < 9) {
     if (!Array.isArray(d.labels)) d.labels = [];
-    for (const p of (d.photos || [])) {
+    for (const p of d.photos || []) {
       if (!Array.isArray(p.labels)) p.labels = p.album ? [p.album] : [];
     }
     const set = new Set(d.labels);
-    for (const p of (d.photos || [])) for (const l of (p.labels || [])) set.add(l);
+    for (const p of d.photos || []) for (const l of p.labels || []) set.add(l);
     d.labels = [...set];
   }
   // v4: фото событий — общий лейбл «📅 События» вместо отдельного лейбла-названия
@@ -145,9 +172,11 @@ function migrateDB(d) {
   // v5: у заметок появляется порядок для drag&drop (старые — по закреплению и времени)
   if (!Array.isArray(d.notes)) d.notes = [];
   if (d.notes.some(n => n.order === undefined)) {
-    [...d.notes].sort((a, b) => (b.pinned - a.pinned) || (b.ts - a.ts)).forEach((n, i) => {
-      if (n.order === undefined) n.order = i;
-    });
+    [...d.notes]
+      .sort((a, b) => b.pinned - a.pinned || b.ts - a.ts)
+      .forEach((n, i) => {
+        if (n.order === undefined) n.order = i;
+      });
   }
   // v8: произвольные списки. Старые «Покупки» и «Дела» становятся обычными списками,
   // легаси-поля очищаются (данные перенесены в db.lists).
@@ -157,14 +186,15 @@ function migrateDB(d) {
     if (Array.isArray(d.shopping) && d.shopping.length) legacy.push({ id: uid(), name: '🛒 Покупки', items: d.shopping });
     if (Array.isArray(d.todos) && d.todos.length) legacy.push({ id: uid(), name: '✅ Дела', items: d.todos });
     d.lists = legacy.concat(d.lists);
-    d.shopping = []; d.todos = [];
+    d.shopping = [];
+    d.todos = [];
   }
   // Фикс мёртвой логики «оба ответили да»: раньше responses[from] у создателя
   // свидания никогда не выставлялся в 'yes' (UI не даёт создателю отвечать —
   // он и так «уже согласен»), поэтому bothYes/celebrate() требовали 'yes' от
   // обоих буквально и не срабатывали никогда. Для уже существующих свиданий
   // с этим багом — подставляем 'yes' создателю задним числом.
-  for (const dt of (d.dates || [])) {
+  for (const dt of d.dates || []) {
     if (dt.from === 'gosha' || dt.from === 'dasha') {
       if (!dt.responses) dt.responses = { gosha: null, dasha: null };
       if (dt.responses[dt.from] == null) dt.responses[dt.from] = 'yes';
@@ -183,7 +213,7 @@ function migrateDB(d) {
         nameToId.set(name, id);
         return { id, name, color: LABEL_COLORS[i % LABEL_COLORS.length] };
       });
-    for (const p of (d.photos || [])) {
+    for (const p of d.photos || []) {
       if (!Array.isArray(p.labels)) continue;
       p.labels = p.labels.map(l => nameToId.get(l) || l);
     }
@@ -200,7 +230,7 @@ function relabelEventPhotos(d) {
     if (!Array.isArray(ev.photos)) continue;
     for (const data of ev.photos) {
       const isUrl = typeof data === 'string' && data.startsWith('data:');
-      const p = d.photos.find(x => isUrl ? x.data === data : x.id === data);
+      const p = d.photos.find(x => (isUrl ? x.data === data : x.id === data));
       if (!p) continue;
       if (!Array.isArray(p.labels)) p.labels = [];
       if (!p.labels.includes(EVENT_LABEL)) p.labels.push(EVENT_LABEL);
@@ -210,12 +240,17 @@ function relabelEventPhotos(d) {
 }
 
 /* ===== Состояние сессии — только в памяти, в localStorage не пишется ===== */
-let masterKey = null;      // мастер-ключ K — никуда не записывается
-let currentUser = null;    // кто вошёл (gosha/dasha)
+let masterKey = null; // мастер-ключ K — никуда не записывается
+let currentUser = null; // кто вошёл (gosha/dasha)
 let db = defaultDB();
-let authLocked = true;     // пока замок закрыт — приложение невидимо
+let authLocked = true; // пока замок закрыт — приложение невидимо
 let lastActivity = Date.now();
 
-function getUser() { return currentUser || 'gosha'; }
-function setUser(u) { currentUser = u; renderHome(); renderCalendar(); }
-
+function getUser() {
+  return currentUser || 'gosha';
+}
+function setUser(u) {
+  currentUser = u;
+  renderHome();
+  renderCalendar();
+}

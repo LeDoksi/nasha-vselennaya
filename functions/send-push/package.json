@@ -1,0 +1,10 @@
+{
+  "name": "send-push",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Yandex Cloud Function: отправляет Web Push уведомление партнёру (см. index.js)",
+  "main": "index.js",
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}

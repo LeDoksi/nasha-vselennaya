@@ -45,6 +45,20 @@ module.exports = [
     }
   },
   {
+    // Service worker — отдельная глобальная область (self = ServiceWorkerGlobalScope,
+    // не window), свой набор глобалей (caches, clients и т.п.).
+    files: ['sw.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'script',
+      globals: { ...globals.serviceworker }
+    },
+    rules: {
+      'no-unused-vars': ['warn', { args: 'none', caughtErrors: 'none' }],
+      'no-empty': ['error', { allowEmptyCatch: true }]
+    }
+  },
+  {
     ignores: ['src/**', 'node_modules/**', 'vendor/**']
   }
 ];

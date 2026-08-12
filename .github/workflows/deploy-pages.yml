@@ -29,7 +29,7 @@ jobs:
       - name: Собрать публикуемые файлы
         run: |
           mkdir -p _site/fonts _site/vendor
-          cp index.html app.js styles.css icon.svg manifest.webmanifest _site/
+          cp index.html app.js styles.css icon.svg manifest.webmanifest sw.js _site/
           cp -r fonts/* _site/fonts/
           cp -r vendor/* _site/vendor/
       - name: Загрузить артефакт
