@@ -19,6 +19,10 @@
     "prettier": "^3.9.6"
   },
   "lint-staged": {
-    "*.js": "prettier --write"
+    "src/**/*.js": "prettier --write",
+    "tests/**/*.js": "prettier --write",
+    "functions/**/*.js": "prettier --write",
+    "build.js": "prettier --write",
+    "eslint.config.js": "prettier --write"
   }
 }

@@ -6,10 +6,12 @@
 const START_DATE = '2026-03-30';
 const KEY = 'universe';
 
-const $ = s => document.querySelector(s);
+const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
-const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const esc = s => String(s).replace(/[&<>"']/g, c => (
+  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+));
 // Только настоящие http/https-ссылки; javascript:, data:html и прочее — в заглушку.
 const safeUrl = u => (/^https?:\/\//i.test(String(u || '')) ? String(u) : '#');
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -20,27 +22,14 @@ const isHidden = () => !!(document.hidden || document.visibilityState === 'hidde
    все обращения идут через store, а сбои показываются ненавязчивым тостом. */
 const store = {
   get(key) {
-    try {
-      return localStorage.getItem(key);
-    } catch (e) {
-      return null;
-    }
+    try { return localStorage.getItem(key); } catch (e) { return null; }
   },
   set(key, val) {
-    try {
-      localStorage.setItem(key, val);
-      return true;
-    } catch (e) {
-      notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true);
-      return false;
-    }
+    try { localStorage.setItem(key, val); return true; }
+    catch (e) { notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true); return false; }
   },
   remove(key) {
-    try {
-      localStorage.removeItem(key);
-    } catch (e) {
-      /* не критично */
-    }
+    try { localStorage.removeItem(key); } catch (e) { /* не критично */ }
   }
 };
 // Единое подтверждение для необратимых удалений (фото/заметка/свидание/
@@ -59,9 +48,7 @@ function notify(msg, isError) {
   t.classList.toggle('toast-error', !!isError);
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    t.hidden = true;
-  }, 5000);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('error', e => notify('Что-то пошло не так — данные не потеряны, перезагрузи страницу 💜', true));
@@ -84,10 +71,10 @@ if (typeof window !== 'undefined' && window.addEventListener) {
    только на новые (createVault) и не требует миграции старых. */
 const enc = new TextEncoder();
 const dec = new TextDecoder();
-const VAULT_KEY = 'universe_vault'; // зашифрованный сейф
+const VAULT_KEY = 'universe_vault';      // зашифрованный сейф
 const VAULT_KEY_PREV = 'universe_vault_prev'; // резервная копия старого сейфа при усыновлении облачного
-const PBKDF2_ITERS = 600000; // стойкость обёртки паролем
-const AUTO_LOCK_MS = 30 * 60 * 1000; // автозамок после 30 минут без действий
+const PBKDF2_ITERS = 600000;             // стойкость обёртки паролем
+const AUTO_LOCK_MS = 30 * 60 * 1000;     // автозамок после 30 минут без действий
 
 function b64(u8) {
   let s = '';
@@ -100,15 +87,13 @@ function unb64(s) {
   for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
   return u8;
 }
-function randBytes(n) {
-  const a = new Uint8Array(n);
-  crypto.getRandomValues(a);
-  return a;
-}
+function randBytes(n) { const a = new Uint8Array(n); crypto.getRandomValues(a); return a; }
 
 async function pbkdf2Key(pass, salt, iters) {
   const base = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iters }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iters }, base,
+    { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
 async function aesEnc(key, bytes) {
   const iv = randBytes(12);
@@ -128,16 +113,8 @@ function defaultDB() {
   return {
     version: DB_VERSION,
     events: [{ id: uid(), title: 'Мы начали встречаться', date: START_DATE, emoji: '💜', repeat: true }],
-    notes: [],
-    shopping: [],
-    todos: [],
-    photos: [],
-    dates: [],
-    lists: [],
-    wishlist: [],
-    labels: [],
-    backupDate: null,
-    moods: []
+    notes: [], shopping: [], todos: [], photos: [], dates: [], lists: [],
+    wishlist: [], labels: [], backupDate: null, moods: []
   };
 }
 // Миграции: аккуратно добавляем поля, которых ещё не было в старых версиях.
@@ -156,11 +133,11 @@ function migrateDB(d) {
   // мусорные записи — id фото попадал бы в db.labels как отдельный «лейбл».
   if (fromVersion < 9) {
     if (!Array.isArray(d.labels)) d.labels = [];
-    for (const p of d.photos || []) {
+    for (const p of (d.photos || [])) {
       if (!Array.isArray(p.labels)) p.labels = p.album ? [p.album] : [];
     }
     const set = new Set(d.labels);
-    for (const p of d.photos || []) for (const l of p.labels || []) set.add(l);
+    for (const p of (d.photos || [])) for (const l of (p.labels || [])) set.add(l);
     d.labels = [...set];
   }
   // v4: фото событий — общий лейбл «📅 События» вместо отдельного лейбла-названия
@@ -168,11 +145,9 @@ function migrateDB(d) {
   // v5: у заметок появляется порядок для drag&drop (старые — по закреплению и времени)
   if (!Array.isArray(d.notes)) d.notes = [];
   if (d.notes.some(n => n.order === undefined)) {
-    [...d.notes]
-      .sort((a, b) => b.pinned - a.pinned || b.ts - a.ts)
-      .forEach((n, i) => {
-        if (n.order === undefined) n.order = i;
-      });
+    [...d.notes].sort((a, b) => (b.pinned - a.pinned) || (b.ts - a.ts)).forEach((n, i) => {
+      if (n.order === undefined) n.order = i;
+    });
   }
   // v8: произвольные списки. Старые «Покупки» и «Дела» становятся обычными списками,
   // легаси-поля очищаются (данные перенесены в db.lists).
@@ -182,15 +157,14 @@ function migrateDB(d) {
     if (Array.isArray(d.shopping) && d.shopping.length) legacy.push({ id: uid(), name: '🛒 Покупки', items: d.shopping });
     if (Array.isArray(d.todos) && d.todos.length) legacy.push({ id: uid(), name: '✅ Дела', items: d.todos });
     d.lists = legacy.concat(d.lists);
-    d.shopping = [];
-    d.todos = [];
+    d.shopping = []; d.todos = [];
   }
   // Фикс мёртвой логики «оба ответили да»: раньше responses[from] у создателя
   // свидания никогда не выставлялся в 'yes' (UI не даёт создателю отвечать —
   // он и так «уже согласен»), поэтому bothYes/celebrate() требовали 'yes' от
   // обоих буквально и не срабатывали никогда. Для уже существующих свиданий
   // с этим багом — подставляем 'yes' создателю задним числом.
-  for (const dt of d.dates || []) {
+  for (const dt of (d.dates || [])) {
     if (dt.from === 'gosha' || dt.from === 'dasha') {
       if (!dt.responses) dt.responses = { gosha: null, dasha: null };
       if (dt.responses[dt.from] == null) dt.responses[dt.from] = 'yes';
@@ -209,7 +183,7 @@ function migrateDB(d) {
         nameToId.set(name, id);
         return { id, name, color: LABEL_COLORS[i % LABEL_COLORS.length] };
       });
-    for (const p of d.photos || []) {
+    for (const p of (d.photos || [])) {
       if (!Array.isArray(p.labels)) continue;
       p.labels = p.labels.map(l => nameToId.get(l) || l);
     }
@@ -226,7 +200,7 @@ function relabelEventPhotos(d) {
     if (!Array.isArray(ev.photos)) continue;
     for (const data of ev.photos) {
       const isUrl = typeof data === 'string' && data.startsWith('data:');
-      const p = d.photos.find(x => (isUrl ? x.data === data : x.id === data));
+      const p = d.photos.find(x => isUrl ? x.data === data : x.id === data);
       if (!p) continue;
       if (!Array.isArray(p.labels)) p.labels = [];
       if (!p.labels.includes(EVENT_LABEL)) p.labels.push(EVENT_LABEL);
@@ -236,20 +210,14 @@ function relabelEventPhotos(d) {
 }
 
 /* ===== Состояние сессии — только в памяти, в localStorage не пишется ===== */
-let masterKey = null; // мастер-ключ K — никуда не записывается
-let currentUser = null; // кто вошёл (gosha/dasha)
+let masterKey = null;      // мастер-ключ K — никуда не записывается
+let currentUser = null;    // кто вошёл (gosha/dasha)
 let db = defaultDB();
-let authLocked = true; // пока замок закрыт — приложение невидимо
+let authLocked = true;     // пока замок закрыт — приложение невидимо
 let lastActivity = Date.now();
 
-function getUser() {
-  return currentUser || 'gosha';
-}
-function setUser(u) {
-  currentUser = u;
-  renderHome();
-  renderCalendar();
-}
+function getUser() { return currentUser || 'gosha'; }
+function setUser(u) { currentUser = u; renderHome(); renderCalendar(); }
 
 /* ===== Перетаскивание чипа лейбла на фото (навесить лейбл броском) =====
    Единственный кросс-контейнерный жест, оставшийся вне SortableJS. Чипы лежат
@@ -259,7 +227,7 @@ function setUser(u) {
    Обратное направление (фото → чип) живёт в самом SortableJS-инстансе
    #photosGrid — хит-тест по координатам отпускания прямо в его onEnd
    (см. src/70-photos.js), отдельного движка для него не нужно. */
-('use strict');
+'use strict';
 
 const CHIP_DRAG_THRESHOLD = 6; // px движения до начала перетаскивания
 
@@ -298,27 +266,17 @@ function chipDragPointerDown(e) {
   const chip = chipDragTarget(e.target);
   if (!chip) return;
   chipDrag.state = {
-    chip,
-    label: chip.dataset.label,
-    started: false,
-    px: e.clientX || 0,
-    py: e.clientY || 0,
-    x: e.clientX || 0,
-    y: e.clientY || 0,
-    grabDX: 0,
-    grabDY: 0,
-    ghost: null,
-    hoverPhoto: null
+    chip, label: chip.dataset.label, started: false,
+    px: e.clientX || 0, py: e.clientY || 0, x: e.clientX || 0, y: e.clientY || 0,
+    grabDX: 0, grabDY: 0, ghost: null, hoverPhoto: null
   };
 }
 
 function chipDragPointerMove(e) {
   const st = chipDrag.state;
   if (!st) return;
-  const x = e.clientX || 0,
-    y = e.clientY || 0;
-  st.x = x;
-  st.y = y;
+  const x = e.clientX || 0, y = e.clientY || 0;
+  st.x = x; st.y = y;
   if (!st.started) {
     if (Math.abs(x - st.px) < CHIP_DRAG_THRESHOLD && Math.abs(y - st.py) < CHIP_DRAG_THRESHOLD) return;
     chipDragBegin(st, e);
@@ -342,9 +300,7 @@ function chipDragPointerMove(e) {
 function chipDragPhotoAt(x, y, fallbackEl) {
   let el = null;
   if (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function') {
-    try {
-      el = document.elementFromPoint(x, y);
-    } catch (err) {}
+    try { el = document.elementFromPoint(x, y); } catch (err) {}
   }
   if (!el) el = fallbackEl;
   return el && el.closest ? el.closest('.photo') : null;
@@ -353,13 +309,10 @@ function chipDragPhotoAt(x, y, fallbackEl) {
 function chipDragBegin(st, e) {
   st.started = true;
   if (e && e.pointerId !== undefined && st.chip.setPointerCapture) {
-    try {
-      st.chip.setPointerCapture(e.pointerId);
-    } catch (err) {}
+    try { st.chip.setPointerCapture(e.pointerId); } catch (err) {}
   }
   const r = st.chip.getBoundingClientRect ? st.chip.getBoundingClientRect() : { left: st.x, top: st.y, width: 0 };
-  st.grabDX = st.x - r.left;
-  st.grabDY = st.y - r.top;
+  st.grabDX = st.x - r.left; st.grabDY = st.y - r.top;
   if (st.chip.cloneNode) {
     const ghost = st.chip.cloneNode(true);
     ghost.classList.add('drag-ghost');
@@ -380,14 +333,9 @@ function chipDragBegin(st, e) {
   if (document.body && document.body.classList) document.body.classList.add('uni-dragging');
 }
 
-function chipDragPointerUp(e) {
-  chipDragEnd(chipDrag.state, e, true);
-}
-function chipDragPointerCancel() {
-  chipDragEnd(chipDrag.state, null, false);
-}
-function chipDragCancelSafe() {
-  // потеря фокуса окна
+function chipDragPointerUp(e) { chipDragEnd(chipDrag.state, e, true); }
+function chipDragPointerCancel() { chipDragEnd(chipDrag.state, null, false); }
+function chipDragCancelSafe() { // потеря фокуса окна
   const st = chipDrag.state;
   if (!st) return;
   if (st.started) chipDragEnd(st, null, false);
@@ -405,18 +353,16 @@ function chipDragEnd(st, e, ok) {
   if (st.ghost && st.ghost.remove) st.ghost.remove();
   if (document.body && document.body.classList) document.body.classList.remove('uni-dragging');
   if (!started) return; // обычный клик по чипу — фильтр переключит обычный делегат клика
-  if (!ok) {
-    chipDragSuppressClick();
-    return;
-  } // Esc/cancel/blur — без применения лейбла
-  const photo = e && (e.clientX !== undefined || e.clientY !== undefined) ? chipDragPhotoAt(e.clientX || st.x, e.clientY || st.y, e.target) : st.hoverPhoto;
+  if (!ok) { chipDragSuppressClick(); return; } // Esc/cancel/blur — без применения лейбла
+  const photo = e && (e.clientX !== undefined || e.clientY !== undefined)
+    ? chipDragPhotoAt(e.clientX || st.x, e.clientY || st.y, e.target)
+    : st.hoverPhoto;
   if (photo && photo.dataset && photo.dataset.id) {
     const targets = new Set(selectedPhotos); // всем отмеченным…
-    targets.add(photo.dataset.id); // …и фото под курсором
+    targets.add(photo.dataset.id);           // …и фото под курсором
     applyLabelToPhotos(st.label, targets);
     selectedPhotos.clear();
-    save();
-    renderPhotos();
+    save(); renderPhotos();
   }
   chipDragSuppressClick();
 }
@@ -1625,7 +1571,6 @@ document.addEventListener('click', e => {
   }
 });
 renderAuthWho();
-
 /* ===== Тема ===== */
 const THEME_KEY = 'universe_theme';
 function getTheme() {
@@ -1646,43 +1591,30 @@ function runViewTransition(apply) {
   if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function' || motionReduced()) return false;
   try {
     const t = document.startViewTransition(() => {
-      try {
-        apply();
-      } catch (e) {
-        console.warn('Ошибка при переключении', e);
-      }
+      try { apply(); } catch (e) { console.warn('Ошибка при переключении', e); }
     });
     if (t) {
       if (t.finished && typeof t.finished.catch === 'function') t.finished.catch(() => {});
       if (t.updateCallbackDone && typeof t.updateCallbackDone.catch === 'function') t.updateCallbackDone.catch(() => {});
     }
     return true;
-  } catch (e) {
-    return false;
-  } // переход уже идёт — применяем мгновенно
+  } catch (e) { return false; } // переход уже идёт — применяем мгновенно
 }
 
 function setTheme(t) {
   const apply = () => {
-    try {
-      localStorage.setItem(THEME_KEY, t);
-    } catch (e) {}
+    try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
     const root = document.documentElement;
     if (root) root.dataset.theme = t;
     const btn = $('#themeToggle');
-    if (btn) {
-      btn.textContent = t === 'dark' ? '☀️' : '🌙';
-      btn.setAttribute('aria-pressed', String(t === 'dark'));
-    }
+    if (btn) { btn.textContent = t === 'dark' ? '☀️' : '🌙'; btn.setAttribute('aria-pressed', String(t === 'dark')); }
     const sbtn = $('#settingsThemeBtn');
     if (sbtn) sbtn.textContent = t === 'dark' ? '☀️ Включить светлую тему' : '🌙 Включить тёмную тему';
   };
   // Фаза D: смена темы — тоже плавным переходом (если браузер умеет и анимации не выключены)
   if (!runViewTransition(apply)) apply();
 }
-function toggleTheme() {
-  setTheme(getTheme() === 'dark' ? 'light' : 'dark');
-}
+function toggleTheme() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
 
 /* ===== Навигация ===== */
 let activeView = 'home'; // текущая вкладка — для hash-роутинга и кнопки «назад»
@@ -1707,12 +1639,7 @@ function showView(view) {
     $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
     $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
     if (view === 'home') renderHome();
-    if (view === 'calendar') {
-      calY = new Date().getFullYear();
-      calM = new Date().getMonth();
-      selectedDate = null;
-      renderCalendar();
-    }
+    if (view === 'calendar') { calY = new Date().getFullYear(); calM = new Date().getMonth(); selectedDate = null; renderCalendar(); }
     if (view === 'notes') renderNotes();
     if (view === 'lists') renderLists();
     if (view === 'wishlist') renderWishlist();
@@ -1731,9 +1658,7 @@ function go(view) {
   // hash-роутинг: #/view — кнопка «назад» в браузере и прямые ссылки на вкладку.
   // location нет в песочнице тестов — там остаёмся на синхронном показе.
   if (typeof location !== 'undefined' && location.hash !== '#/' + view) {
-    try {
-      location.hash = '#/' + view;
-    } catch (e) {}
+    try { location.hash = '#/' + view; } catch (e) {}
   }
 }
 function hashView() {
@@ -1871,14 +1796,8 @@ function renderCompliment() {
 let countdownTarget = null;
 function nextTarget() {
   const now = Date.now();
-  let best = null,
-    bestT = Infinity;
-  const trySet = (t, obj) => {
-    if (t > now && t < bestT) {
-      bestT = t;
-      best = { ...obj, t };
-    }
-  };
+  let best = null, bestT = Infinity;
+  const trySet = (t, obj) => { if (t > now && t < bestT) { bestT = t; best = { ...obj, t }; } };
   for (const ev of db.events) trySet(nextOcc(ev).getTime(), { title: ev.title, emoji: ev.emoji || '💜' });
   for (const dt of db.dates) {
     if (dt.done) continue;
@@ -1892,12 +1811,7 @@ function renderCountdown() {
   const box = $('#countdown');
   if (!box) return;
   const n = nextTarget();
-  if (!n) {
-    box.hidden = true;
-    box.innerHTML = '';
-    countdownTarget = null;
-    return;
-  }
+  if (!n) { box.hidden = true; box.innerHTML = ''; countdownTarget = null; return; }
   countdownTarget = n.t;
   box.hidden = false;
   box.innerHTML = `<div class="compliment-card">
@@ -1909,22 +1823,14 @@ function renderCountdown() {
 function tickCountdown() {
   const el = $('#countdownTick');
   if (!el || countdownTarget == null) return;
-  if (countdownTarget - Date.now() <= 0) {
-    renderCountdown();
-    return;
-  } // цель наступила — сразу берём следующую
+  if (countdownTarget - Date.now() <= 0) { renderCountdown(); return; } // цель наступила — сразу берём следующую
   const left = countdownTarget - Date.now();
   const s = Math.floor(left / 1000);
-  const dd = Math.floor(s / 86400),
-    hh = Math.floor((s % 86400) / 3600),
-    mm = Math.floor((s % 3600) / 60),
-    ss = s % 60;
+  const dd = Math.floor(s / 86400), hh = Math.floor(s % 86400 / 3600), mm = Math.floor(s % 3600 / 60), ss = s % 60;
   const p = n => String(n).padStart(2, '0');
   el.textContent = dd > 0 ? `${dd} дн. ${p(hh)}:${p(mm)}:${p(ss)}` : `${p(hh)}:${p(mm)}:${p(ss)}`;
 }
-setInterval(() => {
-  if (!isHidden()) tickCountdown();
-}, 1000);
+setInterval(() => { if (!isHidden()) tickCountdown(); }, 1000);
 
 /* ===== Конфетти ===== */
 function celebrate() {
@@ -1935,10 +1841,10 @@ function celebrate() {
     c.className = 'confetti';
     c.textContent = emojis[Math.floor(Math.random() * emojis.length)];
     c.style.left = Math.random() * 100 + 'vw';
-    c.style.fontSize = 14 + Math.random() * 18 + 'px';
+    c.style.fontSize = (14 + Math.random() * 18) + 'px';
     c.style.top = '-20px';
-    c.style.animationDuration = 2.2 + Math.random() * 2.4 + 's';
-    c.style.animationDelay = Math.random() * 0.7 + 's';
+    c.style.animationDuration = (2.2 + Math.random() * 2.4) + 's';
+    c.style.animationDelay = (Math.random() * 0.7) + 's';
     document.body.appendChild(c);
     setTimeout(() => c.remove(), 6000);
   }
@@ -1982,21 +1888,22 @@ function renderDates() {
     .filter(o => o.days >= 0 && !o.d.done)
     .sort((a, b) => a.when - b.when || (a.d.time || '').localeCompare(b.d.time || ''))
     .slice(0, 8);
-  box.innerHTML =
-    '<h3>💘 Наши свидания</h3>' +
-    (list.length
-      ? list
-          .map(o => {
-            const d = o.d;
-            const who = getUser();
-            const resp = d.responses || {};
-            const from = d.from;
-            // Пригласивший уже согласился — ему кнопки «Да/Нет» не нужны
-            const status = p => (from === p ? (p === 'gosha' ? '💌 позвал' : '💌 позвала') : fmtResp(resp[p]));
-            const canAnswer = !from || from === 'both' || from !== who;
-            const bothYes = resp.gosha === 'yes' && resp.dasha === 'yes';
-            const whenTag = o.days === 0 ? '<span class="tag tag-today">сегодня</span>' : o.days === 1 ? '<span class="tag">завтра</span>' : '';
-            return `<div class="date-card">
+  box.innerHTML = '<h3>💘 Наши свидания</h3>' +
+    (list.length ? list.map(o => {
+      const d = o.d;
+      const who = getUser();
+      const resp = d.responses || {};
+      const from = d.from;
+      // Пригласивший уже согласился — ему кнопки «Да/Нет» не нужны
+      const status = p => from === p
+        ? (p === 'gosha' ? '💌 позвал' : '💌 позвала')
+        : fmtResp(resp[p]);
+      const canAnswer = !from || from === 'both' || from !== who;
+      const bothYes = resp.gosha === 'yes' && resp.dasha === 'yes';
+      const whenTag = o.days === 0
+        ? '<span class="tag tag-today">сегодня</span>'
+        : o.days === 1 ? '<span class="tag">завтра</span>' : '';
+      return `<div class="date-card">
         <div class="date-emoji">${esc(d.emoji || '💘')}</div>
         <div class="date-info">
           <b>${fmtDateLong(d.date)}${whenTag}</b>
@@ -2011,14 +1918,10 @@ function renderDates() {
             <span class="${who === 'dasha' ? 'resp-me' : ''}">Даша: ${status('dasha')}</span>
           </div>
           ${bothYes ? '<div class="both-yes">💞 Мы идём на свидание!</div>' : ''}
-          ${
-            canAnswer
-              ? `<div class="resp-btns">
+          ${canAnswer ? `<div class="resp-btns">
             <button class="resp-btn ${resp[who] === 'yes' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="yes">Да 👍</button>
             <button class="resp-btn no ${resp[who] === 'no' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="no">Нет 👎</button>
-          </div>`
-              : ''
-          }
+          </div>` : ''}
           <div class="date-btns">
             <button class="mini-x" data-edit-date="${d.id}" title="Изменить">✏️</button>
             <button class="mini-x" data-done-date="${d.id}" title="Свидание прошло">💗</button>
@@ -2026,9 +1929,7 @@ function renderDates() {
           </div>
         </div>
       </div>`;
-          })
-          .join('')
-      : '<p class="cal-tip">Ближайших свиданий пока нет. Самое время назначить новое! ✨</p>');
+    }).join('') : '<p class="cal-tip">Ближайших свиданий пока нет. Самое время назначить новое! ✨</p>');
 }
 
 /* ===== Неотвеченные приглашения на свидание =====
@@ -2083,16 +1984,10 @@ function renderDateInvites() {
 // главную. Новое, ещё не виденное приглашение всё равно покажется.
 const DISMISSED_INVITES_KEY = 'universe_dismissed_invites';
 function getDismissedInviteIds() {
-  try {
-    return new Set(JSON.parse(sessionStorage.getItem(DISMISSED_INVITES_KEY) || '[]'));
-  } catch (e) {
-    return new Set();
-  }
+  try { return new Set(JSON.parse(sessionStorage.getItem(DISMISSED_INVITES_KEY) || '[]')); } catch (e) { return new Set(); }
 }
 function markInvitesDismissed(ids) {
-  try {
-    sessionStorage.setItem(DISMISSED_INVITES_KEY, JSON.stringify(ids));
-  } catch (e) {}
+  try { sessionStorage.setItem(DISMISSED_INVITES_KEY, JSON.stringify(ids)); } catch (e) {}
 }
 function openDateInviteOverlay() {
   renderDateInvites();
@@ -2137,10 +2032,7 @@ $('#addDateBtn').addEventListener('click', () => openDateModal());
 // Свидание всегда от имени вошедшего — выбора «кто приглашает» нет.
 function saveDateFromModal() {
   const date = $('#dtDate').value;
-  if (!date) {
-    alert('Выбери дату свидания 💘');
-    return;
-  }
+  if (!date) { alert('Выбери дату свидания 💘'); return; }
   const existing = editingDateId ? db.dates.find(x => x.id === editingDateId) : null;
   if (existing) {
     // Правка не трогает from/responses — кто позвал и кто уже ответил, остаётся как было.
@@ -2150,10 +2042,7 @@ function saveDateFromModal() {
     existing.note = $('#dtNote').value.trim();
     existing.emoji = $('#dtEmoji').value.trim() || '💘';
     editingDateId = null;
-    save();
-    $('#dateOverlay').hidden = true;
-    renderHome();
-    renderCalendar();
+    save(); $('#dateOverlay').hidden = true; renderHome(); renderCalendar();
     return;
   }
   const from = getUser();
@@ -2164,20 +2053,13 @@ function saveDateFromModal() {
   // обоих буквально, из-за чего «Мы идём на свидание!» не срабатывало
   // НИКОГДА ни при каком сценарии использования.
   db.dates.push({
-    id: uid(),
-    date,
-    time: $('#dtTime').value,
-    from,
-    responses: { gosha: from === 'gosha' ? 'yes' : null, dasha: from === 'dasha' ? 'yes' : null },
-    place: $('#dtPlace').value.trim(),
-    note: $('#dtNote').value.trim(),
-    emoji: $('#dtEmoji').value.trim() || '💘',
-    done: false
+    id: uid(), date, time: $('#dtTime').value,
+    from, responses: { gosha: from === 'gosha' ? 'yes' : null, dasha: from === 'dasha' ? 'yes' : null },
+    place: $('#dtPlace').value.trim(), note: $('#dtNote').value.trim(),
+    emoji: $('#dtEmoji').value.trim() || '💘', done: false
   });
-  save();
-  $('#dateOverlay').hidden = true;
-  renderHome();
-  renderCalendar();
+  save(); $('#dateOverlay').hidden = true;
+  renderHome(); renderCalendar();
 }
 $('#dtSave').addEventListener('click', saveDateFromModal);
 
@@ -2188,7 +2070,7 @@ $('#dtSave').addEventListener('click', saveDateFromModal);
 // слоты заполняются случайными. Выбор стабилен в течение дня (seed по дате);
 // кнопка «🎲 Перемешать» меняет коллаж вручную, но тоже фиксирует его до конца дня.
 const HISTORY_PHOTO_SLOTS = [
-  { st: 'left:1%; top:16%; width:84px; height:84px; rotate:-7deg', dur: 6.4, delay: 0 },
+  { st: 'left:1%; top:16%; width:84px; height:84px; rotate:-7deg',  dur: 6.4, delay: 0 },
   { st: 'left:29%; top:5%; width:100px; height:100px; rotate:5deg', dur: 5.8, delay: 0.6 },
   { st: 'left:58%; top:24%; width:72px; height:72px; rotate:-3deg', dur: 6.9, delay: 1.2 }
 ];
@@ -2199,8 +2081,7 @@ function daySeed(str) {
 }
 function mulberry32(a) {
   return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
@@ -2208,18 +2089,13 @@ function mulberry32(a) {
 }
 // Фото «в этот день» из прошлых лет (по EXIF или дате события/свидания)
 function onThisDayPhotos(at) {
-  return onThisDayItems(at)
-    .filter(it => it.kind === 'photo' && it.p)
-    .map(it => it.p);
+  return onThisDayItems(at).filter(it => it.kind === 'photo' && it.p).map(it => it.p);
 }
 // Зафиксированный на день выбор коллажа {day, sig, ids}; ручной перемес живёт до полуночи.
 // sig — сигнатура состава галереи: при добавлении/удалении фото коллаж пересобирается.
 let historyCollage = null;
 function photoSignature() {
-  return [...db.photos]
-    .map(p => p.id)
-    .sort()
-    .join(',');
+  return [...db.photos].map(p => p.id).sort().join(',');
 }
 function shufflePick(photos, rnd) {
   for (let i = photos.length - 1; i > 0; i--) {
@@ -2231,14 +2107,8 @@ function shufflePick(photos, rnd) {
 function pinOnThisDay(photos, n, at) {
   const picks = [];
   const otd = onThisDayPhotos(at);
-  for (const p of otd) {
-    if (picks.length >= n) break;
-    if (!picks.includes(p)) picks.push(p);
-  }
-  for (const p of photos) {
-    if (picks.length >= n) break;
-    if (!picks.includes(p)) picks.push(p);
-  }
+  for (const p of otd) { if (picks.length >= n) break; if (!picks.includes(p)) picks.push(p); }
+  for (const p of photos) { if (picks.length >= n) break; if (!picks.includes(p)) picks.push(p); }
   return picks;
 }
 function pickHistoryPhotos(at) {
@@ -2269,30 +2139,13 @@ function historyPhotosHtml(at) {
   const picks = pickHistoryPhotos(at);
   const otdIds = new Set(onThisDayPhotos(at).map(p => p.id));
   const badge = picks.some(p => otdIds.has(p.id)) ? '<span class="hp-badge">✨ В этот день</span>' : '';
-  return (
-    badge +
-    picks
-      .map((p, i) => {
-        const s = HISTORY_PHOTO_SLOTS[i];
-        const url = photoSrc(p); // кэш миниатюр может быть не прогрет — ставим fallback
-        return (
-          '<img class="history-photo" data-photo="' +
-          esc(p.id) +
-          '" alt="' +
-          esc(p.title || '') +
-          '"' +
-          (url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"') +
-          ' style="' +
-          s.st +
-          'animation-duration:' +
-          s.dur +
-          's;animation-delay:' +
-          s.delay +
-          's" loading="lazy">'
-        );
-      })
-      .join('')
-  );
+  return badge + picks.map((p, i) => {
+    const s = HISTORY_PHOTO_SLOTS[i];
+    const url = photoSrc(p); // кэш миниатюр может быть не прогрет — ставим fallback
+    return '<img class="history-photo" data-photo="' + esc(p.id) + '" alt="' + esc(p.title || '') + '"' +
+      (url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"') +
+      ' style="' + s.st + 'animation-duration:' + s.dur + 's;animation-delay:' + s.delay + 's" loading="lazy">';
+  }).join('');
 }
 // Делегирование: innerHTML #progressRing перерисовывается на каждом рендере
 $('#progressRing').addEventListener('click', e => {
@@ -2300,8 +2153,7 @@ $('#progressRing').addEventListener('click', e => {
 });
 $('#progressRing').addEventListener('keydown', e => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('#shuffleHistoryBtn')) {
-    e.preventDefault();
-    shuffleHistoryPhotos();
+    e.preventDefault(); shuffleHistoryPhotos();
   }
 });
 
@@ -2627,7 +2479,6 @@ document.addEventListener('click', e => {
   const btn = e.target && e.target.closest ? e.target.closest('[data-tl-expand]') : null;
   if (btn) toggleMemoryPhotos(btn.dataset.tlExpand);
 });
-
 /* ===== Календарь ===== */
 let calY = new Date().getFullYear(),
   calM = new Date().getMonth(),
@@ -3422,18 +3273,15 @@ function saveEventFromModal() {
   renderHome();
 }
 $('#evSave').addEventListener('click', saveEventFromModal);
-
 /* ===== Заметки ===== */
 let editingNoteId = null; // id заметки в режиме инлайн-правки (null — не редактируем)
 function noteAuthorName(n) {
   return n.author === 'dasha' ? '👧 Даша' : n.author === 'gosha' ? '👦 Гоша' : '💜 Наши';
 }
 function renderNotes() {
-  const list = [...db.notes].sort((a, b) => b.pinned - a.pinned || (a.order ?? 1e9) - (b.order ?? 1e9) || b.ts - a.ts);
-  $('#notesGrid').innerHTML = list.length
-    ? list
-        .map(
-          n => `
+  const list = [...db.notes].sort((a, b) =>
+    (b.pinned - a.pinned) || ((a.order ?? 1e9) - (b.order ?? 1e9)) || (b.ts - a.ts));
+  $('#notesGrid').innerHTML = list.length ? list.map(n => `
     <div class="note${n.pinned ? ' pinned' : ''}" data-id="${n.id}">
       <div class="note-top">
         <button class="drag-handle note-drag" data-note-drag="${n.id}" title="Перетащить">⠿</button>
@@ -3443,72 +3291,50 @@ function renderNotes() {
         <button class="mini-x" data-edit-note="${n.id}" title="Редактировать">✏️</button>
         <button class="mini-x" data-del-note="${n.id}" title="Удалить">✕</button>
       </div>
-      ${
-        editingNoteId === n.id
-          ? `<div class="note-edit">
+      ${editingNoteId === n.id
+        ? `<div class="note-edit">
              <textarea id="noteEdit-${n.id}" class="note-editor">${esc(n.text)}</textarea>
              <div class="note-edit-btns">
                <button class="btn btn-sm" data-save-note="${n.id}">💜 Сохранить</button>
                <button class="mini-x" data-cancel-note title="Отмена">✕</button>
              </div>
            </div>`
-          : `<p>${esc(n.text)}</p>`
-      }
-    </div>`
-        )
-        .join('')
+        : `<p>${esc(n.text)}</p>`}
+    </div>`).join('')
     : '<div class="empty-state">Пока пусто. Напиши первую записку! 💌</div>';
 }
 function addNote() {
   const t = $('#noteText').value.trim();
   if (!t) return;
   db.notes.unshift({ id: uid(), text: t, ts: Date.now(), pinned: false, author: getUser(), order: 0 });
-  save();
-  $('#noteText').value = '';
-  renderNotes();
+  save(); $('#noteText').value = ''; renderNotes();
 }
 $('#noteAddBtn').addEventListener('click', addNote);
-$('#noteText').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addNote();
-});
+$('#noteText').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addNote(); });
 
 // Закрепить/удалить может любой — отдельные функции, вызываются по клику ✕/📍
 function togglePinNote(id) {
   const n = db.notes.find(x => x.id === id);
   if (!n) return;
-  n.pinned = !n.pinned;
-  save();
-  renderNotes();
+  n.pinned = !n.pinned; save(); renderNotes();
 }
 function deleteNote(id) {
   if (!confirmDelete('Удалить заметку? Это не отменить.')) return;
   db.notes = db.notes.filter(x => x.id !== id);
   if (editingNoteId === id) editingNoteId = null;
-  save();
-  renderNotes();
+  save(); renderNotes();
 }
 
 // Редактирование: ✏️, двойной клик по карточке, Ctrl+Enter в редакторе
-function startEditNote(id) {
-  editingNoteId = id;
-  renderNotes();
-}
-function cancelNoteEdit() {
-  editingNoteId = null;
-  renderNotes();
-}
+function startEditNote(id) { editingNoteId = id; renderNotes(); }
+function cancelNoteEdit() { editingNoteId = null; renderNotes(); }
 function saveNoteEdit(id, text) {
   const n = db.notes.find(x => x.id === id);
   if (!n) return;
   const ta = $('#noteEdit-' + id);
   const t = (text !== undefined ? text : (ta && ta.value) || '').trim();
-  if (t) {
-    n.text = t;
-    n.ts = Date.now();
-  }
-  editingNoteId = null;
-  save();
-  renderNotes();
+  if (t) { n.text = t; n.ts = Date.now(); }
+  editingNoteId = null; save(); renderNotes();
 }
 $('#notesGrid').addEventListener('dblclick', e => {
   const card = e.target.closest('.note');
@@ -3522,97 +3348,65 @@ $('#notesGrid').addEventListener('dblclick', e => {
 // сверху — стабильно отсортируем итоговый DOM-порядок по pin, чтобы список не
 // «перепрыгивал» сразу после перерисовки.
 function notesSortEnd(evt) {
-  const ids = [...evt.to.children].filter(c => c.classList && c.classList.contains('note')).map(c => c.dataset.id);
-  const pinOf = id => {
-    const n = db.notes.find(x => x.id === id);
-    return n && n.pinned ? 0 : 1;
-  };
-  ids
-    .sort((a, b) => pinOf(a) - pinOf(b))
-    .forEach((id, i) => {
-      const n = db.notes.find(x => x.id === id);
-      if (n) n.order = i;
-    });
-  save();
-  renderNotes();
+  const ids = [...evt.to.children]
+    .filter(c => c.classList && c.classList.contains('note'))
+    .map(c => c.dataset.id);
+  const pinOf = id => { const n = db.notes.find(x => x.id === id); return n && n.pinned ? 0 : 1; };
+  ids.sort((a, b) => pinOf(a) - pinOf(b))
+    .forEach((id, i) => { const n = db.notes.find(x => x.id === id); if (n) n.order = i; });
+  save(); renderNotes();
 }
 if (typeof Sortable !== 'undefined') {
   Sortable.create($('#notesGrid'), {
-    handle: '.note-drag',
-    forceFallback: true,
-    fallbackOnBody: true,
-    animation: 150,
-    scroll: true,
-    scrollSensitivity: 80,
-    scrollSpeed: 20,
+    handle: '.note-drag', forceFallback: true, fallbackOnBody: true, animation: 150,
+    scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
     onEnd: notesSortEnd
   });
 }
 
+
 /* ===== Списки ===== */
 let editingSubtask = null; // {listId, itemId} в режиме инлайн-правки, иначе null
-let editingListId = null; // id списка, у которого сейчас правится название, иначе null
+let editingListId = null;  // id списка, у которого сейчас правится название, иначе null
 function listItemHTML(listId, it) {
   const editing = editingSubtask && editingSubtask.listId === listId && editingSubtask.itemId === it.id;
   return `<li class="${it.done ? 'done' : ''}" data-item="${esc(it.id)}">
     <button class="drag-handle subtask-drag" data-item-drag="${esc(it.id)}" title="Перетащить">⠿</button>
     <button class="check" data-toggle-item="${listId}" data-id="${it.id}" title="Готово">${it.done ? '✅' : '○'}</button>
-    ${
-      editing
-        ? `<input type="text" class="subtask-editor" id="subtaskEdit-${esc(it.id)}" value="${esc(it.text)}">
+    ${editing
+      ? `<input type="text" class="subtask-editor" id="subtaskEdit-${esc(it.id)}" value="${esc(it.text)}">
          <button class="mini-x" data-save-item="${listId}" data-id="${it.id}" title="Сохранить">💜</button>
          <button class="mini-x" data-cancel-item title="Отмена">✕</button>`
-        : `<span>${esc(it.text)}</span>
+      : `<span>${esc(it.text)}</span>
          <button class="mini-x" data-edit-item="${listId}" data-id="${it.id}" title="Редактировать">✏️</button>
-         <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>`
-    }
+         <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>`}
   </li>`;
 }
-function startEditSubtask(listId, itemId) {
-  editingSubtask = { listId, itemId };
-  renderLists();
-}
-function cancelSubtaskEdit() {
-  editingSubtask = null;
-  renderLists();
-}
+function startEditSubtask(listId, itemId) { editingSubtask = { listId, itemId }; renderLists(); }
+function cancelSubtaskEdit() { editingSubtask = null; renderLists(); }
 function saveSubtaskEdit(listId, itemId, text) {
   const list = db.lists.find(x => x.id === listId);
   const it = list && list.items.find(x => x.id === itemId);
   editingSubtask = null;
-  if (!it) {
-    renderLists();
-    return;
-  }
+  if (!it) { renderLists(); return; }
   const inp = $('#subtaskEdit-' + itemId);
   const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
   if (t) it.text = t;
-  save();
-  renderLists();
+  save(); renderLists();
 }
 // Редактирование названия списка — в отличие от подзадачи, список пересоздать
 // (удалить+создать) нельзя без потери ВСЕХ подзадач, поэтому у него есть
 // собственное переименование, а не только у подзадач.
-function startEditListName(listId) {
-  editingListId = listId;
-  renderLists();
-}
-function cancelListNameEdit() {
-  editingListId = null;
-  renderLists();
-}
+function startEditListName(listId) { editingListId = listId; renderLists(); }
+function cancelListNameEdit() { editingListId = null; renderLists(); }
 function saveListNameEdit(listId, text) {
   const list = db.lists.find(x => x.id === listId);
   editingListId = null;
-  if (!list) {
-    renderLists();
-    return;
-  }
+  if (!list) { renderLists(); return; }
   const inp = $('#listNameEdit-' + listId);
   const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
   if (t) list.name = t;
-  save();
-  renderLists();
+  save(); renderLists();
 }
 // Выполненные подзадачи всегда внизу списка: устойчивая сортировка —
 // внутри групп (невыполненные/выполненные) относительный порядок сохраняется.
@@ -3626,25 +3420,20 @@ function renderLists() {
     wrap.innerHTML = '<div class="empty-state rem-empty">Пока нет ни одного списка 🫧<br>Создайте первый — например, «Подарки на 8 марта».</div>';
     return;
   }
-  wrap.innerHTML = db.lists
-    .map(list => {
-      const active = list.items.filter(i => !i.done).length;
-      const editingName = editingListId === list.id;
-      const items = list.items.length
-        ? sortListItems(list.items)
-            .map(it => listItemHTML(list.id, it))
-            .join('')
-        : '<li class="empty-li">Пока пусто 🫧</li>';
-      return `<div class="list-card" data-id="${list.id}">
+  wrap.innerHTML = db.lists.map(list => {
+    const active = list.items.filter(i => !i.done).length;
+    const editingName = editingListId === list.id;
+    const items = list.items.length
+      ? sortListItems(list.items).map(it => listItemHTML(list.id, it)).join('')
+      : '<li class="empty-li">Пока пусто 🫧</li>';
+    return `<div class="list-card" data-id="${list.id}">
       <div class="list-head">
-        ${
-          editingName
-            ? `<input type="text" class="list-name-editor" id="listNameEdit-${esc(list.id)}" value="${esc(list.name)}">
+        ${editingName
+          ? `<input type="text" class="list-name-editor" id="listNameEdit-${esc(list.id)}" value="${esc(list.name)}">
              <button class="mini-x" data-save-list="${list.id}" title="Сохранить">💜</button>
              <button class="mini-x" data-cancel-list title="Отмена">✕</button>`
-            : `<h3>${esc(list.name)} <small class="list-count">${active} в работе</small></h3>
-             <button class="mini-x" data-edit-list="${list.id}" title="Переименовать список">✏️</button>`
-        }
+          : `<h3>${esc(list.name)} <small class="list-count">${active} в работе</small></h3>
+             <button class="mini-x" data-edit-list="${list.id}" title="Переименовать список">✏️</button>`}
         <button class="drag-handle list-drag" data-list-drag="${list.id}" title="Перетащить">⠿</button>
       </div>
       <div class="list-add">
@@ -3656,8 +3445,7 @@ function renderLists() {
         <button class="btn btn-danger btn-small" data-list-complete="${list.id}" title="Выполнить все подзадачи и удалить список">✔ Выполнить список</button>
       </div>
     </div>`;
-    })
-    .join('');
+  }).join('');
   initSubtaskSortables();
 }
 // Точечное обновление подзадач ОДНОГО списка (без перерисовки всех карточек): в DOM
@@ -3678,10 +3466,7 @@ function refreshListCard(listId) {
 function renderListItems(listId) {
   const list = db.lists.find(x => x.id === listId);
   const ul = $('#listItems-' + listId);
-  if (!list || !ul || !ul.querySelectorAll || typeof document.createElement !== 'function') {
-    renderLists();
-    return;
-  }
+  if (!list || !ul || !ul.querySelectorAll || typeof document.createElement !== 'function') { renderLists(); return; }
   const before = new Map();
   const oldItems = new Map();
   [...ul.querySelectorAll('li')].forEach(li => {
@@ -3708,14 +3493,9 @@ function renderListItems(listId) {
     }
   }
   // убираем узлы, которых больше нет (удалённые подзадачи / пустое состояние)
-  [...ul.querySelectorAll('li')].forEach(li => {
-    if (keep.indexOf(li) < 0) li.remove();
-  });
+  [...ul.querySelectorAll('li')].forEach(li => { if (keep.indexOf(li) < 0) li.remove(); });
   // выстраиваем в правильном порядке (appendChild перемещает существующий узел)
-  keep.forEach(li => {
-    if (li.remove) li.remove();
-    ul.appendChild(li);
-  });
+  keep.forEach(li => { if (li.remove) li.remove(); ul.appendChild(li); });
   if (!sorted.length) {
     const empty = document.createElement('li');
     empty.classList.add('empty-li');
@@ -3732,21 +3512,16 @@ function listFlipAnimate(scope, before) {
     if (!before.has(el)) return;
     const r1 = before.get(el);
     const r2 = el.getBoundingClientRect();
-    const dx = r1.left - r2.left,
-      dy = r1.top - r2.top;
+    const dx = r1.left - r2.left, dy = r1.top - r2.top;
     if (!dx && !dy) return;
     if (!el.style) el.style = {};
     el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
     moving.push(el);
   });
   if (!moving.length) return;
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => {
-      moving.forEach(el => {
-        el.style.transform = '';
-      });
-    })
-  );
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    moving.forEach(el => { el.style.transform = ''; });
+  }));
 }
 
 // Создать список с произвольным названием; возвращает список или null.
@@ -3755,8 +3530,7 @@ function createList(rawName) {
   if (!name) return null;
   const list = { id: uid(), name, items: [] };
   db.lists.unshift(list); // новый список — сверху
-  save();
-  renderLists();
+  save(); renderLists();
   const inp = $('#listNameInput');
   if (inp) inp.value = '';
   return list;
@@ -3768,8 +3542,7 @@ function addListSubtask(listId, inputId) {
   const text = (inp && inp.value ? String(inp.value) : '').trim();
   if (!text) return false;
   list.items.unshift({ id: uid(), text, done: false });
-  save();
-  if (inp) inp.value = '';
+  save(); if (inp) inp.value = '';
   refreshListCard(listId);
   return true;
 }
@@ -3780,16 +3553,13 @@ function toggleSubtask(listId, itemId) {
   if (!it) return false;
   it.done = !it.done;
   list.items = sortListItems(list.items); // выполненные — вниз
-  save();
-  refreshListCard(listId);
+  save(); refreshListCard(listId);
   // мини-«поп» галочки у переключённой подзадачи (анимация в CSS)
   const ul = $('#listItems-' + listId);
   const li = ul && ul.querySelector ? ul.querySelector('[data-item="' + itemId + '"]') : null;
   if (li) {
     li.classList.add('just-toggled');
-    setTimeout(() => {
-      if (li.classList.remove) li.classList.remove('just-toggled');
-    }, 400);
+    setTimeout(() => { if (li.classList.remove) li.classList.remove('just-toggled'); }, 400);
   }
   return it.done;
 }
@@ -3797,8 +3567,7 @@ function delSubtask(listId, itemId) {
   const list = db.lists.find(x => x.id === listId);
   if (!list) return false;
   list.items = list.items.filter(x => x.id !== itemId);
-  save();
-  refreshListCard(listId);
+  save(); refreshListCard(listId);
   return true;
 }
 // «Выполнить список»: после подтверждения удаляет весь блок вместе с подзадачами.
@@ -3807,8 +3576,7 @@ function completeList(listId) {
   if (!list) return false;
   if (!confirm('Выполнить список «' + list.name + '»? Он будет удалён вместе с подзадачами.')) return false;
   db.lists = db.lists.filter(x => x.id !== listId);
-  save();
-  renderLists();
+  save(); renderLists();
   return true;
 }
 
@@ -3818,19 +3586,13 @@ function completeList(listId) {
 function listsSortEnd(evt) {
   db.lists = [...evt.to.children]
     .filter(c => c.classList && c.classList.contains('list-card'))
-    .map(c => db.lists.find(l => l.id === c.dataset.id))
-    .filter(Boolean);
+    .map(c => db.lists.find(l => l.id === c.dataset.id)).filter(Boolean);
   save();
 }
 if (typeof Sortable !== 'undefined') {
   Sortable.create($('#listsWrap'), {
-    handle: '.list-drag',
-    forceFallback: true,
-    fallbackOnBody: true,
-    animation: 150,
-    scroll: true,
-    scrollSensitivity: 80,
-    scrollSpeed: 20,
+    handle: '.list-drag', forceFallback: true, fallbackOnBody: true, animation: 150,
+    scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
     onEnd: listsSortEnd
   });
 }
@@ -3856,51 +3618,37 @@ function subtaskSortEnd(listId, evt) {
 }
 function initSubtaskSortables() {
   if (typeof Sortable === 'undefined') return;
-  subtaskSortables.forEach(inst => {
-    if (inst && inst.destroy) inst.destroy();
-  });
+  subtaskSortables.forEach(inst => { if (inst && inst.destroy) inst.destroy(); });
   subtaskSortables.clear();
   document.querySelectorAll('.list-card').forEach(card => {
     const listId = card.dataset.id;
     const ul = card.querySelector ? card.querySelector('.items') : null;
     if (!listId || !ul) return;
-    subtaskSortables.set(
-      listId,
-      Sortable.create(ul, {
-        handle: '.subtask-drag',
-        filter: '.empty-li',
-        forceFallback: true,
-        fallbackOnBody: true,
-        animation: 150,
-        scroll: true,
-        scrollSensitivity: 80,
-        scrollSpeed: 20,
-        onEnd: evt => subtaskSortEnd(listId, evt)
-      })
-    );
+    subtaskSortables.set(listId, Sortable.create(ul, {
+      handle: '.subtask-drag', filter: '.empty-li', forceFallback: true, fallbackOnBody: true, animation: 150,
+      scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
+      onEnd: evt => subtaskSortEnd(listId, evt)
+    }));
   });
 }
 
 $('#listCreateBtn').addEventListener('click', () => createList($('#listNameInput').value));
-$('#listNameInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') createList($('#listNameInput').value);
-});
+$('#listNameInput').addEventListener('keydown', e => { if (e.key === 'Enter') createList($('#listNameInput').value); });
 
 /* ===== Хотелки (общие, но разделены по людям: у каждого свой список) ===== */
 let wishPhotoData = null;
 function fmtWishDate(ts) {
-  try {
-    return new Date(ts).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
-  } catch (e) {
-    return '';
-  }
+  try { return new Date(ts).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }); }
+  catch (e) { return ''; }
 }
 // «Исполнено другим»: свою хотелку исполнить нельзя — только партнёр.
 // Снять отметку может только тот, кто её поставил.
 function wishToggleHTML(w) {
   const me = getUser();
   if (w.done) {
-    return w.doneBy === me ? `<button class="check" data-wish-done="${w.id}" title="Снять отметку">↩️</button>` : '';
+    return w.doneBy === me
+      ? `<button class="check" data-wish-done="${w.id}" title="Снять отметку">↩️</button>`
+      : '';
   }
   if (w.owner === me) return `<span class="wish-hint">Только ${me === 'gosha' ? 'Даша' : 'Гоша'} исполнит 💜</span>`;
   return `<button class="check" data-wish-done="${w.id}" title="Исполнить!">○</button>`;
@@ -3912,11 +3660,9 @@ function wishCard(w) {
   // галереи, кэш миниатюр мог ещё не прогреться.
   const wPhotoSrc = w.photoId ? photoSrc({ id: w.photoId }) : '';
   return `<div class="wish${w.done ? ' done' : ''}">
-    ${
-      w.photoId
-        ? `<img class="wish-img"${wPhotoSrc ? ' src="' + esc(wPhotoSrc) + '"' : ' data-photo-src="' + esc(w.photoId) + '"'} alt="${esc(w.text)}" data-photo="${esc(w.photoId)}" loading="lazy">`
-        : `<div class="wish-img" style="display:grid;place-items:center;font-size:34px">💝</div>`
-    }
+    ${w.photoId
+      ? `<img class="wish-img"${wPhotoSrc ? ' src="' + esc(wPhotoSrc) + '"' : ' data-photo-src="' + esc(w.photoId) + '"'} alt="${esc(w.text)}" data-photo="${esc(w.photoId)}" loading="lazy">`
+      : `<div class="wish-img" style="display:grid;place-items:center;font-size:34px">💝</div>`}
     <div class="wish-body">
       <div class="wish-title">${esc(w.text)}</div>
       ${w.done ? `<span class="wish-done-by">💜 Исполнено${doneBy ? ' ' + doneBy : ''}${w.doneAt ? ' · ' + fmtWishDate(w.doneAt) : ''}</span>` : ''}
@@ -3932,12 +3678,14 @@ function wishCard(w) {
 function renderWishlist() {
   const grid = $('#wishlistGrid');
   if (!grid) return;
-  const byOwner = who => [...db.wishlist].filter(w => w.owner === who).sort((a, b) => a.done - b.done || b.ts - a.ts);
+  const byOwner = who => [...db.wishlist].filter(w => w.owner === who).sort((a, b) => (a.done - b.done) || (b.ts - a.ts));
   const sec = (who, label, emoji, empty) =>
     `<div class="wish-section"><h4>${esc(emoji)} Хотелки ${label}</h4>
       ${byOwner(who).length ? `<div class="wishlist-grid">${byOwner(who).map(wishCard).join('')}</div>` : `<p class="cal-tip">${empty}</p>`}
     </div>`;
-  grid.innerHTML = sec('gosha', 'Гоши', '👦', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨') + sec('dasha', 'Даши', '👧', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨');
+  grid.innerHTML =
+    sec('gosha', 'Гоши', '👦', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨') +
+    sec('dasha', 'Даши', '👧', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨');
   if (typeof hydratePhotoImgs === 'function') hydratePhotoImgs(grid);
 }
 let editingWishId = null;
@@ -3949,7 +3697,7 @@ function openWishModal(id) {
   if (title) title.textContent = wish ? '✏️ Изменить хотелку' : '🎁 Хотелка';
   wishPhotoData = null; // новое фото выбирается заново; старое (wish.photoId) остаётся, если не тронуть выбор
   $('#wishText').value = wish ? wish.text : '';
-  $('#wishLink').value = wish ? wish.link || '' : '';
+  $('#wishLink').value = wish ? (wish.link || '') : '';
   $('#wishPhotoName').textContent = wish && wish.photoId ? '✅ фото уже есть — выбери новое, чтобы заменить' : '';
   $('#wishPhoto').value = '';
   $('#wishOverlay').hidden = false;
@@ -3959,12 +3707,8 @@ $('#addWishBtn').addEventListener('click', () => openWishModal());
 $('#wishPhoto').addEventListener('change', async e => {
   const f = e.target.files[0];
   if (!f) return;
-  try {
-    wishPhotoData = await readFile(f);
-    $('#wishPhotoName').textContent = '✅ фото готово';
-  } catch (err) {
-    $('#wishPhotoName').textContent = 'не вышло :(';
-  }
+  try { wishPhotoData = await readFile(f); $('#wishPhotoName').textContent = '✅ фото готово'; }
+  catch (err) { $('#wishPhotoName').textContent = 'не вышло :('; }
 });
 // Хотелка всегда в список вошедшего — выбора «для кого» нет.
 // Фото хотелки — в photoStore (IndexedDB), как и остальные фото, а не сырым
@@ -3973,10 +3717,7 @@ $('#wishPhoto').addEventListener('change', async e => {
 // (общую галерею) НЕ попадает — хотелки показывают своё фото только у себя.
 async function saveWishFromModal() {
   const text = $('#wishText').value.trim();
-  if (!text) {
-    alert('Напиши, что хочешь 💜');
-    return;
-  }
+  if (!text) { alert('Напиши, что хочешь 💜'); return; }
   let photoId = null;
   if (wishPhotoData && photoStore) {
     try {
@@ -3984,14 +3725,10 @@ async function saveWishFromModal() {
       if (blob) {
         photoId = uid();
         let thumb = null;
-        try {
-          thumb = await makeThumbBlob(wishPhotoData, 256);
-        } catch (e) {}
+        try { thumb = await makeThumbBlob(wishPhotoData, 256); } catch (e) {}
         await photoStore.put(photoId, blob, thumb, { type: blob.type || 'image/webp', title: text, size: blob.size });
       }
-    } catch (e) {
-      console.warn('Не удалось сохранить фото хотелки', e);
-    }
+    } catch (e) { console.warn('Не удалось сохранить фото хотелки', e); }
   }
   const existing = editingWishId ? db.wishlist.find(x => x.id === editingWishId) : null;
   if (existing) {
@@ -4005,9 +3742,7 @@ async function saveWishFromModal() {
     if (photoId) wish.photoId = photoId;
     db.wishlist.unshift(wish);
   }
-  save();
-  $('#wishOverlay').hidden = true;
-  renderWishlist();
+  save(); $('#wishOverlay').hidden = true; renderWishlist();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
 }
 $('#wishSave').addEventListener('click', saveWishFromModal);
@@ -4017,9 +3752,7 @@ function toggleDateDone(id) {
   const d = db.dates.find(x => x.id === id);
   if (!d) return false;
   d.done = !d.done;
-  save();
-  renderHome();
-  renderCalendar();
+  save(); renderHome(); renderCalendar();
   return d.done;
 }
 
@@ -4034,57 +3767,31 @@ function closeOverlay(id) {
 }
 document.addEventListener('click', e => {
   const userBtn = e.target.closest('[data-user]');
-  if (userBtn) {
-    setUser(userBtn.dataset.user);
-    return;
-  }
+  if (userBtn) { setUser(userBtn.dataset.user); return; }
 
   const day = e.target.closest('[data-day]');
-  if (day) {
-    selectedDate = day.dataset.day;
-    renderCalendar();
-    return;
-  }
+  if (day) { selectedDate = day.dataset.day; renderCalendar(); return; }
 
   const delEv = e.target.closest('[data-del-event]');
   if (delEv) {
     if (!confirmDelete('Удалить событие? Это не отменить.')) return;
-    db.events = db.events.filter(x => x.id !== delEv.dataset.delEvent);
-    save();
-    renderCalendar();
-    renderHome();
-    return;
+    db.events = db.events.filter(x => x.id !== delEv.dataset.delEvent); save(); renderCalendar(); renderHome(); return;
   }
 
   const editEv = e.target.closest('[data-edit-event]');
-  if (editEv) {
-    openEventModal(editEv.dataset.editEvent);
-    return;
-  }
+  if (editEv) { openEventModal(editEv.dataset.editEvent); return; }
 
   const editDt = e.target.closest('[data-edit-date]');
-  if (editDt) {
-    openDateModal(editDt.dataset.editDate);
-    return;
-  }
+  if (editDt) { openDateModal(editDt.dataset.editDate); return; }
 
   const openInvites = e.target.closest('[data-open-invites]');
-  if (openInvites) {
-    openDateInviteOverlay();
-    return;
-  }
+  if (openInvites) { openDateInviteOverlay(); return; }
 
   const photoEv = e.target.closest('[data-photo-event]');
-  if (photoEv) {
-    addEventPhotoQuick(photoEv.dataset.photoEvent);
-    return;
-  }
+  if (photoEv) { addEventPhotoQuick(photoEv.dataset.photoEvent); return; }
 
   const photoDate = e.target.closest('[data-photo-date]');
-  if (photoDate) {
-    addDatePhotoQuick(photoDate.dataset.photoDate);
-    return;
-  }
+  if (photoDate) { addDatePhotoQuick(photoDate.dataset.photoDate); return; }
 
   const answerDate = e.target.closest('[data-answer-date]');
   if (answerDate) {
@@ -4095,127 +3802,62 @@ document.addEventListener('click', e => {
       d.responses = d.responses || {};
       d.responses[who] = d.responses[who] === val ? null : val;
       if (d.responses.gosha === 'yes' && d.responses.dasha === 'yes') celebrate(); // оба согласились — салют!
-      save();
-      renderHome();
-      renderCalendar();
+      save(); renderHome(); renderCalendar();
     }
     return;
   }
   const doneDate = e.target.closest('[data-done-date]');
-  if (doneDate) {
-    toggleDateDone(doneDate.dataset.doneDate);
-    return;
-  }
+  if (doneDate) { toggleDateDone(doneDate.dataset.doneDate); return; }
   const delDate = e.target.closest('[data-del-date]');
   if (delDate) {
     if (!confirmDelete('Удалить свидание? Это не отменить.')) return;
-    db.dates = db.dates.filter(x => x.id !== delDate.dataset.delDate);
-    save();
-    renderHome();
-    renderCalendar();
-    return;
+    db.dates = db.dates.filter(x => x.id !== delDate.dataset.delDate); save(); renderHome(); renderCalendar(); return;
   }
 
   const pinNote = e.target.closest('[data-pin-note]');
-  if (pinNote) {
-    togglePinNote(pinNote.dataset.pinNote);
-    return;
-  }
+  if (pinNote) { togglePinNote(pinNote.dataset.pinNote); return; }
   const delNote = e.target.closest('[data-del-note]');
-  if (delNote) {
-    deleteNote(delNote.dataset.delNote);
-    return;
-  }
+  if (delNote) { deleteNote(delNote.dataset.delNote); return; }
   const editNote = e.target.closest('[data-edit-note]');
-  if (editNote) {
-    startEditNote(editNote.dataset.editNote);
-    return;
-  }
+  if (editNote) { startEditNote(editNote.dataset.editNote); return; }
   const saveNoteBtn = e.target.closest('[data-save-note]');
-  if (saveNoteBtn) {
-    saveNoteEdit(saveNoteBtn.dataset.saveNote);
-    return;
-  }
+  if (saveNoteBtn) { saveNoteEdit(saveNoteBtn.dataset.saveNote); return; }
   const cancelNoteBtn = e.target.closest('[data-cancel-note]');
-  if (cancelNoteBtn) {
-    cancelNoteEdit();
-    return;
-  }
+  if (cancelNoteBtn) { cancelNoteEdit(); return; }
 
   const togItem = e.target.closest('[data-toggle-item]');
-  if (togItem) {
-    toggleSubtask(togItem.dataset.toggleItem, togItem.dataset.id);
-    return;
-  }
+  if (togItem) { toggleSubtask(togItem.dataset.toggleItem, togItem.dataset.id); return; }
   const delItem = e.target.closest('[data-del-item]');
-  if (delItem) {
-    delSubtask(delItem.dataset.delItem, delItem.dataset.id);
-    return;
-  }
+  if (delItem) { delSubtask(delItem.dataset.delItem, delItem.dataset.id); return; }
   const editItem = e.target.closest('[data-edit-item]');
-  if (editItem) {
-    startEditSubtask(editItem.dataset.editItem, editItem.dataset.id);
-    return;
-  }
+  if (editItem) { startEditSubtask(editItem.dataset.editItem, editItem.dataset.id); return; }
   const saveItemBtn = e.target.closest('[data-save-item]');
-  if (saveItemBtn) {
-    saveSubtaskEdit(saveItemBtn.dataset.saveItem, saveItemBtn.dataset.id);
-    return;
-  }
+  if (saveItemBtn) { saveSubtaskEdit(saveItemBtn.dataset.saveItem, saveItemBtn.dataset.id); return; }
   const cancelItemBtn = e.target.closest('[data-cancel-item]');
-  if (cancelItemBtn) {
-    cancelSubtaskEdit();
-    return;
-  }
+  if (cancelItemBtn) { cancelSubtaskEdit(); return; }
   const listAdd = e.target.closest('[data-list-add]');
-  if (listAdd) {
-    addListSubtask(listAdd.dataset.listAdd, 'listInput-' + listAdd.dataset.listAdd);
-    return;
-  }
+  if (listAdd) { addListSubtask(listAdd.dataset.listAdd, 'listInput-' + listAdd.dataset.listAdd); return; }
   const listDone = e.target.closest('[data-list-complete]');
-  if (listDone) {
-    completeList(listDone.dataset.listComplete);
-    return;
-  }
+  if (listDone) { completeList(listDone.dataset.listComplete); return; }
   const editList = e.target.closest('[data-edit-list]');
-  if (editList) {
-    startEditListName(editList.dataset.editList);
-    return;
-  }
+  if (editList) { startEditListName(editList.dataset.editList); return; }
   const saveListBtn = e.target.closest('[data-save-list]');
-  if (saveListBtn) {
-    saveListNameEdit(saveListBtn.dataset.saveList);
-    return;
-  }
+  if (saveListBtn) { saveListNameEdit(saveListBtn.dataset.saveList); return; }
   const cancelListBtn = e.target.closest('[data-cancel-list]');
-  if (cancelListBtn) {
-    cancelListNameEdit();
-    return;
-  }
+  if (cancelListBtn) { cancelListNameEdit(); return; }
 
   const photoSelectToggle = e.target.closest('[data-photo-select-toggle]');
-  if (photoSelectToggle) {
-    togglePhotoSelectMode();
-    return;
-  }
+  if (photoSelectToggle) { togglePhotoSelectMode(); return; }
   const photoReorderToggle = e.target.closest('[data-photo-reorder-toggle]');
-  if (photoReorderToggle) {
-    togglePhotoReorderMode();
-    return;
-  }
+  if (photoReorderToggle) { togglePhotoReorderMode(); return; }
   const selPhoto = e.target.closest('[data-sel-photo]');
   if (selPhoto) {
     const id = selPhoto.dataset.selPhoto;
-    if (selectedPhotos.has(id)) selectedPhotos.delete(id);
-    else selectedPhotos.add(id);
-    renderPhotos();
-    return;
+    if (selectedPhotos.has(id)) selectedPhotos.delete(id); else selectedPhotos.add(id);
+    renderPhotos(); return;
   }
   const photo = e.target.closest('[data-photo]');
-  if (photo) {
-    openLightboxFrom(photo);
-    return;
-  }
+  if (photo) { openLightboxFrom(photo); return; }
 
   const wishDone = e.target.closest('[data-wish-done]');
   if (wishDone) {
@@ -4224,15 +3866,8 @@ document.addEventListener('click', e => {
       const me = getUser();
       // Исполнить может только партнёр; снять отметку — только исполнивший.
       if (w.owner !== me && (!w.done || w.doneBy === me)) {
-        if (w.done) {
-          w.done = false;
-          w.doneBy = null;
-          w.doneAt = null;
-        } else {
-          w.done = true;
-          w.doneBy = me;
-          w.doneAt = Date.now();
-        }
+        if (w.done) { w.done = false; w.doneBy = null; w.doneAt = null; }
+        else { w.done = true; w.doneBy = me; w.doneAt = Date.now(); }
         save();
       }
       renderWishlist();
@@ -4240,92 +3875,50 @@ document.addEventListener('click', e => {
     return;
   }
   const editWish = e.target.closest('[data-edit-wish]');
-  if (editWish) {
-    openWishModal(editWish.dataset.editWish);
-    return;
-  }
+  if (editWish) { openWishModal(editWish.dataset.editWish); return; }
   const wishDel = e.target.closest('[data-wish-del]');
   if (wishDel) {
     if (!confirmDelete('Удалить хотелку? Это не отменить.')) return;
-    db.wishlist = db.wishlist.filter(x => x.id !== wishDel.dataset.wishDel);
-    save();
-    renderWishlist();
-    return;
+    db.wishlist = db.wishlist.filter(x => x.id !== wishDel.dataset.wishDel); save(); renderWishlist(); return;
   }
 
   const labelOff = e.target.closest('[data-label-off]');
-  if (labelOff) {
-    removeLabelFromPhoto(labelOff.dataset.photoOff, labelOff.dataset.labelOff);
-    return;
-  }
+  if (labelOff) { removeLabelFromPhoto(labelOff.dataset.photoOff, labelOff.dataset.labelOff); return; }
 
   const labelNew = e.target.closest('[data-label-new]');
-  if (labelNew) {
-    openLabelManageOverlay();
-    return;
-  }
+  if (labelNew) { openLabelManageOverlay(); return; }
   const labelChip = e.target.closest('[data-label]');
   if (labelChip) {
-    currentLabel = labelChip.dataset.label;
-    eventFilter = { year: '', month: '', title: '' };
-    renderPhotos();
-    return;
+    currentLabel = labelChip.dataset.label; eventFilter = { year: '', month: '', title: '' }; renderPhotos(); return;
   }
 
   const labelColorToggle = e.target.closest('[data-label-color-toggle]');
-  if (labelColorToggle) {
-    toggleLabelColorPicker(labelColorToggle.dataset.labelColorToggle);
-    return;
-  }
+  if (labelColorToggle) { toggleLabelColorPicker(labelColorToggle.dataset.labelColorToggle); return; }
   const labelSetColor = e.target.closest('[data-label-set-color]');
-  if (labelSetColor) {
-    setLabelColor(labelSetColor.dataset.labelSetColor, labelSetColor.dataset.color);
-    return;
-  }
+  if (labelSetColor) { setLabelColor(labelSetColor.dataset.labelSetColor, labelSetColor.dataset.color); return; }
   const editLabel = e.target.closest('[data-edit-label]');
-  if (editLabel) {
-    startEditLabelName(editLabel.dataset.editLabel);
-    return;
-  }
+  if (editLabel) { startEditLabelName(editLabel.dataset.editLabel); return; }
   const saveLabelBtn = e.target.closest('[data-save-label]');
-  if (saveLabelBtn) {
-    saveLabelNameEdit(saveLabelBtn.dataset.saveLabel);
-    return;
-  }
+  if (saveLabelBtn) { saveLabelNameEdit(saveLabelBtn.dataset.saveLabel); return; }
   const cancelLabelBtn = e.target.closest('[data-cancel-label]');
-  if (cancelLabelBtn) {
-    cancelLabelNameEdit();
-    return;
-  }
+  if (cancelLabelBtn) { cancelLabelNameEdit(); return; }
   const delLabelBtn = e.target.closest('[data-del-label]');
-  if (delLabelBtn) {
-    deleteLabel(delLabelBtn.dataset.delLabel);
-    return;
-  }
+  if (delLabelBtn) { deleteLabel(delLabelBtn.dataset.delLabel); return; }
   const applyToggle = e.target.closest('[data-label-apply-toggle]');
-  if (applyToggle) {
-    toggleLabelOnPhotos(applyToggle.dataset.labelApplyToggle, applyTargetIds);
-    renderLabelApplyList();
-    renderPhotos();
-    return;
-  }
+  if (applyToggle) { toggleLabelOnPhotos(applyToggle.dataset.labelApplyToggle, applyTargetIds); renderLabelApplyList(); renderPhotos(); return; }
 
   const closeBtn = e.target.closest('[data-close]');
-  if (closeBtn) {
-    closeOverlay(closeBtn.dataset.close);
-    return;
-  }
+  if (closeBtn) { closeOverlay(closeBtn.dataset.close); return; }
   if (e.target.classList && e.target.classList.contains('overlay')) closeOverlay(e.target.id);
 });
 // Двойной клик по подзадаче — как ✏️ (пара с редактированием заметок)
 const listsWrapEl = $('#listsWrap');
-if (listsWrapEl)
-  listsWrapEl.addEventListener('dblclick', e => {
-    const li = e.target.closest('li[data-item]');
-    if (!li || e.target.closest('.check, .drag-handle, button, input')) return;
-    const card = li.closest('.list-card');
-    if (card) startEditSubtask(card.dataset.id, li.dataset.item);
-  });
+if (listsWrapEl) listsWrapEl.addEventListener('dblclick', e => {
+  const li = e.target.closest('li[data-item]');
+  if (!li || e.target.closest('.check, .drag-handle, button, input')) return;
+  const card = li.closest('.list-card');
+  if (card) startEditSubtask(card.dataset.id, li.dataset.item);
+});
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     const open = document.querySelector('.overlay:not([hidden])');
@@ -4359,11 +3952,7 @@ document.addEventListener('keydown', e => {
   // Календарь: Enter / пробел на дне — как клик по ячейке
   if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.closest) {
     const day = e.target.closest('[data-day]');
-    if (day) {
-      e.preventDefault();
-      selectedDate = day.dataset.day;
-      renderCalendar();
-    }
+    if (day) { e.preventDefault(); selectedDate = day.dataset.day; renderCalendar(); }
   }
 });
 
@@ -4376,14 +3965,9 @@ function readFile(file) {
       img.onload = () => {
         let { width: w, height: h } = img;
         const max = 900;
-        if (w > max || h > max) {
-          const k = max / Math.max(w, h);
-          w = Math.round(w * k);
-          h = Math.round(h * k);
-        }
+        if (w > max || h > max) { const k = max / Math.max(w, h); w = Math.round(w * k); h = Math.round(h * k); }
         const cv = document.createElement('canvas');
-        cv.width = w;
-        cv.height = h;
+        cv.width = w; cv.height = h;
         cv.getContext('2d').drawImage(img, 0, 0, w, h);
         // WebP, не JPEG: JPEG не умеет прозрачность — PNG-стикер/скриншот с
         // альфа-каналом заливался бы сплошным цветом. WebP её поддерживает;
@@ -4403,7 +3987,7 @@ function readFile(file) {
 let currentLabel = ''; // фильтр: '' = все фото
 let eventFilter = { year: '', month: '', title: '' }; // витрина «📅 События»: фильтр кнопками «год → месяц → событие»
 const selectedPhotos = new Set(); // id выбранных фото (для массовых операций)
-const photoSort = (a, b) => b.pinned - a.pinned || (a.order || 0) - (b.order || 0);
+const photoSort = (a, b) => (b.pinned - a.pinned) || ((a.order || 0) - (b.order || 0));
 // Раньше на каждой карточке одновременно висели 4 постоянные кнопки (выбор/
 // драг/закрепить/удалить) — на маленькой мобильной миниатюре они перекрывали
 // до половины фото. Теперь по умолчанию карточка чистая; выбор и сортировка —
@@ -4421,10 +4005,7 @@ function togglePhotoSelectMode() {
 }
 function togglePhotoReorderMode() {
   photoReorderMode = !photoReorderMode;
-  if (photoReorderMode) {
-    photoSelectMode = false;
-    selectedPhotos.clear();
-  }
+  if (photoReorderMode) { photoSelectMode = false; selectedPhotos.clear(); }
   renderPhotos();
 }
 $('#photoInput').addEventListener('change', async e => {
@@ -4435,9 +4016,7 @@ $('#photoInput').addEventListener('change', async e => {
       // Дата съёмки из EXIF (если камера её записала). Нужна для «В этот день»:
       // фото показывается только по EXIF-дате или по дате события, НЕ по дате загрузки.
       let takenAt = null;
-      try {
-        takenAt = await extractExifDate(f);
-      } catch (e) {}
+      try { takenAt = await extractExifDate(f); } catch (e) {}
       const ph = { id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0, takenAt };
       db.photos.unshift(ph);
       setThumbUrl(ph.id, data); // мгновенный показ из кэша миниатюр
@@ -4446,35 +4025,24 @@ $('#photoInput').addEventListener('change', async e => {
       try {
         const blob = dataUrlToBlob(data);
         if (blob && photoStore) {
-          let thumb = null,
-            thumbType = null;
-          try {
-            thumb = await makeThumbBlob(data, 256);
-            thumbType = (thumb && thumb.type) || 'image/webp';
-          } catch (e) {}
+          let thumb = null, thumbType = null;
+          try { thumb = await makeThumbBlob(data, 256); thumbType = (thumb && thumb.type) || 'image/webp'; } catch (e) {}
           const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size, takenAt, origType: f.type || '' };
           await photoStore.put(ph.id, blob, thumb, meta, f); // f — оригинал (сырой файл камеры)
-          delete ph.data; // блоб в сторе — из памяти убираем base64
+          delete ph.data;            // блоб в сторе — из памяти убираем base64
           if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // выгрузим в облако
         }
-      } catch (err) {
-        console.warn('Не удалось сохранить фото в хранилище', err);
-      }
-    } catch (err) {
-      console.warn('Не удалось загрузить фото', err);
-    }
+      } catch (err) { console.warn('Не удалось сохранить фото в хранилище', err); }
+    } catch (err) { console.warn('Не удалось загрузить фото', err); }
   }
   e.target.value = '';
-  save();
-  renderPhotos();
+  save(); renderPhotos();
 });
 // Лейблы — {id,name,color}. Полоса чипов теперь только фильтр (клик всегда
 // значит одно и то же); создание/переименование/цвет/удаление живут в
 // отдельной модалке «Управление лейблами» (см. openLabelManageOverlay ниже),
 // применение к фото — в модалке «Применить лейблы» (openLabelApplyOverlay).
-function labelById(id) {
-  return db.labels.find(l => l.id === id) || null;
-}
+function labelById(id) { return db.labels.find(l => l.id === id) || null; }
 function renderLabels() {
   const bar = $('#labelBar');
   if (!bar) return;
@@ -4484,12 +4052,7 @@ function renderLabels() {
     `<button class="album-chip${currentLabel === '' ? ' active' : ''}" data-label="">🖼 Все фото (${db.photos.length})</button>` +
     (evCount ? `<button class="album-chip${currentLabel === EVENT_LABEL ? ' active' : ''}" data-label="${esc(EVENT_LABEL)}">📅 События (${evCount})</button>` : '') +
     (dtCount ? `<button class="album-chip${currentLabel === DATE_LABEL ? ' active' : ''}" data-label="${esc(DATE_LABEL)}">💞 Свидания (${dtCount})</button>` : '') +
-    db.labels
-      .map(
-        l =>
-          `<button class="album-chip${currentLabel === l.id ? ' active' : ''}" data-label="${esc(l.id)}" title="Перетащи фото сюда, чтобы навесить лейбл"><span class="label-dot" style="background:${esc(l.color)}"></span>${esc(l.name)}</button>`
-      )
-      .join('') +
+    db.labels.map(l => `<button class="album-chip${currentLabel === l.id ? ' active' : ''}" data-label="${esc(l.id)}" title="Перетащи фото сюда, чтобы навесить лейбл"><span class="label-dot" style="background:${esc(l.color)}"></span>${esc(l.name)}</button>`).join('') +
     `<button class="btn album-add-btn" data-label-new title="Создать, переименовать, перекрасить или удалить лейблы">🏷 Лейблы</button>`;
 }
 // Чистка фото без подтверждения — общая часть deletePhoto()/deleteSelectedPhotos()
@@ -4519,10 +4082,7 @@ function deletePhoto(id) {
   const ph = db.photos.find(x => x.id === id);
   if (!confirmDelete('Удалить фото' + (ph && ph.title ? ' «' + ph.title + '»' : '') + '? Это не отменить.')) return;
   deletePhotoSilent(id);
-  save();
-  renderPhotos();
-  renderCalendar();
-  renderHome();
+  save(); renderPhotos(); renderCalendar(); renderHome();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // уберём и из облака
 }
 // Массовое удаление отмеченных фото (панель выбора «🗑 Удалить выбранные») —
@@ -4532,10 +4092,7 @@ function deleteSelectedPhotos() {
   if (!ids.length) return;
   if (!confirmDelete(`Удалить ${ids.length} фото? Это не отменить.`)) return;
   ids.forEach(deletePhotoSilent);
-  save();
-  renderPhotos();
-  renderCalendar();
-  renderHome();
+  save(); renderPhotos(); renderCalendar(); renderHome();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
 }
 // Массовое закрепление (панель выбора «⭐/☆ Закрепить») — тот же тоггл-приём,
@@ -4546,11 +4103,8 @@ function toggleSelectedPin() {
   if (!ids.length) return;
   const targets = db.photos.filter(p => ids.includes(p.id));
   const allPinned = targets.length > 0 && targets.every(p => p.pinned);
-  targets.forEach(p => {
-    p.pinned = !allPinned;
-  });
-  save();
-  renderPhotos();
+  targets.forEach(p => { p.pinned = !allPinned; });
+  save(); renderPhotos();
 }
 // К каким событиям привязано фото — для фильтра «год → месяц → событие».
 // ev.photos хранит id фото (v6+).
@@ -4612,30 +4166,19 @@ function renderPhotosNow() {
   const list = filteredPhotos();
   const hint = $('#dragHint');
   if (hint) {
-    if (photoReorderMode) {
-      hint.textContent = '↕ Перетаскивай фото за ⠿ для порядка.';
-      hint.style.display = list.length > 1 ? 'block' : 'none';
-    } else if (photoSelectMode) {
-      hint.textContent = 'Нажми ○ на фото, чтобы выбрать несколько.';
-      hint.style.display = list.length ? 'block' : 'none';
-    } else hint.style.display = 'none';
+    if (photoReorderMode) { hint.textContent = '↕ Перетаскивай фото за ⠿ для порядка.'; hint.style.display = list.length > 1 ? 'block' : 'none'; }
+    else if (photoSelectMode) { hint.textContent = 'Нажми ○ на фото, чтобы выбрать несколько.'; hint.style.display = list.length ? 'block' : 'none'; }
+    else hint.style.display = 'none';
   }
   const selectBtn = $('#photoSelectModeBtn');
-  if (selectBtn) {
-    selectBtn.textContent = photoSelectMode ? '✓ Готово' : '☑️ Выбрать';
-    selectBtn.classList.toggle('active', photoSelectMode);
-  }
+  if (selectBtn) { selectBtn.textContent = photoSelectMode ? '✓ Готово' : '☑️ Выбрать'; selectBtn.classList.toggle('active', photoSelectMode); }
   const reorderBtn = $('#photoReorderModeBtn');
-  if (reorderBtn) {
-    reorderBtn.textContent = photoReorderMode ? '✓ Готово' : '↕ Порядок';
-    reorderBtn.classList.toggle('active', photoReorderMode);
-  }
+  if (reorderBtn) { reorderBtn.textContent = photoReorderMode ? '✓ Готово' : '↕ Порядок'; reorderBtn.classList.toggle('active', photoReorderMode); }
   const selBar = $('#photoSelBar');
   if (selBar) {
     selBar.style.display = selectedPhotos.size ? 'flex' : 'none';
     if (selectedPhotos.size) {
-      const c = $('#selCount');
-      if (c) c.textContent = selectedPhotos.size;
+      const c = $('#selCount'); if (c) c.textContent = selectedPhotos.size;
       // Подпись отражает, что реально произойдёт: если уже закреплены ВСЕ
       // выбранные — кнопка снимет закрепление со всех, иначе закрепит все.
       const pinBtn = $('#selPinBtn');
@@ -4646,34 +4189,25 @@ function renderPhotosNow() {
       }
     }
   }
-  grid.innerHTML = list.length
-    ? list
-        .map(p => {
-          // Кэш миниатюр может быть ещё не прогрет — рисуем каркас и заполняем src
-          // асинхронно (как в «Памяти» и на «Главной»), чтобы миниатюры появлялись сами.
-          const url = photoSrc(p);
-          return `
+  grid.innerHTML = list.length ? list.map(p => {
+    // Кэш миниатюр может быть ещё не прогрет — рисуем каркас и заполняем src
+    // асинхронно (как в «Памяти» и на «Главной»), чтобы миниатюры появлялись сами.
+    const url = photoSrc(p);
+    return `
     <div class="photo${p.pinned ? ' pinned' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}">
       <img${url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"'} alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">
       ${photoSelectMode ? `<button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>` : ''}
       ${photoReorderMode ? `<button class="drag-handle photo-drag" data-photo-drag="${p.id}" title="Перетащить">⠿</button>` : ''}
-      ${
-        (p.labels || []).length
-          ? `<div class="photo-labels">${p.labels
-              .map(id => {
-                const sys = id === EVENT_LABEL || id === DATE_LABEL;
-                const tag = sys ? null : labelById(id);
-                if (!sys && !tag) return ''; // ссылка на удалённый лейбл — не рисуем
-                const name = sys ? id : tag.name;
-                return `<span class="photo-label">${sys ? '' : `<span class="label-dot" style="background:${esc(tag.color)}"></span>`}${esc(name)}${sys ? '' : `<button type="button" class="photo-label-del" data-label-off="${esc(id)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</button>`}</span>`;
-              })
-              .join('')}</div>`
-          : ''
-      }
+      ${(p.labels || []).length ? `<div class="photo-labels">${p.labels.map(id => {
+        const sys = id === EVENT_LABEL || id === DATE_LABEL;
+        const tag = sys ? null : labelById(id);
+        if (!sys && !tag) return ''; // ссылка на удалённый лейбл — не рисуем
+        const name = sys ? id : tag.name;
+        return `<span class="photo-label">${sys ? '' : `<span class="label-dot" style="background:${esc(tag.color)}"></span>`}${esc(name)}${sys ? '' : `<button type="button" class="photo-label-del" data-label-off="${esc(id)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</button>`}</span>`;
+      }).join('')}</div>` : ''}
       ${currentLabel === EVENT_LABEL && p.title ? `<span class="photo-caption">${esc(eventFilter.title || p.title)}</span>` : ''}
     </div>`;
-        })
-        .join('')
+  }).join('')
     : '<p class="cal-tip">📷 Загрузите ваши фото — они зашифруются и будут доступны с обоих устройств, если настроена синхронизация в Настройках.</p>';
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
 }
@@ -4682,7 +4216,8 @@ function eventPhotosCount(year, month, title) {
   let n = 0;
   for (const p of db.photos) {
     if (!(p.labels || []).includes(EVENT_LABEL)) continue;
-    if (eventsForPhoto(p).some(e => (!year || e.year === year) && (!month || e.month === month) && (!title || e.title === title))) n++;
+    if (eventsForPhoto(p).some(e =>
+      (!year || e.year === year) && (!month || e.month === month) && (!title || e.title === title))) n++;
   }
   return n;
 }
@@ -4697,15 +4232,7 @@ function renderEventBar() {
   const photoIds = new Set(db.photos.map(p => p.id));
   const evs = db.events.filter(ev => Array.isArray(ev.photos) && ev.photos.some(d => photoIds.has(d)));
   const years = [...new Set(evs.map(e => (e.date || '').slice(0, 4)).filter(Boolean))].sort((a, b) => b - a);
-  const monthsOf = year =>
-    [
-      ...new Set(
-        evs
-          .filter(e => (e.date || '').slice(0, 4) === year)
-          .map(e => (e.date || '').slice(5, 7))
-          .filter(Boolean)
-      )
-    ].sort();
+  const monthsOf = year => [...new Set(evs.filter(e => (e.date || '').slice(0, 4) === year).map(e => (e.date || '').slice(5, 7)).filter(Boolean))].sort();
   const titlesOf = (year, month) => {
     const set = new Set();
     for (const e of evs) {
@@ -4717,26 +4244,25 @@ function renderEventBar() {
   const yearsEl = $('#eventYears');
   if (yearsEl) {
     yearsEl.style.display = years.length ? 'flex' : 'none';
-    yearsEl.innerHTML = years.map(y => `<button class="ev-btn${f.year === y ? ' active' : ''}" data-ev-year="${y}">${y} <span class="cnt">${eventPhotosCount(y, '', '')}</span></button>`).join('');
+    yearsEl.innerHTML = years.map(y =>
+      `<button class="ev-btn${f.year === y ? ' active' : ''}" data-ev-year="${y}">${y} <span class="cnt">${eventPhotosCount(y, '', '')}</span></button>`).join('');
   }
   const monthsEl = $('#eventMonths');
   if (monthsEl) {
     const months = f.year ? monthsOf(f.year) : [];
     monthsEl.style.display = months.length ? 'flex' : 'none';
-    monthsEl.innerHTML = months
-      .map(m => `<button class="ev-btn${f.month === m ? ' active' : ''}" data-ev-month="${m}">${MONTHS[Number(m) - 1]} <span class="cnt">${eventPhotosCount(f.year, m, '')}</span></button>`)
-      .join('');
+    monthsEl.innerHTML = months.map(m =>
+      `<button class="ev-btn${f.month === m ? ' active' : ''}" data-ev-month="${m}">${MONTHS[Number(m) - 1]} <span class="cnt">${eventPhotosCount(f.year, m, '')}</span></button>`).join('');
   }
   const titlesEl = $('#eventTitles');
   if (titlesEl) {
     const titles = f.month ? titlesOf(f.year, f.month) : [];
     titlesEl.style.display = titles.length ? 'flex' : 'none';
-    titlesEl.innerHTML = titles
-      .map(t => `<button class="ev-btn${f.title === t ? ' active' : ''}" data-ev-title="${esc(t)}">${esc(t)} <span class="cnt">${eventPhotosCount(f.year, f.month, t)}</span></button>`)
-      .join('');
+    titlesEl.innerHTML = titles.map(t =>
+      `<button class="ev-btn${f.title === t ? ' active' : ''}" data-ev-title="${esc(t)}">${esc(t)} <span class="cnt">${eventPhotosCount(f.year, f.month, t)}</span></button>`).join('');
   }
   const reset = $('#eventReset');
-  if (reset) reset.style.display = f.year || f.month || f.title ? 'inline-block' : 'none';
+  if (reset) reset.style.display = (f.year || f.month || f.title) ? 'inline-block' : 'none';
 }
 // Лейблы: удаление (фото не трогаем), применение/снятие, создание.
 // p.labels хранит id — у служебных EVENT_LABEL/DATE_LABEL id равен имени,
@@ -4744,9 +4270,7 @@ function renderEventBar() {
 function deleteLabelSilent(id) {
   if (id === EVENT_LABEL || id === DATE_LABEL) return; // служебные лейблы защищены от удаления
   db.labels = db.labels.filter(l => l.id !== id);
-  db.photos.forEach(p => {
-    if (p.labels) p.labels = p.labels.filter(l => l !== id);
-  });
+  db.photos.forEach(p => { if (p.labels) p.labels = p.labels.filter(l => l !== id); });
   if (currentLabel === id) currentLabel = '';
 }
 function deleteLabel(id) {
@@ -4755,9 +4279,7 @@ function deleteLabel(id) {
   const count = db.photos.filter(p => (p.labels || []).includes(id)).length;
   if (!confirmDelete(`Удалить лейбл «${l.name}»${count ? ` (снимется с ${count} фото)` : ''}? Это не отменить.`)) return;
   deleteLabelSilent(id);
-  save();
-  renderLabelManageList();
-  renderPhotos();
+  save(); renderLabelManageList(); renderPhotos();
 }
 function applyLabelToPhotos(id, ids) {
   const set = new Set(ids);
@@ -4774,7 +4296,7 @@ function toggleLabelOnPhotos(id, ids) {
   const allHave = targets.length > 0 && targets.every(p => (p.labels || []).includes(id));
   targets.forEach(p => {
     if (!Array.isArray(p.labels)) p.labels = [];
-    p.labels = allHave ? p.labels.filter(l => l !== id) : p.labels.includes(id) ? p.labels : [...p.labels, id];
+    p.labels = allHave ? p.labels.filter(l => l !== id) : (p.labels.includes(id) ? p.labels : [...p.labels, id]);
   });
   save();
 }
@@ -4783,12 +4305,11 @@ function removeLabelFromPhoto(photoId, id) {
   const p = db.photos.find(x => x.id === photoId);
   if (!p || !Array.isArray(p.labels) || !p.labels.includes(id)) return;
   p.labels = p.labels.filter(l => l !== id);
-  save();
-  renderPhotos();
+  save(); renderPhotos();
 }
 
 /* ---- Модалка «Лейблы»: создание, переименование, цвет, удаление ---- */
-let editingLabelId = null; // id лейбла, у которого сейчас правится название
+let editingLabelId = null;     // id лейбла, у которого сейчас правится название
 let colorPickerLabelId = null; // id лейбла с открытой палитрой цвета
 function openLabelManageOverlay() {
   editingLabelId = null;
@@ -4805,49 +4326,33 @@ function renderLabelManageList() {
     box.innerHTML = '<p class="cal-tip">Пока нет ни одного лейбла — создай первый выше.</p>';
     return;
   }
-  box.innerHTML = db.labels
-    .map(l => {
-      const count = db.photos.filter(p => (p.labels || []).includes(l.id)).length;
-      const editing = editingLabelId === l.id;
-      const pickerOpen = colorPickerLabelId === l.id;
-      return `<div class="label-row">
+  box.innerHTML = db.labels.map(l => {
+    const count = db.photos.filter(p => (p.labels || []).includes(l.id)).length;
+    const editing = editingLabelId === l.id;
+    const pickerOpen = colorPickerLabelId === l.id;
+    return `<div class="label-row">
       <button type="button" class="label-dot-btn" data-label-color-toggle="${l.id}" style="background:${esc(l.color)}" title="Изменить цвет"></button>
-      ${
-        editing
-          ? `<input type="text" class="label-name-editor" id="labelNameEdit-${l.id}" value="${esc(l.name)}">
+      ${editing
+        ? `<input type="text" class="label-name-editor" id="labelNameEdit-${l.id}" value="${esc(l.name)}">
            <button class="mini-x" data-save-label="${l.id}" title="Сохранить">💜</button>
            <button class="mini-x" data-cancel-label title="Отмена">✕</button>`
-          : `<span class="label-row-name">${esc(l.name)}</span>
+        : `<span class="label-row-name">${esc(l.name)}</span>
            <span class="label-row-count">${count} фото</span>
            <button class="mini-x" data-edit-label="${l.id}" title="Переименовать">✏️</button>
-           <button class="mini-x" data-del-label="${l.id}" title="Удалить лейбл">🗑</button>`
-      }
+           <button class="mini-x" data-del-label="${l.id}" title="Удалить лейбл">🗑</button>`}
     </div>${pickerOpen ? `<div class="label-color-picker">${LABEL_COLORS.map(c => `<button type="button" class="label-swatch${c === l.color ? ' active' : ''}" data-label-set-color="${l.id}" data-color="${c}" style="background:${c}"></button>`).join('')}</div>` : ''}`;
-    })
-    .join('');
+  }).join('');
 }
-function startEditLabelName(id) {
-  editingLabelId = id;
-  colorPickerLabelId = null;
-  renderLabelManageList();
-}
-function cancelLabelNameEdit() {
-  editingLabelId = null;
-  renderLabelManageList();
-}
+function startEditLabelName(id) { editingLabelId = id; colorPickerLabelId = null; renderLabelManageList(); }
+function cancelLabelNameEdit() { editingLabelId = null; renderLabelManageList(); }
 function saveLabelNameEdit(id, text) {
   const l = labelById(id);
   editingLabelId = null;
-  if (!l) {
-    renderLabelManageList();
-    return;
-  }
+  if (!l) { renderLabelManageList(); return; }
   const inp = $('#labelNameEdit-' + id);
   const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
   if (t) l.name = t;
-  save();
-  renderLabelManageList();
-  renderPhotos();
+  save(); renderLabelManageList(); renderPhotos();
 }
 function toggleLabelColorPicker(id) {
   colorPickerLabelId = colorPickerLabelId === id ? null : id;
@@ -4859,23 +4364,17 @@ function setLabelColor(id, color) {
   if (!l) return;
   l.color = color;
   colorPickerLabelId = null;
-  save();
-  renderLabelManageList();
-  renderPhotos();
+  save(); renderLabelManageList(); renderPhotos();
 }
 $('#labelNewBtn').addEventListener('click', () => {
   const name = $('#labelNewName').value.trim();
   if (!name) return;
   db.labels.push({ id: uid(), name, color: LABEL_COLORS[db.labels.length % LABEL_COLORS.length] });
   $('#labelNewName').value = '';
-  save();
-  renderLabelManageList();
-  renderPhotos();
+  save(); renderLabelManageList(); renderPhotos();
   $('#labelNewName').focus();
 });
-$('#labelNewName').addEventListener('keydown', e => {
-  if (e.key === 'Enter') $('#labelNewBtn').click();
-});
+$('#labelNewName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#labelNewBtn').click(); });
 
 /* ---- Модалка «Применить лейблы»: чек-лист для выбранных фото / лайтбокса ---- */
 let applyTargetIds = [];
@@ -4890,14 +4389,10 @@ function renderLabelApplyList() {
   const box = $('#labelApplyList');
   if (!box) return;
   const targets = db.photos.filter(p => applyTargetIds.includes(p.id));
-  box.innerHTML = db.labels.length
-    ? db.labels
-        .map(l => {
-          const on = targets.length > 0 && targets.every(p => (p.labels || []).includes(l.id));
-          return `<button type="button" class="album-chip label-apply-chip${on ? ' active' : ''}" data-label-apply-toggle="${l.id}"><span class="label-dot" style="background:${esc(l.color)}"></span>${esc(l.name)}${on ? ' ✓' : ''}</button>`;
-        })
-        .join('')
-    : '<p class="cal-tip">Лейблов пока нет — создай ниже.</p>';
+  box.innerHTML = db.labels.length ? db.labels.map(l => {
+    const on = targets.length > 0 && targets.every(p => (p.labels || []).includes(l.id));
+    return `<button type="button" class="album-chip label-apply-chip${on ? ' active' : ''}" data-label-apply-toggle="${l.id}"><span class="label-dot" style="background:${esc(l.color)}"></span>${esc(l.name)}${on ? ' ✓' : ''}</button>`;
+  }).join('') : '<p class="cal-tip">Лейблов пока нет — создай ниже.</p>';
 }
 $('#labelApplyNewBtn').addEventListener('click', () => {
   const name = $('#labelApplyNewName').value.trim();
@@ -4906,51 +4401,39 @@ $('#labelApplyNewBtn').addEventListener('click', () => {
   db.labels.push(l);
   applyLabelToPhotos(l.id, applyTargetIds);
   $('#labelApplyNewName').value = '';
-  save();
-  renderLabelApplyList();
-  renderPhotos();
+  save(); renderLabelApplyList(); renderPhotos();
 });
-$('#labelApplyNewName').addEventListener('keydown', e => {
-  if (e.key === 'Enter') $('#labelApplyNewBtn').click();
-});
+$('#labelApplyNewName').addEventListener('keydown', e => { if (e.key === 'Enter') $('#labelApplyNewBtn').click(); });
 $('#selAddLabelBtn').addEventListener('click', () => openLabelApplyOverlay(selectedPhotos));
 $('#selPinBtn').addEventListener('click', toggleSelectedPin);
 $('#selDeleteBtn').addEventListener('click', deleteSelectedPhotos);
-$('#selClearBtn').addEventListener('click', () => {
-  selectedPhotos.clear();
-  renderPhotos();
-});
+$('#selClearBtn').addEventListener('click', () => { selectedPhotos.clear(); renderPhotos(); });
 // Фильтр витрины «📅 События»: клик по кнопкам «год → месяц → событие» (повторный клик сбрасывает уровень)
 document.addEventListener('click', e => {
   const yearBtn = e.target.closest('[data-ev-year]');
   if (yearBtn) {
     const val = yearBtn.dataset.evYear;
     eventFilter.year = eventFilter.year === val ? '' : val;
-    eventFilter.month = '';
-    eventFilter.title = '';
-    renderPhotos();
-    return;
+    eventFilter.month = ''; eventFilter.title = '';
+    renderPhotos(); return;
   }
   const monthBtn = e.target.closest('[data-ev-month]');
   if (monthBtn) {
     const val = monthBtn.dataset.evMonth;
     eventFilter.month = eventFilter.month === val ? '' : val;
     eventFilter.title = '';
-    renderPhotos();
-    return;
+    renderPhotos(); return;
   }
   const titleBtn = e.target.closest('[data-ev-title]');
   if (titleBtn) {
     const val = titleBtn.dataset.evTitle;
     eventFilter.title = eventFilter.title === val ? '' : val;
-    renderPhotos();
-    return;
+    renderPhotos(); return;
   }
   const resetBtn = e.target.closest('[data-ev-reset]');
   if (resetBtn) {
     eventFilter = { year: '', month: '', title: '' };
-    renderPhotos();
-    return;
+    renderPhotos(); return;
   }
 });
 // Перетаскивание фото — SortableJS (forceFallback: нативный HTML5 DnD не
@@ -4968,10 +4451,9 @@ function photoDropChip(evt) {
   // перехваченный элемент, а не на то, что реально под курсором); e.target —
   // запасной вариант, если elementFromPoint недоступен (напр. в тестах).
   let el = null;
-  if (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function' && (oe.clientX !== undefined || oe.clientY !== undefined)) {
-    try {
-      el = document.elementFromPoint(oe.clientX, oe.clientY);
-    } catch (err) {}
+  if (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function'
+    && (oe.clientX !== undefined || oe.clientY !== undefined)) {
+    try { el = document.elementFromPoint(oe.clientX, oe.clientY); } catch (err) {}
   }
   if (!el) el = oe.target;
   if (!el || !el.closest) return null;
@@ -4993,10 +4475,7 @@ function photoChipHoverCheck(e) {
 }
 function photosSortEnd(evt) {
   document.removeEventListener('pointermove', photoChipHoverCheck);
-  if (photoChipHoverEl && photoChipHoverEl.classList) {
-    photoChipHoverEl.classList.remove('drag-over');
-    photoChipHoverEl = null;
-  }
+  if (photoChipHoverEl && photoChipHoverEl.classList) { photoChipHoverEl.classList.remove('drag-over'); photoChipHoverEl = null; }
   const chip = photoDropChip(evt);
   if (chip) {
     // не реордер — навешивание лейбла. DOM-перестановку, которую уже сделал
@@ -5004,11 +4483,10 @@ function photosSortEnd(evt) {
     // ниже перерисовывает сетку целиком синхронно, до первой отрисовки браузера —
     // промежуточное состояние DOM никогда не попадает на экран.
     const targets = new Set(selectedPhotos); // массовое назначение: всем отмеченным…
-    targets.add(evt.item.dataset.id); // …и перетаскиваемому фото
+    targets.add(evt.item.dataset.id);        // …и перетаскиваемому фото
     applyLabelToPhotos(chip.dataset.label, targets);
     selectedPhotos.clear(); // действие выполнено — выделение снимаем
-    save();
-    renderPhotos();
+    save(); renderPhotos();
     return;
   }
   // обычный реордер: порядок из текущего DOM-порядка сетки, закреплённые сверху
@@ -5018,21 +4496,13 @@ function photosSortEnd(evt) {
     const ph = db.photos.find(x => x.id === p.id);
     if (ph) ph.order = i;
   });
-  save();
-  renderPhotos();
+  save(); renderPhotos();
 }
 if (typeof Sortable !== 'undefined') {
   Sortable.create($('#photosGrid'), {
-    handle: '.photo-drag',
-    forceFallback: true,
-    fallbackOnBody: true,
-    animation: 150,
-    scroll: true,
-    scrollSensitivity: 80,
-    scrollSpeed: 20,
-    onStart() {
-      document.addEventListener('pointermove', photoChipHoverCheck);
-    },
+    handle: '.photo-drag', forceFallback: true, fallbackOnBody: true, animation: 150,
+    scroll: true, scrollSensitivity: 80, scrollSpeed: 20,
+    onStart() { document.addEventListener('pointermove', photoChipHoverCheck); },
     onEnd: photosSortEnd
   });
 }
@@ -5048,14 +4518,11 @@ function renderSettings() {
   if (si) si.textContent = kb >= 1024 ? (kb / 1024).toFixed(1) + ' МБ' : kb + ' КБ';
   // Фото-хранилище (IndexedDB) считаем асинхронно и показываем отдельной строкой
   if (photoStore) {
-    photoStore
-      .refreshSizes()
-      .then(sz => {
-        const fk = Math.max(1, Math.round((sz.bytes || 0) / 1024));
-        const fs = $('#photoStorageInfo');
-        if (fs) fs.textContent = `${sz.count} фото · ${fk >= 1024 ? (fk / 1024).toFixed(1) + ' МБ' : fk + ' КБ'}`;
-      })
-      .catch(() => {});
+    photoStore.refreshSizes().then(sz => {
+      const fk = Math.max(1, Math.round((sz.bytes || 0) / 1024));
+      const fs = $('#photoStorageInfo');
+      if (fs) fs.textContent = `${sz.count} фото · ${fk >= 1024 ? (fk / 1024).toFixed(1) + ' МБ' : fk + ' КБ'}`;
+    }).catch(() => {});
   }
   const hint = $('#backupHint');
   if (!hint) return;
@@ -5065,10 +4532,9 @@ function renderSettings() {
     hint.innerHTML = '<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Резервная копия ещё не делалась. Нажми «Скачать копию» — так ничего не потеряется.</span>';
   } else {
     const days = Math.floor((Date.now() - db.backupDate) / 86400000);
-    hint.innerHTML =
-      days >= 30
-        ? `<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Последняя копия была ${days} дн. назад. Самое время обновить её.</span>`
-        : `<span style="color:#059669;font-weight:700;font-size:14px">✅ Копия сделана ${days === 0 ? 'сегодня' : days + ' дн. назад'}. Всё под защитой.</span>`;
+    hint.innerHTML = days >= 30
+      ? `<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Последняя копия была ${days} дн. назад. Самое время обновить её.</span>`
+      : `<span style="color:#059669;font-weight:700;font-size:14px">✅ Копия сделана ${days === 0 ? 'сегодня' : days + ' дн. назад'}. Всё под защитой.</span>`;
   }
   // Личный кабинет: кто вошёл, чьи пароли есть
   const lkUser = $('#lkUser');
@@ -5076,14 +4542,13 @@ function renderSettings() {
   const vault = loadVault();
   const hasPass = who => !!(vault && (vault.keys || []).some(k => k.who === who));
   const info = $('#lkPassInfo');
-  if (info)
-    info.innerHTML =
-      `<span><b>Гоша:</b> ${hasPass('gosha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>` +
-      `<span><b>Даша:</b> ${hasPass('dasha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>`;
+  if (info) info.innerHTML =
+    `<span><b>Гоша:</b> ${hasPass('gosha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>` +
+    `<span><b>Даша:</b> ${hasPass('dasha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>`;
   const addBtn = $('#addPassBtn');
   if (addBtn) {
     addBtn.style.display = '';
-    addBtn.textContent = hasPass('gosha') && hasPass('dasha') ? '🔑 Сменить пароль партнёра' : '🔑 Добавить пароль для партнёра';
+    addBtn.textContent = (hasPass('gosha') && hasPass('dasha')) ? '🔑 Сменить пароль партнёра' : '🔑 Добавить пароль для партнёра';
   }
 }
 // Экспорт — зашифрованный сейф: без пароля файл не прочитать.
@@ -5098,9 +4563,7 @@ async function exportData() {
     try {
       const blobs = await photoStore.exportBlobs();
       if (blobs.length) photoSection = { ver: 1, blobs };
-    } catch (e) {
-      console.warn('Не удалось собрать фото для бэкапа', e);
-    }
+    } catch (e) { console.warn('Не удалось собрать фото для бэкапа', e); }
   }
   const out = photoSection ? { ...vault, photos: photoSection } : vault;
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
@@ -5117,9 +4580,7 @@ async function exportData() {
   renderSettings();
   return out;
 }
-$('#exportBtn').addEventListener('click', () => {
-  exportData();
-});
+$('#exportBtn').addEventListener('click', () => { exportData(); });
 async function importData(text) {
   try {
     const d = JSON.parse(text);
@@ -5128,11 +4589,7 @@ async function importData(text) {
       store.set(VAULT_KEY, JSON.stringify(d));
       // Фото-секция v6: зашифрованные блобы возвращаем в хранилище
       if (d.photos && d.photos.ver === 1 && Array.isArray(d.photos.blobs) && photoStore) {
-        try {
-          await photoStore.importBlobs(d.photos.blobs);
-        } catch (e) {
-          console.warn('Не удалось восстановить фото', e);
-        }
+        try { await photoStore.importBlobs(d.photos.blobs); } catch (e) { console.warn('Не удалось восстановить фото', e); }
       }
       return true;
     }
@@ -5140,9 +4597,7 @@ async function importData(text) {
     db = migrateDB({ ...defaultDB(), ...d });
     save();
     return true;
-  } catch (err) {
-    return null;
-  }
+  } catch (err) { return null; }
 }
 $('#importInput').addEventListener('change', e => {
   const f = e.target.files[0];
@@ -5150,10 +4605,7 @@ $('#importInput').addEventListener('change', e => {
   const fr = new FileReader();
   fr.onload = async () => {
     const ok = await importData(fr.result); // ждём и сейф, и фото-блобы
-    if (!ok) {
-      alert('Не получилось прочитать файл:(');
-      return;
-    }
+    if (!ok) { alert('Не получилось прочитать файл:('); return; }
     e.target.value = '';
     location.reload();
   };
@@ -5193,21 +4645,12 @@ async function savePass() {
   const err = $('#passErr');
   const p1 = $('#passNew').value;
   const p2 = $('#passNew2').value;
-  if (p1.length < 6) {
-    if (err) err.textContent = 'Пароль должен быть не короче 6 символов.';
-    return;
-  }
-  if (p1 !== p2) {
-    if (err) err.textContent = 'Пароли не совпадают — проверь ещё раз.';
-    return;
-  }
+  if (p1.length < 6) { if (err) err.textContent = 'Пароль должен быть не короче 6 символов.'; return; }
+  if (p1 !== p2) { if (err) err.textContent = 'Пароли не совпадают — проверь ещё раз.'; return; }
   let ok;
   if (passMode === 'change') ok = await changePass($('#passCur').value, p1);
   else ok = await savePassFor($('#passWho').value, p1);
-  if (!ok) {
-    if (err) err.textContent = 'Не получилось. Проверь текущий пароль и попробуй ещё раз.';
-    return;
-  }
+  if (!ok) { if (err) err.textContent = 'Не получилось. Проверь текущий пароль и попробуй ещё раз.'; return; }
   $('#passOverlay').hidden = true;
   renderSettings();
   if (passMode === 'change') alert('Пароль обновлён 💜');
@@ -5227,22 +4670,18 @@ $('#lockNowBtn').addEventListener('click', lock);
 const MOTION_KEY = 'universe_motion';
 function getMotion() {
   const v = store.get(MOTION_KEY);
-  return v === 'reduced' || v === 'full' ? v : null;
+  return (v === 'reduced' || v === 'full') ? v : null;
 }
 function applyMotion(m) {
   const doc = document.documentElement;
   if (!doc || !doc.dataset) return;
   if (m === 'reduced' || m === 'full') doc.dataset.motion = m;
   else {
-    try {
-      doc.removeAttribute('data-motion');
-    } catch (e) {}
-    try {
-      delete doc.dataset.motion;
-    } catch (e) {}
+    try { doc.removeAttribute('data-motion'); } catch (e) {}
+    try { delete doc.dataset.motion; } catch (e) {}
   }
   const t = $('#motionToggle');
-  if (t) t.checked = m === 'reduced';
+  if (t) t.checked = (m === 'reduced');
 }
 function setMotion(m) {
   const v = m === 'reduced' ? 'reduced' : 'full';
@@ -5267,7 +4706,7 @@ if (mt) mt.addEventListener('change', e => setMotion(e.target.checked ? 'reduced
    Единая точка открытия фото: по id из галереи/календаря/«Памяти» или по
    data-URL напрямую (хотелки). Стрелки ‹ ›, свайп и клавиши ←/→ листают;
    зум — кнопка 🔍, двойной клик, щипок, клавиши +/-/0; счётчик «N / M». */
-let lightboxList = []; // источники: id фото из db.photos ИЛИ data-URL
+let lightboxList = [];   // источники: id фото из db.photos ИЛИ data-URL
 let lightboxIdx = 0;
 let lightboxZoom = 1;
 
@@ -5277,11 +4716,7 @@ function extFromMime(type) {
   return m[type || ''] || '';
 }
 function safeFileName(name) {
-  const clean = String(name || '')
-    .replace(/[^\wа-яёА-ЯЁ\s\-()]+/gi, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 80);
+  const clean = String(name || '').replace(/[^\wа-яёА-ЯЁ\s\-()]+/gi, '_').replace(/\s+/g, ' ').trim().slice(0, 80);
   return clean || 'photo';
 }
 function downloadBlobAsFile(blob, name) {
@@ -5328,28 +4763,17 @@ function downloadDataUrl(dataUrl, name) {
 async function downloadCurrentPhoto() {
   const src = lightboxList[lightboxIdx];
   if (!src) return;
-  if (lbIsDataUrl(src)) {
-    downloadDataUrl(src, 'photo');
-    return;
-  }
+  if (lbIsDataUrl(src)) { downloadDataUrl(src, 'photo'); return; }
   const p = lbPhoto(src);
   if (!p || !photoStore || !p.id) return;
   const name = p.title || 'photo';
   let blob = null;
-  try {
-    blob = await photoStore.getOrig(p.id);
-  } catch (e) {}
-  if (!blob) {
-    try {
-      blob = await photoStore.getFull(p.id);
-    } catch (e) {}
-  }
+  try { blob = await photoStore.getOrig(p.id); } catch (e) {}
+  if (!blob) { try { blob = await photoStore.getFull(p.id); } catch (e) {} }
   if (blob) await downloadBlob(blob, name);
 }
 
-function lbIsDataUrl(src) {
-  return typeof src === 'string' && src.indexOf('data:') === 0;
-}
+function lbIsDataUrl(src) { return typeof src === 'string' && src.indexOf('data:') === 0; }
 function lbPhoto(src) {
   const p = Array.isArray(db.photos) ? db.photos.find(p => p.id === src) : null;
   if (p) return p;
@@ -5379,11 +4803,7 @@ function openLightboxFrom(el) {
   if (at < 0) at = 0;
   openLightbox(list, at);
 }
-function lbResetState() {
-  lightboxList = [];
-  lightboxIdx = 0;
-  lightboxZoom = 1;
-}
+function lbResetState() { lightboxList = []; lightboxIdx = 0; lightboxZoom = 1; }
 function lbClose() {
   const lb = $('#lightbox');
   if (lb) lb.hidden = true;
@@ -5404,9 +4824,7 @@ function lbZoomTo(v) {
   // вызовы при пинче/повторном зуме ничего не перекачивают).
   if (lightboxZoom > 1) upgradeLightboxToOrig();
 }
-function lbZoomToggle() {
-  lbZoomTo(lightboxZoom > 1 ? 1 : 2.5);
-}
+function lbZoomToggle() { lbZoomTo(lightboxZoom > 1 ? 1 : 2.5); }
 function upgradeLightboxToOrig() {
   const src = lightboxList[lightboxIdx];
   if (!src || lbIsDataUrl(src)) return; // хотелки без сохранённого фото — не про них
@@ -5427,7 +4845,7 @@ function lbRender() {
   const multi = lightboxList.length > 1;
   if (prev) prev.style.display = multi ? '' : 'none';
   if (next) next.style.display = multi ? '' : 'none';
-  if (counter) counter.textContent = multi ? lightboxIdx + 1 + ' / ' + lightboxList.length : '';
+  if (counter) counter.textContent = multi ? (lightboxIdx + 1) + ' / ' + lightboxList.length : '';
   // Лейблы/закрепление/удаление применимы только к настоящим фото галереи
   // (db.photos) — не к data-URL (хотелки без сохранённого фото) и не к
   // синтетическим записям.
@@ -5445,23 +4863,14 @@ function lbRender() {
   }
   const delBtn = $('#lbDeleteBtn');
   if (delBtn) delBtn.style.display = galleryPhoto ? '' : 'none';
-  if (!src) {
-    if (img) img.src = '';
-    return;
-  }
+  if (!src) { if (img) img.src = ''; return; }
   if (img) {
     img.style.transform = 'scale(' + lightboxZoom + ')';
     img.style.cursor = lightboxZoom > 1 ? 'zoom-out' : 'zoom-in';
   }
-  if (lbIsDataUrl(src)) {
-    if (img) img.src = src;
-    return;
-  }
+  if (lbIsDataUrl(src)) { if (img) img.src = src; return; }
   const p = lbPhoto(src);
-  if (!p) {
-    if (img) img.src = '';
-    return;
-  }
+  if (!p) { if (img) img.src = ''; return; }
   const cached = photoSrc(p); // миниатюра из кэша — мгновенный показ
   if (cached && img) img.src = cached;
   photoUrl(p, false).then(url => {
@@ -5479,42 +4888,34 @@ if (lbZoomBtn) lbZoomBtn.addEventListener('click', () => lbZoomToggle());
 const lbDlBtn = $('#lbDownload');
 if (lbDlBtn) lbDlBtn.addEventListener('click', () => downloadCurrentPhoto());
 const lbLabelBtn = $('#lbLabelBtn');
-if (lbLabelBtn)
-  lbLabelBtn.addEventListener('click', () => {
-    const src = lightboxList[lightboxIdx];
-    if (src && typeof openLabelApplyOverlay === 'function') openLabelApplyOverlay([src]);
-  });
+if (lbLabelBtn) lbLabelBtn.addEventListener('click', () => {
+  const src = lightboxList[lightboxIdx];
+  if (src && typeof openLabelApplyOverlay === 'function') openLabelApplyOverlay([src]);
+});
 // Закрепить/удалить одно фото — раньше были постоянными кнопками на каждой
 // миниатюре в сетке (перекрывали половину маленького фото), теперь только
 // здесь: открыл фото — сделал, без отдельного режима ради одного действия.
 const lbPinBtn = $('#lbPinBtn');
-if (lbPinBtn)
-  lbPinBtn.addEventListener('click', () => {
-    const src = lightboxList[lightboxIdx];
-    const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
-    if (!p) return;
-    p.pinned = !p.pinned;
-    save();
-    renderPhotos();
-    lbRender();
-  });
+if (lbPinBtn) lbPinBtn.addEventListener('click', () => {
+  const src = lightboxList[lightboxIdx];
+  const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
+  if (!p) return;
+  p.pinned = !p.pinned;
+  save(); renderPhotos(); lbRender();
+});
 const lbDeleteBtn = $('#lbDeleteBtn');
-if (lbDeleteBtn)
-  lbDeleteBtn.addEventListener('click', () => {
-    const src = lightboxList[lightboxIdx];
-    const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
-    if (!p || typeof deletePhoto !== 'function') return;
-    const before = db.photos.length;
-    deletePhoto(p.id); // сам спрашивает подтверждение, чистит store/события/свидания, save+render+sync
-    if (db.photos.length === before) return; // отменил подтверждение — фото на месте, светбокс не трогаем
-    lightboxList = lightboxList.filter(s => s !== src);
-    if (!lightboxList.length) {
-      lbClose();
-      return;
-    }
-    lightboxIdx = Math.min(lightboxIdx, lightboxList.length - 1);
-    lbRender();
-  });
+if (lbDeleteBtn) lbDeleteBtn.addEventListener('click', () => {
+  const src = lightboxList[lightboxIdx];
+  const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
+  if (!p || typeof deletePhoto !== 'function') return;
+  const before = db.photos.length;
+  deletePhoto(p.id); // сам спрашивает подтверждение, чистит store/события/свидания, save+render+sync
+  if (db.photos.length === before) return; // отменил подтверждение — фото на месте, светбокс не трогаем
+  lightboxList = lightboxList.filter(s => s !== src);
+  if (!lightboxList.length) { lbClose(); return; }
+  lightboxIdx = Math.min(lightboxIdx, lightboxList.length - 1);
+  lbRender();
+});
 const lbImg = $('#lightboxImg');
 if (lbImg) lbImg.addEventListener('dblclick', () => lbZoomToggle());
 // Клик вне фото закрывает светбокс — не только крестик. Общий делегат
@@ -5524,31 +4925,17 @@ if (lbImg) lbImg.addEventListener('dblclick', () => lbZoomToggle());
 // только если клик пришёлся ровно на сам #lbStage (пустое место вокруг
 // фото), а не на фото/стрелки/счётчик/кнопки — те сами обрабатывают клик.
 const lbStageEl = $('#lbStage');
-if (lbStageEl)
-  lbStageEl.addEventListener('click', e => {
-    if (e.target === lbStageEl) closeOverlay('lightbox');
-  });
+if (lbStageEl) lbStageEl.addEventListener('click', e => { if (e.target === lbStageEl) closeOverlay('lightbox'); });
 if (typeof document !== 'undefined' && document.addEventListener) {
   // Клавиатура: ←/→ листают, +/−/0 зум, Esc закрывает (обработчик Esc — в 60-lists-wishes)
   document.addEventListener('keydown', e => {
     const lb = $('#lightbox');
     if (!lb || lb.hidden) return;
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      lbNav(-1);
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      lbNav(1);
-    } else if (e.key === '+' || e.key === '=') {
-      e.preventDefault();
-      lbZoomTo(lightboxZoom + 0.5);
-    } else if (e.key === '-') {
-      e.preventDefault();
-      lbZoomTo(lightboxZoom - 0.5);
-    } else if (e.key === '0') {
-      e.preventDefault();
-      lbZoomTo(1);
-    }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); lbNav(-1); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); lbNav(1); }
+    else if (e.key === '+' || e.key === '=') { e.preventDefault(); lbZoomTo(lightboxZoom + 0.5); }
+    else if (e.key === '-') { e.preventDefault(); lbZoomTo(lightboxZoom - 0.5); }
+    else if (e.key === '0') { e.preventDefault(); lbZoomTo(1); }
   });
 }
 // Свайп (горизонтальный — листание) и щипок (пинч — зум)
@@ -5563,30 +4950,17 @@ function lbTouchDist(e) {
 }
 const lbStage = $('#lbStage');
 if (lbStage) {
-  lbStage.addEventListener(
-    'touchstart',
-    e => {
-      if (!e.touches) return;
-      if (e.touches.length === 1) {
-        lbTouchX = e.touches[0].clientX;
-        lbTouchY = e.touches[0].clientY;
-      } else if (e.touches.length === 2) {
-        lbPinch = { d: lbTouchDist(e), s: lightboxZoom };
-        lbTouchX = null;
-      }
-    },
-    { passive: true }
-  );
-  lbStage.addEventListener(
-    'touchmove',
-    e => {
-      if (e.touches && e.touches.length === 2 && lbPinch) {
-        e.preventDefault(); // без этого браузер листает страницу
-        lbZoomTo(lbPinch.s * (lbTouchDist(e) / lbPinch.d));
-      }
-    },
-    { passive: false }
-  );
+  lbStage.addEventListener('touchstart', e => {
+    if (!e.touches) return;
+    if (e.touches.length === 1) { lbTouchX = e.touches[0].clientX; lbTouchY = e.touches[0].clientY; }
+    else if (e.touches.length === 2) { lbPinch = { d: lbTouchDist(e), s: lightboxZoom }; lbTouchX = null; }
+  }, { passive: true });
+  lbStage.addEventListener('touchmove', e => {
+    if (e.touches && e.touches.length === 2 && lbPinch) {
+      e.preventDefault(); // без этого браузер листает страницу
+      lbZoomTo(lbPinch.s * (lbTouchDist(e) / lbPinch.d));
+    }
+  }, { passive: false });
   lbStage.addEventListener('touchend', e => {
     if (lbTouchX != null && e.changedTouches && e.changedTouches[0]) {
       const dx = e.changedTouches[0].clientX - lbTouchX;
@@ -5604,8 +4978,8 @@ function spawnHeart() {
   h.className = 'heart';
   h.textContent = ['💜', '💖', '💕', '🌸', '✨'][Math.floor(Math.random() * 5)];
   h.style.left = Math.random() * 100 + 'vw';
-  h.style.fontSize = 12 + Math.random() * 16 + 'px';
-  h.style.animationDuration = 6 + Math.random() * 6 + 's';
+  h.style.fontSize = (12 + Math.random() * 16) + 'px';
+  h.style.animationDuration = (6 + Math.random() * 6) + 's';
   document.body.appendChild(h);
   setTimeout(() => h.remove(), 12000);
 }
@@ -5636,11 +5010,7 @@ async function initAuth() {
   showAuth('lock');
   $('#authErr').textContent = 'Ищем сейф пары в облаке…';
   let cloud = null;
-  try {
-    cloud = await fetchCloudVault();
-  } catch (e) {
-    console.warn('initAuth: облако недоступно', e);
-  }
+  try { cloud = await fetchCloudVault(); } catch (e) { console.warn('initAuth: облако недоступно', e); }
   if (cloud && cloud.vault) {
     pendingCloudVault = cloud.vault;
     $('#authErr').textContent = '';
@@ -5679,6 +5049,9 @@ setInterval(() => {
 // Коллаж «Наша история» стабилен в течение дня — обновлять его не нужно.
 spawnHeart();
 
+
+
+
 /* ===== Облачная синхронизация (фаза B, Firebase Realtime Database) =====
    Принцип: localStorage — «правда» локально, Firebase — канал синхронизации.
    Синхронизируем САМ зашифрованный сейф `universe_vault` (zero-knowledge):
@@ -5697,14 +5070,14 @@ spawnHeart();
    Работает на http(s); на file:// SDK может не загрузиться — тоже локально. */
 
 let FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyDuAkskIpj3bsFOX6aPecFWZGJOlOzGzUk',
-  authDomain: 'nasha-vselennaya.firebaseapp.com',
-  databaseURL: 'https://nasha-vselennaya-default-rtdb.europe-west1.firebasedatabase.app',
-  projectId: 'nasha-vselennaya',
-  storageBucket: 'nasha-vselennaya.firebasestorage.app',
-  messagingSenderId: '222445763153',
-  appId: '1:222445763153:web:df254e6b681c2e40289670',
-  measurementId: 'G-JZY24EXCX3'
+  apiKey:            "AIzaSyDuAkskIpj3bsFOX6aPecFWZGJOlOzGzUk",
+  authDomain:        "nasha-vselennaya.firebaseapp.com",
+  databaseURL:       "https://nasha-vselennaya-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "nasha-vselennaya",
+  storageBucket:     "nasha-vselennaya.firebasestorage.app",
+  messagingSenderId: "222445763153",
+  appId:             "1:222445763153:web:df254e6b681c2e40289670",
+  measurementId:     "G-JZY24EXCX3"
 }; // ← config из Firebase Console (фаза B1). let — чтобы тесты могли подставить мок.
 
 /* Фото-облако: Yandex Object Storage вместо Firebase Storage (Storage — только
@@ -5717,36 +5090,34 @@ let FIREBASE_CONFIG = {
    подписанную ссылку и сам грузит/удаляет файл по ней. `signFnUrl` — не
    секрет, просто публичный адрес функции. */
 let YANDEX_CLOUD_CONFIG = {
-  bucket: 'nasha-vselennaya', // имя бакета (не секрет)
-  region: 'ru-central1', // регион Yandex Cloud
+  bucket: 'nasha-vselennaya',    // имя бакета (не секрет)
+  region: 'ru-central1',         // регион Yandex Cloud
   signFnUrl: 'https://functions.yandexcloud.net/d4empeq0dp76dkug5c9r' // Cloud Function photo-sign (не секрет)
 };
 
-const SYNC_KEY = 'universe_syncTs'; // последний известный syncTs (метаданные, не секрет)
-const SYNC_PATH = 'vaults/shared'; // общий зашифрованный сейф пары
+const SYNC_KEY = 'universe_syncTs';  // последний известный syncTs (метаданные, не секрет)
+const SYNC_PATH = 'vaults/shared';   // общий зашифрованный сейф пары
 
-let syncFirebase = null; // firebaseApp (compat)
-let syncDb = null; // firebase.database()
-let syncReady = false; // SDK есть, config есть, анонимный вход сделан
-let syncTs = 0; // последний применённый syncTs
-let syncPushTimer = null; // debounce push после save()
-let syncApplying = false; // защита от рекурсии pull→save→push
-let lastRemoteSnapshot; // последний снимок vaults/shared от живого слушателя;
-// undefined = слушатель ещё ничего не прислал (см. pushVault)
+let syncFirebase = null;   // firebaseApp (compat)
+let syncDb = null;         // firebase.database()
+let syncReady = false;     // SDK есть, config есть, анонимный вход сделан
+let syncTs = 0;            // последний применённый syncTs
+let syncPushTimer = null;  // debounce push после save()
+let syncApplying = false;  // защита от рекурсии pull→save→push
+let lastRemoteSnapshot;    // последний снимок vaults/shared от живого слушателя;
+                            // undefined = слушатель ещё ничего не прислал (см. pushVault)
 
 /* ===== Инициализация: вызывается из unlockApp() после входа ===== */
 async function initSync() {
   syncTs = parseInt(store.get(SYNC_KEY) || '0', 10) || 0;
-  if (!FIREBASE_CONFIG) {
-    renderSyncStatus('off');
-    return;
-  }
-  if (typeof firebase === 'undefined' || typeof firebase.initializeApp !== 'function' || typeof firebase.database !== 'function' || typeof firebase.auth !== 'function') {
+  if (!FIREBASE_CONFIG) { renderSyncStatus('off'); return; }
+  if (typeof firebase === 'undefined' || typeof firebase.initializeApp !== 'function' ||
+      typeof firebase.database !== 'function' || typeof firebase.auth !== 'function') {
     renderSyncStatus('off');
     return;
   }
   try {
-    syncFirebase = firebase.initializeApp(FIREBASE_CONFIG, 'nasha_sync');
+        syncFirebase = firebase.initializeApp(FIREBASE_CONFIG, 'nasha_sync');
     syncDb = firebase.database(syncFirebase);
     // Хранилище фото: Yandex Object Storage (публичный бакет, без секретов на
     // клиенте — см. YANDEX_CLOUD_CONFIG выше и README). Firebase используется
@@ -5758,9 +5129,9 @@ async function initSync() {
     if (!cred || !cred.user) throw new Error('no anonymous user');
     syncReady = true;
     renderSyncStatus('idle');
-    listenRemote(); // живые обновления с другого устройства
-    pullVault(); // при входе пробуем забрать свежие данные
-    scheduleSyncPush(); // и отдать свои, если они свежее
+    listenRemote();      // живые обновления с другого устройства
+    pullVault();          // при входе пробуем забрать свежие данные
+    scheduleSyncPush();  // и отдать свои, если они свежее
     schedulePhotoSync(); // фото: выгрузить свои / скачать недостающие
   } catch (e) {
     console.warn('[sync] init failed', e);
@@ -5795,18 +5166,14 @@ function withTimeout(promise, ms) {
   let timer = null;
   return Promise.race([
     promise,
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('timeout')), ms);
-    })
-  ]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), ms); })
+  ]).finally(() => { if (timer) clearTimeout(timer); });
 }
 let probeApp = null;
 let probeUser = null; // анонимный пользователь probe-приложения — переиспользуем между проверками
 async function fetchCloudVault() {
-  if (!FIREBASE_CONFIG || typeof firebase === 'undefined' || typeof firebase.initializeApp !== 'function' || typeof firebase.auth !== 'function' || typeof firebase.database !== 'function')
-    return null;
+  if (!FIREBASE_CONFIG || typeof firebase === 'undefined' || typeof firebase.initializeApp !== 'function' ||
+      typeof firebase.auth !== 'function' || typeof firebase.database !== 'function') return null;
   try {
     // Несколько попыток: на мобильном интернете анонимный вход или чтение могут
     // не успеть с первого раза. «Пустое облако» — не ошибка, повторяться не нужно.
@@ -5870,10 +5237,7 @@ async function pushVault() {
     }
     if (remote && remote.vault && remote.vault.db && typeof remote.vault.db.d === 'string' && masterKey) {
       let ok = false;
-      try {
-        await aesDec(masterKey, remote.vault.db);
-        ok = true;
-      } catch (e) {}
+      try { await aesDec(masterKey, remote.vault.db); ok = true; } catch (e) {}
       if (!ok) {
         syncPushBlocked = true;
         renderSyncStatus('conflict');
@@ -5887,9 +5251,8 @@ async function pushVault() {
     return;
   }
   syncPushBlocked = false;
-  try {
-    await writeVault();
-  } catch (e) {
+  try { await writeVault(); }
+  catch (e) {
     console.warn('[sync] push failed', e);
     renderSyncStatus('error');
   }
@@ -5900,9 +5263,8 @@ async function pushVault() {
 async function forcePushVault() {
   if (!syncReady) return;
   syncPushBlocked = false;
-  try {
-    await writeVault();
-  } catch (e) {
+  try { await writeVault(); }
+  catch (e) {
     console.warn('[sync] force push failed', e);
     renderSyncStatus('error');
   }
@@ -5918,10 +5280,7 @@ async function pullVault() {
     const rts = remote.syncTs || 0;
     if (rts <= syncTs) return; // облако не свежее — не трогаем локальные данные
     const applied = await applyRemoteVault(remote.vault);
-    if (!applied) {
-      renderSyncStatus('error');
-      return;
-    }
+    if (!applied) { renderSyncStatus('error'); return; }
     syncTs = rts;
     store.set(SYNC_KEY, String(rts));
     renderSyncStatus('ok', rts);
@@ -5944,21 +5303,13 @@ function listenRemote() {
     const rts = remote.syncTs || 0;
     if (rts <= syncTs) return; // свой же push
     renderSyncStatus('syncing');
-    applyRemoteVault(remote.vault)
-      .then(ok => {
-        if (!ok) {
-          renderSyncStatus('error');
-          return;
-        }
-        syncTs = rts;
-        store.set(SYNC_KEY, String(rts));
-        renderSyncStatus('ok', rts);
-        notify('Данные обновлены с другого устройства 💜');
-      })
-      .catch(e => {
-        console.warn('[sync] live apply failed', e);
-        renderSyncStatus('error');
-      });
+    applyRemoteVault(remote.vault).then(ok => {
+      if (!ok) { renderSyncStatus('error'); return; }
+      syncTs = rts;
+      store.set(SYNC_KEY, String(rts));
+      renderSyncStatus('ok', rts);
+      notify('Данные обновлены с другого устройства 💜');
+    }).catch(e => { console.warn('[sync] live apply failed', e); renderSyncStatus('error'); });
   });
 }
 
@@ -5991,14 +5342,8 @@ async function applyRemoteVault(remoteVault) {
       warmThumbCache();
     }
     await save(); // закрепить миграции локально (push не запустится: syncApplying)
-    renderHome();
-    renderCalendar();
-    renderNotes();
-    renderLists();
-    renderWishlist();
-    renderPhotos();
-    renderMemory();
-    renderSettings();
+    renderHome(); renderCalendar(); renderNotes();
+    renderLists(); renderWishlist(); renderPhotos(); renderMemory(); renderSettings();
     schedulePhotoSync(); // пришли новые/удалённые фото — сверимся с облаком
     return true;
   } catch (e) {
@@ -6014,15 +5359,11 @@ function stopSync() {
   clearTimeout(syncPushTimer);
   clearTimeout(photoSyncTimer);
   if (syncLiveOn && syncDb) {
-    try {
-      syncDb.ref(SYNC_PATH).off('value');
-    } catch (e) {}
+    try { syncDb.ref(SYNC_PATH).off('value'); } catch (e) {}
     syncLiveOn = false;
   }
   if (syncFirebase && typeof syncFirebase.auth === 'function') {
-    try {
-      syncFirebase.auth().signOut();
-    } catch (e) {}
+    try { syncFirebase.auth().signOut(); } catch (e) {}
   }
   syncReady = false;
   syncFirebase = null;
@@ -6033,6 +5374,7 @@ function stopSync() {
   lastRemoteSnapshot = undefined; // следующий initSync() начнёт с чистого кэша
   renderSyncStatus('off');
 }
+
 
 /* ===== Фото в облаке: оригиналы + показ-версии + миниатюры в Yandex Object
    Storage =====
@@ -6053,9 +5395,10 @@ function stopSync() {
    иначе первый вход на новом устройстве с большой галереей тянул бы фото
    одно за другим. */
 const PHOTO_PARTS = ['orig', 'full', 'thumb'];
-let syncStorage = null; // Yandex Object Storage (S3)
-let photoSyncTimer = null; // debounce после операций с фото
-let photoSyncing = false; // защита от параллельных сверок
+let syncStorage = null;      // Yandex Object Storage (S3)
+let photoSyncTimer = null;   // debounce после операций с фото
+let photoSyncing = false;    // защита от параллельных сверок
+
 
 /* ===== Адаптер для Yandex Object Storage =====
    Чтение (GetObject/ListBucket) — анонимно и напрямую в бакет: политика
@@ -6098,9 +5441,7 @@ function makeCloudStorage() {
     try {
       const user = syncFirebase && firebase.auth(syncFirebase).currentUser;
       if (user) authHeaders = { 'X-Firebase-Token': await user.getIdToken() };
-    } catch (e) {
-      console.warn('[sync] не удалось получить ID-токен для photo-sign', e);
-    }
+    } catch (e) { console.warn('[sync] не удалось получить ID-токен для photo-sign', e); }
     const signRes = await fetch(cfg.signFnUrl + '?method=' + method + '&part=' + encodeURIComponent(part) + '&id=' + encodeURIComponent(id), { headers: authHeaders });
     if (!signRes.ok) throw new Error('sign-fn ' + signRes.status);
     const { url } = await signRes.json();
@@ -6113,24 +5454,19 @@ function makeCloudStorage() {
     return res;
   }
 
-  function objectPath(part, id) {
-    return '/photos/' + part + '/' + encodeURIComponent(id);
-  }
+  function objectPath(part, id) { return '/photos/' + part + '/' + encodeURIComponent(id); }
 
   return {
     ref(path) {
-      const seg = String(path || '')
-        .split('/')
-        .filter(Boolean);
+      const seg = String(path || '').split('/').filter(Boolean);
       if (seg.length >= 3) {
-        const part = seg[1],
-          id = seg.slice(2).join('/');
+        const part = seg[1], id = seg.slice(2).join('/');
         const p = objectPath(part, id);
         return {
           name: id,
           fullPath: seg.join('/'),
           async put(blob) {
-            const txt = typeof blob === 'string' ? blob : await blob.text();
+            const txt = (typeof blob === 'string') ? blob : await blob.text();
             await presignedFetch('PUT', part, id, txt);
           },
           async getBlob() {
@@ -6143,11 +5479,7 @@ function makeCloudStorage() {
             }
           },
           async delete() {
-            try {
-              await presignedFetch('DELETE', part, id, null);
-            } catch (e) {
-              if (!/404/.test(String(e))) throw e;
-            }
+            try { await presignedFetch('DELETE', part, id, null); } catch (e) { if (!/404/.test(String(e))) throw e; }
           }
         };
       }
@@ -6172,7 +5504,7 @@ function makeCloudStorage() {
               }
               const truncated = /<IsTruncated>true<\/IsTruncated>/.test(txt);
               const tokenMatch = /<NextContinuationToken>([^<]+)<\/NextContinuationToken>/.exec(txt);
-              token = truncated && tokenMatch ? tokenMatch[1] : null;
+              token = (truncated && tokenMatch) ? tokenMatch[1] : null;
             } while (token);
           } catch (e) {
             if (!/404/.test(String(e))) throw e;
@@ -6184,9 +5516,8 @@ function makeCloudStorage() {
   };
 }
 
-function photoRef(part, id) {
-  return syncStorage.ref('photos/' + part + '/' + id);
-}
+
+function photoRef(part, id) { return syncStorage.ref('photos/' + part + '/' + id); }
 
 // Запуск сверки фото (debounce 1.2 с — было 2.5, снижено вместе с
 // оптимизацией самой сверки: listIds() больше не читает блобы, а probe не
@@ -6196,9 +5527,7 @@ function photoRef(part, id) {
 function schedulePhotoSync() {
   if (!syncStorage || !photoStore || !masterKey || photoSyncing) return;
   clearTimeout(photoSyncTimer);
-  photoSyncTimer = setTimeout(() => {
-    syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
-  }, 1200);
+  photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 1200);
 }
 
 // Что сейчас лежит в облаке: { id: { orig: true, full: true, thumb: true } }
@@ -6207,10 +5536,8 @@ async function listCloudPhotos() {
   for (const part of PHOTO_PARTS) {
     try {
       const res = await syncStorage.ref('photos/' + part).listAll();
-      for (const it of res.items || []) (out[it.name] = out[it.name] || {})[part] = true;
-    } catch (e) {
-      console.warn('[sync] не удалось прочитать облако photos/' + part, e);
-    }
+      for (const it of (res.items || [])) (out[it.name] = out[it.name] || {})[part] = true;
+    } catch (e) { console.warn('[sync] не удалось прочитать облако photos/' + part, e); }
   }
   return out;
 }
@@ -6223,17 +5550,15 @@ async function uploadCloudPhoto(id, cloud, local) {
     for (const part of PHOTO_PARTS) {
       const has = cloud[id] && cloud[id][part];
       if (has || !local['has' + part[0].toUpperCase() + part.slice(1)]) continue;
-      jobs.push(
-        (async () => {
-          const getter = part === 'orig' ? 'getEncryptedOrig' : part === 'full' ? 'getEncryptedFull' : 'getEncryptedThumb';
-          const enc = await photoStore[getter](id);
-          if (!enc) return;
-          // Обёртка: сам шифртекст + несекретные MIME/размер (размер и так виден
-          // в метаданных Storage), чтобы на другом устройстве восстановить тип файла.
-          const payload = { e: enc, m: { t: meta.origType || meta.type || '', ft: meta.type || '', st: meta.thumbType || '', s: meta.size || 0 } };
-          await photoRef(part, id).put(new Blob([JSON.stringify(payload)], { type: 'application/json' }));
-        })()
-      );
+      jobs.push((async () => {
+        const getter = part === 'orig' ? 'getEncryptedOrig' : (part === 'full' ? 'getEncryptedFull' : 'getEncryptedThumb');
+        const enc = await photoStore[getter](id);
+        if (!enc) return;
+        // Обёртка: сам шифртекст + несекретные MIME/размер (размер и так виден
+        // в метаданных Storage), чтобы на другом устройстве восстановить тип файла.
+        const payload = { e: enc, m: { t: meta.origType || meta.type || '', ft: meta.type || '', st: meta.thumbType || '', s: meta.size || 0 } };
+        await photoRef(part, id).put(new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+      })());
     }
     await Promise.all(jobs);
     return { ok: true };
@@ -6242,6 +5567,7 @@ async function uploadCloudPhoto(id, cloud, local) {
     return { ok: false, err: e };
   }
 }
+
 
 // Скачивание недостающих частей фото из облака (без повторного шифрования).
 // Части (orig/full/thumb) качаются параллельно, а не по очереди — раньше
@@ -6254,16 +5580,15 @@ async function downloadCloudPhoto(id, cloud, local) {
       const hasLocal = local && local['has' + part[0].toUpperCase() + part.slice(1)];
       return hasCloud && !hasLocal;
     });
-    const fetched = await Promise.all(
-      need.map(async part => {
-        const data = await photoRef(part, id).getBlob();
-        const txt = typeof data === 'string' ? data : await data.text();
-        const parsed = JSON.parse(txt);
-        // Новый формат { e: шифртекст, m: {t,ft,st,s} } и старый { i, d } — оба понимаем
-        const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
-        return { part, enc, m: parsed && parsed.m };
-      })
-    );
+    const fetched = await Promise.all(need.map(async part => {
+      const data = await photoRef(part, id).getBlob();
+      const txt = (typeof data === 'string') ? data : await data.text();
+      const parsed = JSON.parse(txt);
+      // Новый формат { e: шифртекст, m: {t,ft,st,s} } и старый { i, d } — оба понимаем
+      const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
+                : (parsed && typeof parsed.d === 'string') ? parsed : null;
+      return { part, enc, m: parsed && parsed.m };
+    }));
     const got = {};
     let gotMeta = null;
     for (const f of fetched) {
@@ -6273,9 +5598,9 @@ async function downloadCloudPhoto(id, cloud, local) {
     }
     if (!got.orig && !got.full && !got.thumb) return { ok: false, err: new Error('в облаке нет частей для скачивания') };
     // Сохраняем всё разом, чтобы не потерять уже имеющиеся локальные части
-    const exOrig = local && local.hasOrig ? await photoStore.getEncryptedOrig(id) : null;
-    const exFull = local && local.hasFull ? await photoStore.getEncryptedFull(id) : null;
-    const exThumb = local && local.hasThumb ? await photoStore.getEncryptedThumb(id) : null;
+    const exOrig = (local && local.hasOrig) ? await photoStore.getEncryptedOrig(id) : null;
+    const exFull = (local && local.hasFull) ? await photoStore.getEncryptedFull(id) : null;
+    const exThumb = (local && local.hasThumb) ? await photoStore.getEncryptedThumb(id) : null;
     const meta2 = { ...meta };
     if (gotMeta) {
       if (gotMeta.t) meta2.origType = gotMeta.t;
@@ -6331,15 +5656,16 @@ async function probeCloudKeys(cloud) {
     if (!part) continue;
     try {
       const data = await photoRef(part, id).getBlob();
-      const txt = typeof data === 'string' ? data : await data.text();
+      const txt = (typeof data === 'string') ? data : await data.text();
       const parsed = JSON.parse(txt);
-      const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
+      const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
+                : (parsed && typeof parsed.d === 'string') ? parsed : null;
       if (!enc) throw new Error('незнакомый формат облачного файла');
       await aesDec(masterKey, enc);
     } catch (e) {
       // Криптографический сбой (неверный ключ/IV/шифртекст) — фото «чужое».
       // Любая другая ошибка (сеть, JSON) — временная, помечаем unknown.
-      const emsg = String((e && e.message) || e);
+      const emsg = String(e && e.message || e);
       if (e && (e.name === 'OperationError' || /decrypt/i.test(emsg))) {
         console.warn('[sync] облачное фото не расшифровывается текущим ключом', id, part);
         foreign.set(id, part);
@@ -6364,11 +5690,11 @@ async function syncPhotos() {
     // засорять «Наши моменты» скриншотами подарков), но синхронизировать их
     // между устройствами всё равно нужно — иначе партнёр не увидит фото
     // хотелки на своём телефоне. Добавляем их id в want отдельно.
-    const want = new Set([...(db.photos || []).map(p => p && p.id).filter(Boolean), ...(db.wishlist || []).map(w => w && w.photoId).filter(Boolean)]);
-    const hasPart = (id, part) => {
-      const l = localMap.get(id);
-      return !!(l && l['has' + part[0].toUpperCase() + part.slice(1)]);
-    };
+    const want = new Set([
+      ...(db.photos || []).map(p => p && p.id).filter(Boolean),
+      ...(db.wishlist || []).map(w => w && w.photoId).filter(Boolean)
+    ]);
+    const hasPart = (id, part) => { const l = localMap.get(id); return !!(l && l['has' + part[0].toUpperCase() + part.slice(1)]); };
     // Проверяем расшифровку не для ВСЕХ облачных фото, а только для тех, что
     // ещё не доказаны своими: если id уже в db.photos (want) и все части,
     // которые есть в облаке, уже лежат у нас локально — мы их когда-то сами
@@ -6394,10 +5720,7 @@ async function syncPhotos() {
     // 1. Локальный мусор: блоб без фото в db (фото удалено) — чистим store
     for (const id of localMap.keys()) {
       if (want.has(id)) continue;
-      try {
-        await photoStore.delete(id);
-        thumbCache.delete(id);
-      } catch (e) {}
+      try { await photoStore.delete(id); thumbCache.delete(id); } catch (e) {}
     }
     // 2. Облачный мусор: удаляем ТОЛЬКО если облако целиком «наше». Если есть
     //    хоть одно чужое/непроверенное фото — удаление отменяется: «мусором»
@@ -6406,11 +5729,7 @@ async function syncPhotos() {
       for (const id of Object.keys(cloud)) {
         if (want.has(id)) continue;
         for (const part of PHOTO_PARTS) {
-          if (cloud[id][part]) {
-            try {
-              await photoRef(part, id).delete();
-            } catch (e) {}
-          }
+          if (cloud[id][part]) { try { await photoRef(part, id).delete(); } catch (e) {} }
         }
       }
     }
@@ -6438,24 +5757,15 @@ async function syncPhotos() {
     await mapLimit(toDownload, SYNC_CONCURRENCY, async id => {
       const res = await downloadCloudPhoto(id, cloud, localMap.get(id));
       if (res && res.ok) stats.downloaded++;
-      else {
-        stats.failed++;
-        stats.retry = true;
-      }
+      else { stats.failed++; stats.retry = true; }
     });
     // 4. Выгружаем недостающее в облако (новые фото + бэкфилл старых) —
     //    тоже параллельно.
-    const toUpload = [...want].filter(id => {
-      const l = localMap.get(id);
-      return l && l.hasFull;
-    });
+    const toUpload = [...want].filter(id => { const l = localMap.get(id); return l && l.hasFull; });
     await mapLimit(toUpload, SYNC_CONCURRENCY, async id => {
       const res = await uploadCloudPhoto(id, cloud, localMap.get(id));
       if (res && res.ok) stats.uploaded++;
-      else {
-        stats.failed++;
-        stats.retry = true;
-      }
+      else { stats.failed++; stats.retry = true; }
     });
     if (stats.failed) {
       notify('Часть фото не синхронизировалась — проверь интернет, повторю через минуту 💜', true);
@@ -6471,28 +5781,24 @@ async function syncPhotos() {
     // проверяем часто и недолго, а не 20 секунд, как при настоящих сбоях.
     if (stats.retrySoon) {
       clearTimeout(photoSyncTimer);
-      photoSyncTimer = setTimeout(() => {
-        syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
-      }, 3000);
+      photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 3000);
     } else if (stats.retry) {
       // Были временные сбои (сеть, чужой формат и т.п.) — попробуем ещё раз через 20 секунд.
       clearTimeout(photoSyncTimer);
-      photoSyncTimer = setTimeout(() => {
-        syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
-      }, 20000);
+      photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 20000);
     }
   }
 }
 
+
 /* ===== UI в настройках: статус + кнопка ===== */
 const SYNC_STATUS_TEXT = {
-  off: 'Синхронизация не настроена — данные живут только на этом устройстве. Чтобы открывать их с телефона, вставь Firebase config (README, фаза B1).',
-  idle: 'Облако подключено — ждём изменений…',
+  off:     'Синхронизация не настроена — данные живут только на этом устройстве. Чтобы открывать их с телефона, вставь Firebase config (README, фаза B1).',
+  idle:    'Облако подключено — ждём изменений…',
   syncing: 'Синхронизируем…',
-  ok: 'Синхронизировано ✅',
-  conflict:
-    '⚠️ В облаке сейф с другим паролем — он не затёрт. Если нужны облачные данные: нажми чип «Гоша/Даша» (замок) и введи пароль облачного сейфа — он усыновится, фото докачаются. «Синхронизировать сейчас» перезапишет облако этим устройством.',
-  error: 'Ошибка синхронизации — проверь интернет и попробуй ещё раз 💜'
+  ok:      'Синхронизировано ✅',
+  conflict: '⚠️ В облаке сейф с другим паролем — он не затёрт. Если нужны облачные данные: нажми чип «Гоша/Даша» (замок) и введи пароль облачного сейфа — он усыновится, фото докачаются. «Синхронизировать сейчас» перезапишет облако этим устройством.',
+  error:   'Ошибка синхронизации — проверь интернет и попробуй ещё раз 💜'
 };
 let syncUiState = 'off';
 let syncUiTs = 0;
@@ -6503,23 +5809,14 @@ function renderSyncStatus(state, ts) {
   if (!el) return;
   const text = SYNC_STATUS_TEXT[state] || SYNC_STATUS_TEXT.off;
   el.textContent = text;
-  el.style.color = state === 'ok' ? '#059669' : state === 'error' ? '#dc2626' : state === 'conflict' ? '#b45309' : 'var(--muted)';
+  el.style.color = state === 'ok' ? '#059669' : (state === 'error' ? '#dc2626' : (state === 'conflict' ? '#b45309' : 'var(--muted)'));
   const btn = $('#syncNowBtn');
-  if (btn) btn.disabled = state === 'syncing';
+  if (btn) btn.disabled = (state === 'syncing');
 }
 async function syncNow() {
-  if (!FIREBASE_CONFIG) {
-    renderSyncStatus('off');
-    return;
-  }
-  if (!syncReady) {
-    initSync();
-    return;
-  }
-  if (syncPushBlocked) {
-    await forcePushVault();
-    return;
-  }
+  if (!FIREBASE_CONFIG) { renderSyncStatus('off'); return; }
+  if (!syncReady) { initSync(); return; }
+  if (syncPushBlocked) { await forcePushVault(); return; }
   await pullVault();
   await pushVault();
   schedulePhotoSync(); // фото-сверка тоже по требованию
@@ -6535,10 +5832,8 @@ async function getCloudSyncTs() {
   try {
     const snap = await syncDb.ref(SYNC_PATH).once('value');
     const v = snap && snap.val ? snap.val() : null;
-    return v ? v.syncTs || 0 : 0;
-  } catch (e) {
-    return 'ошибка: ' + String((e && e.message) || e);
-  }
+    return v ? (v.syncTs || 0) : 0;
+  } catch (e) { return 'ошибка: ' + String(e && e.message || e); }
 }
 async function runCloudDiagnostics() {
   const out = $('#cloudDiagOut');
@@ -6550,54 +5845,41 @@ async function runCloudDiagnostics() {
     add('syncReady: ' + syncReady);
     add('syncStorage: ' + (syncStorage ? 'Yandex Object Storage' : 'нет'));
     add('masterKey: ' + (masterKey ? 'есть' : 'НЕТ'));
-    add('photos в db: ' + (db.photos || []).length);
+    add('photos в db: ' + ((db.photos || []).length));
     add('syncTs: локально=' + syncTs + ', в облаке=' + (await getCloudSyncTs()));
     try {
       const localList = await photoStore.listIds();
       add('локальный store: ' + localList.length + ' фото');
       for (const l of localList) add('  ' + l.id + ' full=' + l.hasFull + ' thumb=' + l.hasThumb + ' orig=' + l.hasOrig);
-    } catch (e) {
-      add('ошибка listIds: ' + String((e && e.message) || e));
-    }
+    } catch (e) { add('ошибка listIds: ' + String(e && e.message || e)); }
     let cloud = {};
-    try {
-      cloud = await listCloudPhotos();
-    } catch (e) {
-      add('ошибка listCloudPhotos: ' + String((e && e.message) || e));
-    }
+    try { cloud = await listCloudPhotos(); } catch (e) { add('ошибка listCloudPhotos: ' + String(e && e.message || e)); }
     add('облако: ' + Object.keys(cloud).length + ' фото');
     for (const id of Object.keys(cloud)) add('  ' + id + ': ' + (PHOTO_PARTS.filter(p => cloud[id][p]).join(',') || '?'));
     if (Object.keys(cloud).length) {
       add('— расшифровка облачных фото текущим ключом —');
       for (const id of Object.keys(cloud)) {
         const part = ['thumb', 'full', 'orig'].find(p => cloud[id] && cloud[id][p]);
-        if (!part) {
-          add('  ' + id + ': нет частей');
-          continue;
-        }
+        if (!part) { add('  ' + id + ': нет частей'); continue; }
         try {
           const data = await photoRef(part, id).getBlob();
-          const txt = typeof data === 'string' ? data : await data.text();
+          const txt = (typeof data === 'string') ? data : await data.text();
           const parsed = JSON.parse(txt);
-          const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
-          if (!enc) {
-            add('  ' + id + ' (' + part + '): НЕЗНАКОМЫЙ ФОРМАТ');
-            continue;
-          }
+          const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
+                    : (parsed && typeof parsed.d === 'string') ? parsed : null;
+          if (!enc) { add('  ' + id + ' (' + part + '): НЕЗНАКОМЫЙ ФОРМАТ'); continue; }
           const u8 = await aesDec(masterKey, enc);
-          const head = Array.from(u8.subarray(0, 4))
-            .map(b => String.fromCharCode(b))
-            .join('');
+          const head = Array.from(u8.subarray(0, 4)).map(b => String.fromCharCode(b)).join('');
           add('  ' + id + ' (' + part + '): расшифровано ✅ ' + u8.length + ' б «' + head.replace(/[^ -~]/g, '?') + '»');
         } catch (e) {
-          const msg = String((e && e.name) || '') + ': ' + String((e && e.message) || e);
+          const msg = String(e && e.name || '') + ': ' + String(e && e.message || e);
           const isKey = /OperationError|decrypt/i.test(msg);
           add('  ' + id + ' (' + part + '): ' + (isKey ? 'ДРУГОЙ КЛЮЧ ❌' : 'ОШИБКА ⚠') + ' — ' + msg.slice(0, 140));
         }
       }
     }
   } catch (e) {
-    add('неожиданная ошибка: ' + String((e && e.message) || e));
+    add('неожиданная ошибка: ' + String(e && e.message || e));
   }
   out.textContent = lines.join(String.fromCharCode(10));
 }
@@ -6608,3 +5890,4 @@ if (cloudDiagBtnEl) cloudDiagBtnEl.addEventListener('click', runCloudDiagnostics
    он читает FIREBASE_CONFIG (let из этого модуля), который ещё в «мёртвой зоне»
    во время выполнения 90-effects-init.js. Так же инициализируются экраны входа. */
 initAuth();
+
