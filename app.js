@@ -6423,6 +6423,77 @@ async function notifyPartner(title, body) {
   }
 }
 
+/* ===== Диагностика уведомлений (по образцу runCloudDiagnostics в 95-sync.js) =====
+   notifyPartner() выше нарочно тихо проглатывает ошибки (это не критичный
+   путь) — но это же делает его непригодным для отладки живой проблемы «пуш
+   не пришёл». Эта функция шлёт РЕАЛЬНЫЙ тестовый пуш самому себе (не
+   партнёру) и показывает настоящий ответ send-push прямо на экране —
+   изолирует, где именно рвётся цепочка: нет своей подписки/токена, сама
+   функция ответила ошибкой, или всё дошло до неё, но не показалось (тогда
+   дело уже не в коде сайта, а в доставке на конкретное устройство/ОС). */
+async function runPushDiagnostics() {
+  const out = $('#pushDiagOut');
+  if (!out) return;
+  out.hidden = false;
+  const lines = [];
+  const add = s => lines.push(s);
+  try {
+    add('Notification.permission: ' + (typeof Notification !== 'undefined' ? Notification.permission : 'нет API'));
+    add('pushSupported(): ' + pushSupported());
+    add('isStandalone() (добавлено на экран «Домой»): ' + isStandalone());
+    add('service worker зарегистрирован: ' + !!swRegistration);
+    const sub = await currentPushSubscription();
+    add('своя подписка активна прямо сейчас: ' + !!sub);
+    if (sub) {
+      try {
+        add('  endpoint-хост: ' + new URL(sub.toJSON().endpoint).host);
+      } catch (e) {}
+    }
+    const me = getUser();
+    const partner = me === 'gosha' ? 'dasha' : 'gosha';
+    add('своя подписка в сейфе (db.pushSubs.' + me + '): ' + !!(db.pushSubs && db.pushSubs[me]));
+    add('подписка партнёра в сейфе (db.pushSubs.' + partner + '): ' + !!(db.pushSubs && db.pushSubs[partner]));
+    add('PUSH_CONFIG.sendFnUrl: ' + (PUSH_CONFIG.sendFnUrl || 'НЕ ЗАДАН'));
+    add('syncReady: ' + (typeof syncReady !== 'undefined' ? syncReady : '?'));
+    let token = null;
+    try {
+      const user = syncFirebase && firebase.auth(syncFirebase).currentUser;
+      token = user ? await user.getIdToken() : null;
+    } catch (e) {
+      add('ошибка getIdToken: ' + String((e && e.message) || e));
+    }
+    add('Firebase ID-токен получен: ' + !!token);
+    if (!sub) {
+      add('— тест не отправлен: нет собственной активной подписки —');
+      out.textContent = lines.join(String.fromCharCode(10));
+      return;
+    }
+    if (!token || !PUSH_CONFIG.sendFnUrl) {
+      add('— тест не отправлен: нет токена авторизации или не задан sendFnUrl —');
+      out.textContent = lines.join(String.fromCharCode(10));
+      return;
+    }
+    add('— отправляю тестовый пуш самому себе —');
+    try {
+      const res = await fetch(PUSH_CONFIG.sendFnUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Firebase-Token': token },
+        body: JSON.stringify({ subscription: sub.toJSON(), title: '🔔 Тестовое уведомление', body: 'Если видишь это — доставка работает' })
+      });
+      const text = await res.text();
+      add('ответ send-push: ' + res.status + ' ' + text.slice(0, 300));
+      add(res.ok ? '— если уведомление не появилось при статусе 200, дело не в коде сайта, а в доставке на этом устройстве/ОС —' : '— функция ответила ошибкой, см. текст выше —');
+    } catch (e) {
+      add('ошибка запроса к send-push (сеть/CORS): ' + String((e && e.message) || e));
+    }
+  } catch (e) {
+    add('неожиданная ошибка: ' + String((e && e.message) || e));
+  }
+  out.textContent = lines.join(String.fromCharCode(10));
+}
+const pushDiagBtnEl = $('#pushDiagBtn');
+if (pushDiagBtnEl) pushDiagBtnEl.addEventListener('click', runPushDiagnostics);
+
 // typeof-проверка, а не просто вызов: часть мини-DOM тестовых песочниц
 // (tests/uni-*.js) не определяют navigator вообще — без проверки любой такой
 // тест падал бы ReferenceError на самой загрузке app.js, а не на реальной
