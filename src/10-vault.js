@@ -100,6 +100,8 @@ function lock() {
   if (signInBtn) signInBtn.hidden = true;
   const resumeBtn = $('#gateResumeBtn');
   if (resumeBtn) resumeBtn.hidden = false;
+  const resumeHint = $('#gateResumeHint');
+  if (resumeHint) resumeHint.hidden = false;
   showGateErr('');
   // Облачная синхронизация: при блокировке отключаем слушатели (но НЕ
   // Google-сессию — см. stopSync в src/95-sync.js)

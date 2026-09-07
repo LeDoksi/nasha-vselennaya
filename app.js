@@ -430,7 +430,11 @@ async function unlockWithKey(key) {
   unlockApp();
 }
 
-/* ===== Собственно Google-вход ===== */
+/* ===== Собственно Google-вход =====
+   Обёрнуто в try/catch целиком: раньше при неожиданной ошибке внутри
+   ensureMasterKey/unlockWithKey человек молча оставался на экране входа без
+   единого пояснения — снаружи это выглядело как «нажал Войти, а он вернул
+   меня туда же». Теперь любая осечка хотя бы показывает текст ошибки. */
 async function tryEnterWithUser(user) {
   if (!user || !user.email || !ALLOWED_EMAILS.includes(user.email)) {
     if (user) {
@@ -441,14 +445,20 @@ async function tryEnterWithUser(user) {
     }
     return;
   }
-  gateUser = user;
-  setUser(GATE_WHO_BY_EMAIL[user.email]);
-  showGateErr('Загружаем…');
-  const key = await ensureMasterKey(GATE_WHO_BY_EMAIL[user.email]);
-  if (!key) return; // ensureMasterKey уже показал разовый экран миграции
-  await unlockWithKey(key);
+  try {
+    gateUser = user;
+    setUser(GATE_WHO_BY_EMAIL[user.email]);
+    showGateErr('Загружаем…');
+    const key = await ensureMasterKey(GATE_WHO_BY_EMAIL[user.email]);
+    if (!key) return; // ensureMasterKey уже показал разовый экран миграции
+    await unlockWithKey(key);
+  } catch (e) {
+    console.warn('[gate] вход не завершился', e);
+    showGateErr('Что-то пошло не так при загрузке данных. Обнови страницу и попробуй ещё раз 💜');
+  }
 }
 
+const GATE_REDIRECT_FLAG = 'universe_gate_redirecting';
 async function gateSignIn() {
   const app = ensureFbApp();
   if (!app) {
@@ -458,18 +468,30 @@ async function gateSignIn() {
   const provider = new firebase.auth.GoogleAuthProvider();
   showGateErr('Открываем окно входа Google…');
   try {
-    if (isStandalone()) {
-      // В установленном PWA (iOS/Android «на главный экран») всплывающее окно
-      // часто не открывается вообще — надёжно работает только редирект.
-      await firebase.auth(app).signInWithRedirect(provider);
-      return; // страница уйдёт и вернётся сама — дальше подхватит boot()
-    }
+    // Popup — основной способ везде, включая установленный на главный экран
+    // PWA (там всплывающее окно почти всегда открывается нормально, а вот
+    // полноценный редирект на accounts.google.com и обратно ненадёжен: iOS
+    // может вернуть его уже НЕ в контекст установленного приложения — тогда
+    // getRedirectResult() ничего не находит, и человека просто отбрасывает на
+    // тот же экран входа без объяснений). Редирект — только как явный fallback,
+    // когда сам Firebase говорит, что popup в этом окружении не работает.
     const cred = await firebase.auth(app).signInWithPopup(provider);
     await tryEnterWithUser(cred && cred.user);
   } catch (e) {
     if (e && e.code === 'auth/popup-closed-by-user') {
       showGateErr('');
       return;
+    }
+    if (e && (e.code === 'auth/operation-not-supported-in-this-environment' || e.code === 'auth/popup-blocked')) {
+      try {
+        store.set(GATE_REDIRECT_FLAG, '1');
+        await firebase.auth(app).signInWithRedirect(provider);
+        return; // страница уйдёт и вернётся сама — дальше подхватит boot()
+      } catch (e2) {
+        console.warn('[gate] redirect signIn failed', e2);
+        showGateErr('Не удалось открыть окно входа Google в этом браузере. Попробуй обычный Safari/Chrome вместо установленного приложения.');
+        return;
+      }
     }
     console.warn('[gate] signIn failed', e);
     showGateErr('Не удалось войти через Google. Попробуй ещё раз.');
@@ -480,6 +502,7 @@ async function gateSignIn() {
 // Google-сессия жива, повторно логиниться не нужно, достаточно одного тапа.
 async function gateResume() {
   $('#gateResumeBtn').hidden = true;
+  $('#gateResumeHint').hidden = true;
   $('#gateSignInBtn').hidden = false;
   const who = gateUser && GATE_WHO_BY_EMAIL[gateUser.email];
   if (!who) return; // Google-сессия почему-то пропала — обычный вход через кнопку
@@ -525,12 +548,18 @@ async function boot() {
     return;
   }
   const auth = firebase.auth(app);
+  // Ставился в gateSignIn() перед signInWithRedirect — если мы сюда вернулись,
+  // это точно возврат из редиректа (не обычная загрузка страницы), и молчать
+  // при неудаче нельзя: раньше человек просто видел тот же экран входа заново.
+  const wasRedirecting = store.get(GATE_REDIRECT_FLAG) === '1';
+  store.remove(GATE_REDIRECT_FLAG);
   let user = null;
   try {
     const redirectCred = await auth.getRedirectResult();
     if (redirectCred && redirectCred.user) user = redirectCred.user;
   } catch (e) {
     console.warn('[gate] redirect result failed', e);
+    if (wasRedirecting) showGateErr('Вход через Google не завершился (браузер мог сбросить сессию при переходе). Попробуй ещё раз.');
   }
   if (!user) {
     user = await new Promise(resolve => {
@@ -543,7 +572,11 @@ async function boot() {
       });
     });
   }
-  if (user) await tryEnterWithUser(user);
+  if (user) {
+    await tryEnterWithUser(user);
+  } else if (wasRedirecting) {
+    showGateErr('Вход через Google не завершился. Попробуй ещё раз — если не поможет, открой сайт в обычном браузере вместо установленного приложения.');
+  }
   // иначе остаёмся на экране гейта — ждём клика «Войти через Google»
 }
 /* ===== Перетаскивание чипа лейбла на фото (навесить лейбл броском) =====
@@ -1519,6 +1552,8 @@ function lock() {
   if (signInBtn) signInBtn.hidden = true;
   const resumeBtn = $('#gateResumeBtn');
   if (resumeBtn) resumeBtn.hidden = false;
+  const resumeHint = $('#gateResumeHint');
+  if (resumeHint) resumeHint.hidden = false;
   showGateErr('');
   // Облачная синхронизация: при блокировке отключаем слушатели (но НЕ
   // Google-сессию — см. stopSync в src/95-sync.js)
