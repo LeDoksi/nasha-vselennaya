@@ -40,6 +40,12 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://ledoksi.github.io'
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:nasha-vselennaya@example.com';
+// Гейт: сайт закрыт Google-входом на 2 email (src/01-gate.js, ALLOWED_EMAILS) —
+// та же проверка здесь, теми же соображениями, что и в photo-sign/index.js.
+const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || 'shakov.georgy@gmail.com,dashach98@gmail.com')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
 
 /* ===== Проверка Firebase ID-токена (RS256, без firebase-admin) =====
    Дословно та же логика, что в functions/photo-sign/index.js — см. подробные
@@ -97,6 +103,7 @@ async function verifyFirebaseIdToken(token) {
   if (payload.aud !== FIREBASE_PROJECT_ID) throw new Error('чужой проект (aud)');
   if (payload.iss !== 'https://securetoken.google.com/' + FIREBASE_PROJECT_ID) throw new Error('чужой issuer');
   if (!payload.sub) throw new Error('нет subject');
+  if (!payload.email || !ALLOWED_EMAILS.includes(payload.email)) throw new Error('email не в списке допущенных');
   return payload;
 }
 

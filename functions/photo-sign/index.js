@@ -54,6 +54,14 @@ const SECRET_KEY = process.env.YC_S3_SECRET;
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'nasha-vselennaya';
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://ledoksi.github.io';
 const EXPIRES_SECONDS = 60; // ссылка живёт минуту — достаточно, чтобы сразу ей воспользоваться
+// Гейт: сайт закрыт Google-входом на 2 email (src/01-gate.js, ALLOWED_EMAILS).
+// Раньше сюда пускал любой валидный (в т.ч. анонимный) Firebase-токен — теперь
+// проверяем ещё и email из самого токена, иначе анонимный вход (если его не
+// выключили в консоли) снова открыл бы подпись кому угодно.
+const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || 'shakov.georgy@gmail.com,dashach98@gmail.com')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
 
 /* ===== Проверка Firebase ID-токена (RS256, без firebase-admin) =====
    Google публикует свои текущие публичные сертификаты по фиксированному
@@ -63,14 +71,21 @@ const GOOGLE_CERTS_URL = 'https://www.googleapis.com/robot/v1/metadata/x509/secu
 let certsCache = null; // { certs, expiresAt }
 function httpGetJson(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, res => {
-      let data = '';
-      res.on('data', c => { data += c; });
-      res.on('end', () => {
-        try { resolve({ body: JSON.parse(data), headers: res.headers }); }
-        catch (e) { reject(e); }
-      });
-    }).on('error', reject);
+    https
+      .get(url, res => {
+        let data = '';
+        res.on('data', c => {
+          data += c;
+        });
+        res.on('end', () => {
+          try {
+            resolve({ body: JSON.parse(data), headers: res.headers });
+          } catch (e) {
+            reject(e);
+          }
+        });
+      })
+      .on('error', reject);
   });
 }
 async function getGoogleCerts() {
@@ -104,6 +119,7 @@ async function verifyFirebaseIdToken(token) {
   if (payload.aud !== FIREBASE_PROJECT_ID) throw new Error('чужой проект (aud)');
   if (payload.iss !== 'https://securetoken.google.com/' + FIREBASE_PROJECT_ID) throw new Error('чужой issuer');
   if (!payload.sub) throw new Error('нет subject');
+  if (!payload.email || !ALLOWED_EMAILS.includes(payload.email)) throw new Error('email не в списке допущенных');
   return payload;
 }
 
@@ -119,7 +135,10 @@ function sha256hex(msg) {
 function presign(method, objectPath) {
   const host = BUCKET + '.storage.yandexcloud.net';
   const now = new Date();
-  const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const amzDate = now
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}Z$/, 'Z');
   const dateStamp = amzDate.slice(0, 8);
   const scope = dateStamp + '/' + REGION + '/s3/aws4_request';
   const credential = ACCESS_KEY + '/' + scope;
@@ -131,7 +150,8 @@ function presign(method, objectPath) {
     'X-Amz-Expires': String(EXPIRES_SECONDS),
     'X-Amz-SignedHeaders': 'host'
   };
-  const canonicalQuery = Object.keys(qp).sort()
+  const canonicalQuery = Object.keys(qp)
+    .sort()
     .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(qp[k]))
     .join('&');
   const canonicalHeaders = 'host:' + host + '\n';
@@ -147,7 +167,7 @@ function presign(method, objectPath) {
   return 'https://' + host + objectPath + '?' + canonicalQuery + '&X-Amz-Signature=' + signature;
 }
 
-module.exports.handler = async (event) => {
+module.exports.handler = async event => {
   const cors = {
     'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
@@ -196,5 +216,7 @@ module.exports.handler = async (event) => {
 // токена без сети (подмена кэша сертификатов) и без реальных ключей S3.
 module.exports._testing = {
   verifyFirebaseIdToken,
-  setCertsForTest(certs) { certsCache = { certs, expiresAt: Date.now() + 3600000 }; }
+  setCertsForTest(certs) {
+    certsCache = { certs, expiresAt: Date.now() + 3600000 };
+  }
 };

@@ -1,29 +1,30 @@
-/* ===== Облачная синхронизация (фаза B, Firebase Realtime Database) =====
+/* ===== Облачная синхронизация (Firebase Realtime Database) =====
    Принцип: localStorage — «правда» локально, Firebase — канал синхронизации.
    Синхронизируем САМ зашифрованный сейф `universe_vault` (zero-knowledge):
-   на сервере лежит только шифртекст (AES-GCM мастер-ключом + обёртки обоих
-   паролей внутри), поэтому и Гоша, и Даша открывают облачные данные своим
-   паролем, а Firebase ничего прочитать не может.
+   на сервере лежит только шифртекст (AES-GCM единым мастер-ключом пары —
+   см. src/01-gate.js), Firebase ничего прочитать не может.
 
-   Путь в RTDB: vaults/shared = { syncTs, vault }. Правила: read/write auth != null
-   (см. README). Конфликты: «последняя правка выигрывает» по syncTs.
+   Путь в RTDB: vaults/shared = { syncTs, vault }, vaults/secret = сам ключ
+   (см. 01-gate.js). Правила: доступ только auth.token.email из ALLOWED_EMAILS
+   (см. README, раздел про Google-гейт). Конфликты: «последняя правка
+   выигрывает» по syncTs.
 
-   Фаза B1: вставь config из Firebase Console в FIREBASE_CONFIG ниже.
+   Firebase-приложение (fbApp) и Google-вход инициализируются гейтом
+   (src/01-gate.js) ДО того, как этот модуль вообще нужен — initSync() здесь
+   только переиспользует уже готовую сессию, отдельного входа не делает.
    Фаза B3 (фото): оригиналы+показ-версии+миниатюры синхронизируются через
    Yandex Object Storage (см. YANDEX_CLOUD_CONFIG и makeCloudStorage ниже) —
-   бакет публичный (без секретных ключей на клиенте), см. README.
-   Без config (или без интернета) приложение работает как раньше — локально.
-   Работает на http(s); на file:// SDK может не загрузиться — тоже локально. */
+   бакет публичный на чтение (без секретных ключей на клиенте), см. README. */
 
 let FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyDuAkskIpj3bsFOX6aPecFWZGJOlOzGzUk",
-  authDomain:        "nasha-vselennaya.firebaseapp.com",
-  databaseURL:       "https://nasha-vselennaya-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId:         "nasha-vselennaya",
-  storageBucket:     "nasha-vselennaya.firebasestorage.app",
-  messagingSenderId: "222445763153",
-  appId:             "1:222445763153:web:df254e6b681c2e40289670",
-  measurementId:     "G-JZY24EXCX3"
+  apiKey: 'AIzaSyDuAkskIpj3bsFOX6aPecFWZGJOlOzGzUk',
+  authDomain: 'nasha-vselennaya.firebaseapp.com',
+  databaseURL: 'https://nasha-vselennaya-default-rtdb.europe-west1.firebasedatabase.app',
+  projectId: 'nasha-vselennaya',
+  storageBucket: 'nasha-vselennaya.firebasestorage.app',
+  messagingSenderId: '222445763153',
+  appId: '1:222445763153:web:df254e6b681c2e40289670',
+  measurementId: 'G-JZY24EXCX3'
 }; // ← config из Firebase Console (фаза B1). let — чтобы тесты могли подставить мок.
 
 /* Фото-облако: Yandex Object Storage вместо Firebase Storage (Storage — только
@@ -36,48 +37,46 @@ let FIREBASE_CONFIG = {
    подписанную ссылку и сам грузит/удаляет файл по ней. `signFnUrl` — не
    секрет, просто публичный адрес функции. */
 let YANDEX_CLOUD_CONFIG = {
-  bucket: 'nasha-vselennaya',    // имя бакета (не секрет)
-  region: 'ru-central1',         // регион Yandex Cloud
+  bucket: 'nasha-vselennaya', // имя бакета (не секрет)
+  region: 'ru-central1', // регион Yandex Cloud
   signFnUrl: 'https://functions.yandexcloud.net/d4empeq0dp76dkug5c9r' // Cloud Function photo-sign (не секрет)
 };
 
-const SYNC_KEY = 'universe_syncTs';  // последний известный syncTs (метаданные, не секрет)
-const SYNC_PATH = 'vaults/shared';   // общий зашифрованный сейф пары
+const SYNC_KEY = 'universe_syncTs'; // последний известный syncTs (метаданные, не секрет)
+const SYNC_PATH = 'vaults/shared'; // общий зашифрованный сейф пары
 
-let syncFirebase = null;   // firebaseApp (compat)
-let syncDb = null;         // firebase.database()
-let syncReady = false;     // SDK есть, config есть, анонимный вход сделан
-let syncTs = 0;            // последний применённый syncTs
-let syncPushTimer = null;  // debounce push после save()
-let syncApplying = false;  // защита от рекурсии pull→save→push
-let lastRemoteSnapshot;    // последний снимок vaults/shared от живого слушателя;
-                            // undefined = слушатель ещё ничего не прислал (см. pushVault)
+let syncFirebase = null; // firebaseApp (compat)
+let syncDb = null; // firebase.database()
+let syncReady = false; // SDK есть, config есть, анонимный вход сделан
+let syncTs = 0; // последний применённый syncTs
+let syncPushTimer = null; // debounce push после save()
+let syncApplying = false; // защита от рекурсии pull→save→push
+let lastRemoteSnapshot; // последний снимок vaults/shared от живого слушателя;
+// undefined = слушатель ещё ничего не прислал (см. pushVault)
 
-/* ===== Инициализация: вызывается из unlockApp() после входа ===== */
+/* ===== Инициализация: вызывается из unlockApp() после входа =====
+   Google-вход и Firebase-приложение уже готовы к этому моменту (гейт,
+   src/01-gate.js) — здесь только переиспользуем их, отдельного signIn нет. */
 async function initSync() {
   syncTs = parseInt(store.get(SYNC_KEY) || '0', 10) || 0;
-  if (!FIREBASE_CONFIG) { renderSyncStatus('off'); return; }
-  if (typeof firebase === 'undefined' || typeof firebase.initializeApp !== 'function' ||
-      typeof firebase.database !== 'function' || typeof firebase.auth !== 'function') {
+  const app = typeof ensureFbApp === 'function' ? ensureFbApp() : null;
+  if (!app || !gateUser) {
     renderSyncStatus('off');
     return;
   }
   try {
-        syncFirebase = firebase.initializeApp(FIREBASE_CONFIG, 'nasha_sync');
+    syncFirebase = app;
     syncDb = firebase.database(syncFirebase);
-    // Хранилище фото: Yandex Object Storage (публичный бакет, без секретов на
-    // клиенте — см. YANDEX_CLOUD_CONFIG выше и README). Firebase используется
-    // только для крошечного зашифрованного сейфа (vaults/shared), не для фото.
+    // Хранилище фото: Yandex Object Storage (публичный на чтение бакет, без
+    // секретов на клиенте — см. YANDEX_CLOUD_CONFIG выше и README). Firebase
+    // используется только для крошечного зашифрованного сейфа (vaults/shared)
+    // и общего ключа (vaults/secret), не для фото.
     syncStorage = makeCloudStorage();
-    // Anonymous Auth: оба устройства — «гости», доступ к общему vaults/shared.
-    // UID нигде не храним: правила разрешают любому анониму, данные зашифрованы.
-    const cred = await firebase.auth(syncFirebase).signInAnonymously();
-    if (!cred || !cred.user) throw new Error('no anonymous user');
     syncReady = true;
     renderSyncStatus('idle');
-    listenRemote();      // живые обновления с другого устройства
-    pullVault();          // при входе пробуем забрать свежие данные
-    scheduleSyncPush();  // и отдать свои, если они свежее
+    listenRemote(); // живые обновления с другого устройства
+    pullVault(); // при входе пробуем забрать свежие данные
+    scheduleSyncPush(); // и отдать свои, если они свежее
     schedulePhotoSync(); // фото: выгрузить свои / скачать недостающие
   } catch (e) {
     console.warn('[sync] init failed', e);
@@ -103,48 +102,19 @@ function scheduleSyncPush() {
 // конфликт, дальше решает человек («Синхронизировать сейчас» = forcePushVault).
 let syncPushBlocked = false;
 
-// Быстрый опрос облака ДО первого входа (экран замка/создания): есть ли уже
-// зашифрованный сейф пары? Ничего не пишет, слушатели не вешает. Возвращает
-// { vault, ts } или null, если сейфа нет / нет сети / config пустой.
-// Таймаут для сетевых вызовов: не держим пользователя на «проверяем облако…»
-// бесконечно, если Firebase отвечает медленно (мобильный интернет).
+// Таймаут для сетевых вызовов: не держим пользователя на «загружаем…»
+// бесконечно, если Firebase отвечает медленно (мобильный интернет). Также
+// используется гейтом (src/01-gate.js) при чтении vaults/secret.
 function withTimeout(promise, ms) {
   let timer = null;
   return Promise.race([
     promise,
-    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), ms); })
-  ]).finally(() => { if (timer) clearTimeout(timer); });
-}
-let probeApp = null;
-let probeUser = null; // анонимный пользователь probe-приложения — переиспользуем между проверками
-async function fetchCloudVault() {
-  if (!FIREBASE_CONFIG || typeof firebase === 'undefined' || typeof firebase.initializeApp !== 'function' ||
-      typeof firebase.auth !== 'function' || typeof firebase.database !== 'function') return null;
-  try {
-    // Несколько попыток: на мобильном интернете анонимный вход или чтение могут
-    // не успеть с первого раза. «Пустое облако» — не ошибка, повторяться не нужно.
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        probeApp = probeApp || firebase.initializeApp(FIREBASE_CONFIG, 'nasha_probe');
-        if (!probeUser) {
-          const cred = await withTimeout(firebase.auth(probeApp).signInAnonymously(), 10000);
-          if (!cred || !cred.user) return null;
-          probeUser = cred.user;
-        }
-        const snap = await withTimeout(firebase.database(probeApp).ref(SYNC_PATH).once('value'), 10000);
-        const data = snap && snap.val ? snap.val() : null;
-        if (!data || !data.vault || !data.vault.db || typeof data.vault.db.d !== 'string') return null;
-        return { vault: data.vault, ts: data.syncTs || 0 };
-      } catch (e) {
-        console.warn('[sync] нет доступа к облаку при старте (попытка ' + (attempt + 1) + ')', e);
-        if (attempt < 2) await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
-      }
-    }
-    return null;
-  } catch (e) {
-    console.warn('[sync] нет доступа к облаку при старте', e);
-    return null;
-  }
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('timeout')), ms);
+    })
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 // Запись сейфа в облако (общий путь для push и принудительного восстановления).
@@ -183,7 +153,10 @@ async function pushVault() {
     }
     if (remote && remote.vault && remote.vault.db && typeof remote.vault.db.d === 'string' && masterKey) {
       let ok = false;
-      try { await aesDec(masterKey, remote.vault.db); ok = true; } catch (e) {}
+      try {
+        await aesDec(masterKey, remote.vault.db);
+        ok = true;
+      } catch (e) {}
       if (!ok) {
         syncPushBlocked = true;
         renderSyncStatus('conflict');
@@ -197,8 +170,9 @@ async function pushVault() {
     return;
   }
   syncPushBlocked = false;
-  try { await writeVault(); }
-  catch (e) {
+  try {
+    await writeVault();
+  } catch (e) {
     console.warn('[sync] push failed', e);
     renderSyncStatus('error');
   }
@@ -209,8 +183,9 @@ async function pushVault() {
 async function forcePushVault() {
   if (!syncReady) return;
   syncPushBlocked = false;
-  try { await writeVault(); }
-  catch (e) {
+  try {
+    await writeVault();
+  } catch (e) {
     console.warn('[sync] force push failed', e);
     renderSyncStatus('error');
   }
@@ -226,7 +201,10 @@ async function pullVault() {
     const rts = remote.syncTs || 0;
     if (rts <= syncTs) return; // облако не свежее — не трогаем локальные данные
     const applied = await applyRemoteVault(remote.vault);
-    if (!applied) { renderSyncStatus('error'); return; }
+    if (!applied) {
+      renderSyncStatus('error');
+      return;
+    }
     syncTs = rts;
     store.set(SYNC_KEY, String(rts));
     renderSyncStatus('ok', rts);
@@ -249,13 +227,21 @@ function listenRemote() {
     const rts = remote.syncTs || 0;
     if (rts <= syncTs) return; // свой же push
     renderSyncStatus('syncing');
-    applyRemoteVault(remote.vault).then(ok => {
-      if (!ok) { renderSyncStatus('error'); return; }
-      syncTs = rts;
-      store.set(SYNC_KEY, String(rts));
-      renderSyncStatus('ok', rts);
-      notify('Данные обновлены с другого устройства 💜');
-    }).catch(e => { console.warn('[sync] live apply failed', e); renderSyncStatus('error'); });
+    applyRemoteVault(remote.vault)
+      .then(ok => {
+        if (!ok) {
+          renderSyncStatus('error');
+          return;
+        }
+        syncTs = rts;
+        store.set(SYNC_KEY, String(rts));
+        renderSyncStatus('ok', rts);
+        notify('Данные обновлены с другого устройства 💜');
+      })
+      .catch(e => {
+        console.warn('[sync] live apply failed', e);
+        renderSyncStatus('error');
+      });
   });
 }
 
@@ -288,8 +274,14 @@ async function applyRemoteVault(remoteVault) {
       warmThumbCache();
     }
     await save(); // закрепить миграции локально (push не запустится: syncApplying)
-    renderHome(); renderCalendar(); renderNotes();
-    renderLists(); renderWishlist(); renderPhotos(); renderMemory(); renderSettings();
+    renderHome();
+    renderCalendar();
+    renderNotes();
+    renderLists();
+    renderWishlist();
+    renderPhotos();
+    renderMemory();
+    renderSettings();
     schedulePhotoSync(); // пришли новые/удалённые фото — сверимся с облаком
     return true;
   } catch (e) {
@@ -305,12 +297,13 @@ function stopSync() {
   clearTimeout(syncPushTimer);
   clearTimeout(photoSyncTimer);
   if (syncLiveOn && syncDb) {
-    try { syncDb.ref(SYNC_PATH).off('value'); } catch (e) {}
+    try {
+      syncDb.ref(SYNC_PATH).off('value');
+    } catch (e) {}
     syncLiveOn = false;
   }
-  if (syncFirebase && typeof syncFirebase.auth === 'function') {
-    try { syncFirebase.auth().signOut(); } catch (e) {}
-  }
+  // Google-сессию НЕ трогаем — это приватный «замок», не выход из аккаунта
+  // (см. lock() в src/10-vault.js и gateSignOut в src/01-gate.js).
   syncReady = false;
   syncFirebase = null;
   syncDb = null;
@@ -320,7 +313,6 @@ function stopSync() {
   lastRemoteSnapshot = undefined; // следующий initSync() начнёт с чистого кэша
   renderSyncStatus('off');
 }
-
 
 /* ===== Фото в облаке: оригиналы + показ-версии + миниатюры в Yandex Object
    Storage =====
@@ -341,10 +333,9 @@ function stopSync() {
    иначе первый вход на новом устройстве с большой галереей тянул бы фото
    одно за другим. */
 const PHOTO_PARTS = ['orig', 'full', 'thumb'];
-let syncStorage = null;      // Yandex Object Storage (S3)
-let photoSyncTimer = null;   // debounce после операций с фото
-let photoSyncing = false;    // защита от параллельных сверок
-
+let syncStorage = null; // Yandex Object Storage (S3)
+let photoSyncTimer = null; // debounce после операций с фото
+let photoSyncing = false; // защита от параллельных сверок
 
 /* ===== Адаптер для Yandex Object Storage =====
    Чтение (GetObject/ListBucket) — анонимно и напрямую в бакет: политика
@@ -377,7 +368,7 @@ function makeCloudStorage() {
     if (!cfg.signFnUrl) throw new Error('YANDEX_CLOUD_CONFIG.signFnUrl не задан — запись фото невозможна');
     // photo-sign проверяет Firebase ID-токен перед выдачей подписи (иначе
     // подписать мог бы кто угодно, кто откроет devtools — URL функции не
-    // секрет). Токен берём у уже выполненного анонимного входа (initSync).
+    // секрет). Токен берём у уже выполненного Google-входа (src/01-gate.js).
     // Заголовок называется X-Firebase-Token, а не Authorization: Yandex
     // Cloud перехватывает Authorization на уровне своей платформы (пытается
     // прочитать его как СВОЙ IAM-токен) ещё до кода функции — с этим именем
@@ -387,7 +378,9 @@ function makeCloudStorage() {
     try {
       const user = syncFirebase && firebase.auth(syncFirebase).currentUser;
       if (user) authHeaders = { 'X-Firebase-Token': await user.getIdToken() };
-    } catch (e) { console.warn('[sync] не удалось получить ID-токен для photo-sign', e); }
+    } catch (e) {
+      console.warn('[sync] не удалось получить ID-токен для photo-sign', e);
+    }
     const signRes = await fetch(cfg.signFnUrl + '?method=' + method + '&part=' + encodeURIComponent(part) + '&id=' + encodeURIComponent(id), { headers: authHeaders });
     if (!signRes.ok) throw new Error('sign-fn ' + signRes.status);
     const { url } = await signRes.json();
@@ -400,19 +393,24 @@ function makeCloudStorage() {
     return res;
   }
 
-  function objectPath(part, id) { return '/photos/' + part + '/' + encodeURIComponent(id); }
+  function objectPath(part, id) {
+    return '/photos/' + part + '/' + encodeURIComponent(id);
+  }
 
   return {
     ref(path) {
-      const seg = String(path || '').split('/').filter(Boolean);
+      const seg = String(path || '')
+        .split('/')
+        .filter(Boolean);
       if (seg.length >= 3) {
-        const part = seg[1], id = seg.slice(2).join('/');
+        const part = seg[1],
+          id = seg.slice(2).join('/');
         const p = objectPath(part, id);
         return {
           name: id,
           fullPath: seg.join('/'),
           async put(blob) {
-            const txt = (typeof blob === 'string') ? blob : await blob.text();
+            const txt = typeof blob === 'string' ? blob : await blob.text();
             await presignedFetch('PUT', part, id, txt);
           },
           async getBlob() {
@@ -425,7 +423,11 @@ function makeCloudStorage() {
             }
           },
           async delete() {
-            try { await presignedFetch('DELETE', part, id, null); } catch (e) { if (!/404/.test(String(e))) throw e; }
+            try {
+              await presignedFetch('DELETE', part, id, null);
+            } catch (e) {
+              if (!/404/.test(String(e))) throw e;
+            }
           }
         };
       }
@@ -450,7 +452,7 @@ function makeCloudStorage() {
               }
               const truncated = /<IsTruncated>true<\/IsTruncated>/.test(txt);
               const tokenMatch = /<NextContinuationToken>([^<]+)<\/NextContinuationToken>/.exec(txt);
-              token = (truncated && tokenMatch) ? tokenMatch[1] : null;
+              token = truncated && tokenMatch ? tokenMatch[1] : null;
             } while (token);
           } catch (e) {
             if (!/404/.test(String(e))) throw e;
@@ -462,8 +464,9 @@ function makeCloudStorage() {
   };
 }
 
-
-function photoRef(part, id) { return syncStorage.ref('photos/' + part + '/' + id); }
+function photoRef(part, id) {
+  return syncStorage.ref('photos/' + part + '/' + id);
+}
 
 // Запуск сверки фото (debounce 1.2 с — было 2.5, снижено вместе с
 // оптимизацией самой сверки: listIds() больше не читает блобы, а probe не
@@ -473,7 +476,9 @@ function photoRef(part, id) { return syncStorage.ref('photos/' + part + '/' + id
 function schedulePhotoSync() {
   if (!syncStorage || !photoStore || !masterKey || photoSyncing) return;
   clearTimeout(photoSyncTimer);
-  photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 1200);
+  photoSyncTimer = setTimeout(() => {
+    syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
+  }, 1200);
 }
 
 // Что сейчас лежит в облаке: { id: { orig: true, full: true, thumb: true } }
@@ -482,8 +487,10 @@ async function listCloudPhotos() {
   for (const part of PHOTO_PARTS) {
     try {
       const res = await syncStorage.ref('photos/' + part).listAll();
-      for (const it of (res.items || [])) (out[it.name] = out[it.name] || {})[part] = true;
-    } catch (e) { console.warn('[sync] не удалось прочитать облако photos/' + part, e); }
+      for (const it of res.items || []) (out[it.name] = out[it.name] || {})[part] = true;
+    } catch (e) {
+      console.warn('[sync] не удалось прочитать облако photos/' + part, e);
+    }
   }
   return out;
 }
@@ -496,15 +503,17 @@ async function uploadCloudPhoto(id, cloud, local) {
     for (const part of PHOTO_PARTS) {
       const has = cloud[id] && cloud[id][part];
       if (has || !local['has' + part[0].toUpperCase() + part.slice(1)]) continue;
-      jobs.push((async () => {
-        const getter = part === 'orig' ? 'getEncryptedOrig' : (part === 'full' ? 'getEncryptedFull' : 'getEncryptedThumb');
-        const enc = await photoStore[getter](id);
-        if (!enc) return;
-        // Обёртка: сам шифртекст + несекретные MIME/размер (размер и так виден
-        // в метаданных Storage), чтобы на другом устройстве восстановить тип файла.
-        const payload = { e: enc, m: { t: meta.origType || meta.type || '', ft: meta.type || '', st: meta.thumbType || '', s: meta.size || 0 } };
-        await photoRef(part, id).put(new Blob([JSON.stringify(payload)], { type: 'application/json' }));
-      })());
+      jobs.push(
+        (async () => {
+          const getter = part === 'orig' ? 'getEncryptedOrig' : part === 'full' ? 'getEncryptedFull' : 'getEncryptedThumb';
+          const enc = await photoStore[getter](id);
+          if (!enc) return;
+          // Обёртка: сам шифртекст + несекретные MIME/размер (размер и так виден
+          // в метаданных Storage), чтобы на другом устройстве восстановить тип файла.
+          const payload = { e: enc, m: { t: meta.origType || meta.type || '', ft: meta.type || '', st: meta.thumbType || '', s: meta.size || 0 } };
+          await photoRef(part, id).put(new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+        })()
+      );
     }
     await Promise.all(jobs);
     return { ok: true };
@@ -513,7 +522,6 @@ async function uploadCloudPhoto(id, cloud, local) {
     return { ok: false, err: e };
   }
 }
-
 
 // Скачивание недостающих частей фото из облака (без повторного шифрования).
 // Части (orig/full/thumb) качаются параллельно, а не по очереди — раньше
@@ -526,15 +534,16 @@ async function downloadCloudPhoto(id, cloud, local) {
       const hasLocal = local && local['has' + part[0].toUpperCase() + part.slice(1)];
       return hasCloud && !hasLocal;
     });
-    const fetched = await Promise.all(need.map(async part => {
-      const data = await photoRef(part, id).getBlob();
-      const txt = (typeof data === 'string') ? data : await data.text();
-      const parsed = JSON.parse(txt);
-      // Новый формат { e: шифртекст, m: {t,ft,st,s} } и старый { i, d } — оба понимаем
-      const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
-                : (parsed && typeof parsed.d === 'string') ? parsed : null;
-      return { part, enc, m: parsed && parsed.m };
-    }));
+    const fetched = await Promise.all(
+      need.map(async part => {
+        const data = await photoRef(part, id).getBlob();
+        const txt = typeof data === 'string' ? data : await data.text();
+        const parsed = JSON.parse(txt);
+        // Новый формат { e: шифртекст, m: {t,ft,st,s} } и старый { i, d } — оба понимаем
+        const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
+        return { part, enc, m: parsed && parsed.m };
+      })
+    );
     const got = {};
     let gotMeta = null;
     for (const f of fetched) {
@@ -544,9 +553,9 @@ async function downloadCloudPhoto(id, cloud, local) {
     }
     if (!got.orig && !got.full && !got.thumb) return { ok: false, err: new Error('в облаке нет частей для скачивания') };
     // Сохраняем всё разом, чтобы не потерять уже имеющиеся локальные части
-    const exOrig = (local && local.hasOrig) ? await photoStore.getEncryptedOrig(id) : null;
-    const exFull = (local && local.hasFull) ? await photoStore.getEncryptedFull(id) : null;
-    const exThumb = (local && local.hasThumb) ? await photoStore.getEncryptedThumb(id) : null;
+    const exOrig = local && local.hasOrig ? await photoStore.getEncryptedOrig(id) : null;
+    const exFull = local && local.hasFull ? await photoStore.getEncryptedFull(id) : null;
+    const exThumb = local && local.hasThumb ? await photoStore.getEncryptedThumb(id) : null;
     const meta2 = { ...meta };
     if (gotMeta) {
       if (gotMeta.t) meta2.origType = gotMeta.t;
@@ -602,16 +611,15 @@ async function probeCloudKeys(cloud) {
     if (!part) continue;
     try {
       const data = await photoRef(part, id).getBlob();
-      const txt = (typeof data === 'string') ? data : await data.text();
+      const txt = typeof data === 'string' ? data : await data.text();
       const parsed = JSON.parse(txt);
-      const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
-                : (parsed && typeof parsed.d === 'string') ? parsed : null;
+      const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
       if (!enc) throw new Error('незнакомый формат облачного файла');
       await aesDec(masterKey, enc);
     } catch (e) {
       // Криптографический сбой (неверный ключ/IV/шифртекст) — фото «чужое».
       // Любая другая ошибка (сеть, JSON) — временная, помечаем unknown.
-      const emsg = String(e && e.message || e);
+      const emsg = String((e && e.message) || e);
       if (e && (e.name === 'OperationError' || /decrypt/i.test(emsg))) {
         console.warn('[sync] облачное фото не расшифровывается текущим ключом', id, part);
         foreign.set(id, part);
@@ -636,11 +644,11 @@ async function syncPhotos() {
     // засорять «Наши моменты» скриншотами подарков), но синхронизировать их
     // между устройствами всё равно нужно — иначе партнёр не увидит фото
     // хотелки на своём телефоне. Добавляем их id в want отдельно.
-    const want = new Set([
-      ...(db.photos || []).map(p => p && p.id).filter(Boolean),
-      ...(db.wishlist || []).map(w => w && w.photoId).filter(Boolean)
-    ]);
-    const hasPart = (id, part) => { const l = localMap.get(id); return !!(l && l['has' + part[0].toUpperCase() + part.slice(1)]); };
+    const want = new Set([...(db.photos || []).map(p => p && p.id).filter(Boolean), ...(db.wishlist || []).map(w => w && w.photoId).filter(Boolean)]);
+    const hasPart = (id, part) => {
+      const l = localMap.get(id);
+      return !!(l && l['has' + part[0].toUpperCase() + part.slice(1)]);
+    };
     // Проверяем расшифровку не для ВСЕХ облачных фото, а только для тех, что
     // ещё не доказаны своими: если id уже в db.photos (want) и все части,
     // которые есть в облаке, уже лежат у нас локально — мы их когда-то сами
@@ -666,7 +674,10 @@ async function syncPhotos() {
     // 1. Локальный мусор: блоб без фото в db (фото удалено) — чистим store
     for (const id of localMap.keys()) {
       if (want.has(id)) continue;
-      try { await photoStore.delete(id); thumbCache.delete(id); } catch (e) {}
+      try {
+        await photoStore.delete(id);
+        thumbCache.delete(id);
+      } catch (e) {}
     }
     // 2. Облачный мусор: удаляем ТОЛЬКО если облако целиком «наше». Если есть
     //    хоть одно чужое/непроверенное фото — удаление отменяется: «мусором»
@@ -675,7 +686,11 @@ async function syncPhotos() {
       for (const id of Object.keys(cloud)) {
         if (want.has(id)) continue;
         for (const part of PHOTO_PARTS) {
-          if (cloud[id][part]) { try { await photoRef(part, id).delete(); } catch (e) {} }
+          if (cloud[id][part]) {
+            try {
+              await photoRef(part, id).delete();
+            } catch (e) {}
+          }
         }
       }
     }
@@ -703,15 +718,24 @@ async function syncPhotos() {
     await mapLimit(toDownload, SYNC_CONCURRENCY, async id => {
       const res = await downloadCloudPhoto(id, cloud, localMap.get(id));
       if (res && res.ok) stats.downloaded++;
-      else { stats.failed++; stats.retry = true; }
+      else {
+        stats.failed++;
+        stats.retry = true;
+      }
     });
     // 4. Выгружаем недостающее в облако (новые фото + бэкфилл старых) —
     //    тоже параллельно.
-    const toUpload = [...want].filter(id => { const l = localMap.get(id); return l && l.hasFull; });
+    const toUpload = [...want].filter(id => {
+      const l = localMap.get(id);
+      return l && l.hasFull;
+    });
     await mapLimit(toUpload, SYNC_CONCURRENCY, async id => {
       const res = await uploadCloudPhoto(id, cloud, localMap.get(id));
       if (res && res.ok) stats.uploaded++;
-      else { stats.failed++; stats.retry = true; }
+      else {
+        stats.failed++;
+        stats.retry = true;
+      }
     });
     if (stats.failed) {
       notify('Часть фото не синхронизировалась — проверь интернет, повторю через минуту 💜', true);
@@ -727,24 +751,28 @@ async function syncPhotos() {
     // проверяем часто и недолго, а не 20 секунд, как при настоящих сбоях.
     if (stats.retrySoon) {
       clearTimeout(photoSyncTimer);
-      photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 3000);
+      photoSyncTimer = setTimeout(() => {
+        syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
+      }, 3000);
     } else if (stats.retry) {
       // Были временные сбои (сеть, чужой формат и т.п.) — попробуем ещё раз через 20 секунд.
       clearTimeout(photoSyncTimer);
-      photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 20000);
+      photoSyncTimer = setTimeout(() => {
+        syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
+      }, 20000);
     }
   }
 }
 
-
 /* ===== UI в настройках: статус + кнопка ===== */
 const SYNC_STATUS_TEXT = {
-  off:     'Синхронизация не настроена — данные живут только на этом устройстве. Чтобы открывать их с телефона, вставь Firebase config (README, фаза B1).',
-  idle:    'Облако подключено — ждём изменений…',
+  off: 'Синхронизация недоступна — нет связи с Google/Firebase. Проверь интернет.',
+  idle: 'Облако подключено — ждём изменений…',
   syncing: 'Синхронизируем…',
-  ok:      'Синхронизировано ✅',
-  conflict: '⚠️ В облаке сейф с другим паролем — он не затёрт. Если нужны облачные данные: нажми чип «Гоша/Даша» (замок) и введи пароль облачного сейфа — он усыновится, фото докачаются. «Синхронизировать сейчас» перезапишет облако этим устройством.',
-  error:   'Ошибка синхронизации — проверь интернет и попробуй ещё раз 💜'
+  ok: 'Синхронизировано ✅',
+  conflict:
+    '⚠️ В облаке сейф с другим паролем — он не затёрт. Если нужны облачные данные: нажми чип «Гоша/Даша» (замок) и введи пароль облачного сейфа — он усыновится, фото докачаются. «Синхронизировать сейчас» перезапишет облако этим устройством.',
+  error: 'Ошибка синхронизации — проверь интернет и попробуй ещё раз 💜'
 };
 let syncUiState = 'off';
 let syncUiTs = 0;
@@ -755,14 +783,19 @@ function renderSyncStatus(state, ts) {
   if (!el) return;
   const text = SYNC_STATUS_TEXT[state] || SYNC_STATUS_TEXT.off;
   el.textContent = text;
-  el.style.color = state === 'ok' ? '#059669' : (state === 'error' ? '#dc2626' : (state === 'conflict' ? '#b45309' : 'var(--muted)'));
+  el.style.color = state === 'ok' ? '#059669' : state === 'error' ? '#dc2626' : state === 'conflict' ? '#b45309' : 'var(--muted)';
   const btn = $('#syncNowBtn');
-  if (btn) btn.disabled = (state === 'syncing');
+  if (btn) btn.disabled = state === 'syncing';
 }
 async function syncNow() {
-  if (!FIREBASE_CONFIG) { renderSyncStatus('off'); return; }
-  if (!syncReady) { initSync(); return; }
-  if (syncPushBlocked) { await forcePushVault(); return; }
+  if (!syncReady) {
+    initSync();
+    return;
+  }
+  if (syncPushBlocked) {
+    await forcePushVault();
+    return;
+  }
   await pullVault();
   await pushVault();
   schedulePhotoSync(); // фото-сверка тоже по требованию
@@ -778,8 +811,10 @@ async function getCloudSyncTs() {
   try {
     const snap = await syncDb.ref(SYNC_PATH).once('value');
     const v = snap && snap.val ? snap.val() : null;
-    return v ? (v.syncTs || 0) : 0;
-  } catch (e) { return 'ошибка: ' + String(e && e.message || e); }
+    return v ? v.syncTs || 0 : 0;
+  } catch (e) {
+    return 'ошибка: ' + String((e && e.message) || e);
+  }
 }
 async function runCloudDiagnostics() {
   const out = $('#cloudDiagOut');
@@ -791,49 +826,62 @@ async function runCloudDiagnostics() {
     add('syncReady: ' + syncReady);
     add('syncStorage: ' + (syncStorage ? 'Yandex Object Storage' : 'нет'));
     add('masterKey: ' + (masterKey ? 'есть' : 'НЕТ'));
-    add('photos в db: ' + ((db.photos || []).length));
+    add('photos в db: ' + (db.photos || []).length);
     add('syncTs: локально=' + syncTs + ', в облаке=' + (await getCloudSyncTs()));
     try {
       const localList = await photoStore.listIds();
       add('локальный store: ' + localList.length + ' фото');
       for (const l of localList) add('  ' + l.id + ' full=' + l.hasFull + ' thumb=' + l.hasThumb + ' orig=' + l.hasOrig);
-    } catch (e) { add('ошибка listIds: ' + String(e && e.message || e)); }
+    } catch (e) {
+      add('ошибка listIds: ' + String((e && e.message) || e));
+    }
     let cloud = {};
-    try { cloud = await listCloudPhotos(); } catch (e) { add('ошибка listCloudPhotos: ' + String(e && e.message || e)); }
+    try {
+      cloud = await listCloudPhotos();
+    } catch (e) {
+      add('ошибка listCloudPhotos: ' + String((e && e.message) || e));
+    }
     add('облако: ' + Object.keys(cloud).length + ' фото');
     for (const id of Object.keys(cloud)) add('  ' + id + ': ' + (PHOTO_PARTS.filter(p => cloud[id][p]).join(',') || '?'));
     if (Object.keys(cloud).length) {
       add('— расшифровка облачных фото текущим ключом —');
       for (const id of Object.keys(cloud)) {
         const part = ['thumb', 'full', 'orig'].find(p => cloud[id] && cloud[id][p]);
-        if (!part) { add('  ' + id + ': нет частей'); continue; }
+        if (!part) {
+          add('  ' + id + ': нет частей');
+          continue;
+        }
         try {
           const data = await photoRef(part, id).getBlob();
-          const txt = (typeof data === 'string') ? data : await data.text();
+          const txt = typeof data === 'string' ? data : await data.text();
           const parsed = JSON.parse(txt);
-          const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
-                    : (parsed && typeof parsed.d === 'string') ? parsed : null;
-          if (!enc) { add('  ' + id + ' (' + part + '): НЕЗНАКОМЫЙ ФОРМАТ'); continue; }
+          const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
+          if (!enc) {
+            add('  ' + id + ' (' + part + '): НЕЗНАКОМЫЙ ФОРМАТ');
+            continue;
+          }
           const u8 = await aesDec(masterKey, enc);
-          const head = Array.from(u8.subarray(0, 4)).map(b => String.fromCharCode(b)).join('');
+          const head = Array.from(u8.subarray(0, 4))
+            .map(b => String.fromCharCode(b))
+            .join('');
           add('  ' + id + ' (' + part + '): расшифровано ✅ ' + u8.length + ' б «' + head.replace(/[^ -~]/g, '?') + '»');
         } catch (e) {
-          const msg = String(e && e.name || '') + ': ' + String(e && e.message || e);
+          const msg = String((e && e.name) || '') + ': ' + String((e && e.message) || e);
           const isKey = /OperationError|decrypt/i.test(msg);
           add('  ' + id + ' (' + part + '): ' + (isKey ? 'ДРУГОЙ КЛЮЧ ❌' : 'ОШИБКА ⚠') + ' — ' + msg.slice(0, 140));
         }
       }
     }
   } catch (e) {
-    add('неожиданная ошибка: ' + String(e && e.message || e));
+    add('неожиданная ошибка: ' + String((e && e.message) || e));
   }
   out.textContent = lines.join(String.fromCharCode(10));
 }
 const cloudDiagBtnEl = $('#cloudDiagBtn');
 if (cloudDiagBtnEl) cloudDiagBtnEl.addEventListener('click', runCloudDiagnostics);
 /* ===== Старт приложения =====
-   initAuth() из 90-effects-init.js вызывается здесь — последним в сборке:
-   он читает FIREBASE_CONFIG (let из этого модуля), который ещё в «мёртвой зоне»
-   во время выполнения 90-effects-init.js. Так же инициализируются экраны входа. */
-initAuth();
-
+   boot() из src/01-gate.js вызывается здесь — последним в сборке: он (через
+   ensureFbApp) читает FIREBASE_CONFIG (let из этого модуля), который ещё в
+   «мёртвой зоне» во время выполнения 01-gate.js. Boot запускает Google-гейт,
+   а он уже сам ведёт к unlockApp(). */
+boot();

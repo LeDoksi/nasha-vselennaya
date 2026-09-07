@@ -62,7 +62,15 @@ const firebase = {
     return { name: name || 'default', config };
   },
   auth() {
-    return { signInAnonymously: async () => ({ user: { uid: 'mock-uid' } }), signOut: async () => {} };
+    return {
+      signInAnonymously: async () => ({ user: { uid: 'mock-uid' } }),
+      signOut: async () => {},
+      getRedirectResult: async () => null,
+      onAuthStateChanged: cb => {
+        cb(null);
+        return () => {};
+      }
+    };
   },
   database() {
     return {
@@ -266,7 +274,9 @@ function __TEST__(s){
   Object.defineProperty(s, 'photoSyncing', { get: () => photoSyncing, set: v => { photoSyncing = v; }, configurable: true });
   Object.defineProperty(s, 'FIREBASE_CONFIG', { get: () => FIREBASE_CONFIG, set: v => { FIREBASE_CONFIG = v; }, configurable: true });
   Object.defineProperty(s, 'YANDEX_CLOUD_CONFIG', { get: () => YANDEX_CLOUD_CONFIG, set: v => { YANDEX_CLOUD_CONFIG = v; }, configurable: true });
-  s.createVault = createVault; s.lock = lock; s.save = save; s.loadVault = loadVault;
+  s.ensureMasterKey = ensureMasterKey; s.unlockWithKey = unlockWithKey; s.setUser = setUser;
+  s.lock = lock; s.save = save; s.loadVault = loadVault;
+  Object.defineProperty(s, 'gateUser', { get: () => gateUser, set: v => { gateUser = v; }, configurable: true });
   s.initSync = initSync; s.stopSync = stopSync;
   s.syncPhotos = syncPhotos; s.schedulePhotoSync = schedulePhotoSync; s.listCloudPhotos = listCloudPhotos;
   s.probeCloudKeys = probeCloudKeys;
@@ -319,7 +329,8 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // 1. config + сейф + инициализация (Yandex Object Storage подключился)
   w('(s)=>{s.FIREBASE_CONFIG = { projectId: "mock" }; return 1;}');
   w(`(s)=>{s.YANDEX_CLOUD_CONFIG = { bucket: "nasha-vselennaya", region: "ru-central1", signFnUrl: "${SIGN_FN_URL}" }; return 1;}`);
-  await w('(s)=>s.createVault("gosha","123456")');
+  w('(s)=>{s.setUser("gosha"); s.gateUser = {email:"shakov.georgy@gmail.com"}; return 1;}');
+  await w('(s)=>s.ensureMasterKey("gosha").then(k=>s.unlockWithKey(k))');
   await w('(s)=>s.initSync()');
   assert(w('(s)=>s.syncReady') === true, 'syncReady=true с mock-firebase');
   assert(w('(s)=>s.syncStorage') !== null, 'syncStorage инициализирован (Yandex Object Storage)');

@@ -51,6 +51,7 @@ function makeToken(payloadOverrides, headerOverrides) {
     iss: 'https://securetoken.google.com/test-project',
     aud: 'test-project',
     sub: 'anon-uid-123',
+    email: 'shakov.georgy@gmail.com',
     iat: now,
     exp: now + 3600,
     ...payloadOverrides
@@ -81,6 +82,11 @@ const validSub = { endpoint: 'https://push.example.com/abc', keys: { p256dh: 'p2
   const wrongAud = makeToken({ aud: 'someone-elses-project' });
   await fn._testing.verifyFirebaseIdToken(wrongAud).then(
     () => assert(false, 'токен для другого проекта должен быть отклонён'),
+    () => {}
+  );
+  const strangerEmail = makeToken({ email: 'stranger@gmail.com' });
+  await fn._testing.verifyFirebaseIdToken(strangerEmail).then(
+    () => assert(false, 'токен постороннего email должен быть отклонён'),
     () => {}
   );
 

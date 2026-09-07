@@ -17,7 +17,10 @@ const fn = require(path.join(__dirname, '..', 'functions', 'photo-sign', 'index.
 
 let failed = false;
 function assert(cond, msg) {
-  if (!cond) { console.log('FAIL: ' + msg); failed = true; }
+  if (!cond) {
+    console.log('FAIL: ' + msg);
+    failed = true;
+  }
 }
 
 const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -34,6 +37,7 @@ function makeToken(payloadOverrides, headerOverrides) {
     iss: 'https://securetoken.google.com/test-project',
     aud: 'test-project',
     sub: 'anon-uid-123',
+    email: 'shakov.georgy@gmail.com',
     iat: now,
     exp: now + 3600,
     ...payloadOverrides
@@ -94,6 +98,18 @@ function makeToken(payloadOverrides, headerOverrides) {
     () => {}
   );
 
+  // --- Валидный токен, но email не в ALLOWED_EMAILS — отклоняется (гейт) ---
+  const strangerEmail = makeToken({ email: 'stranger@gmail.com' });
+  await fn._testing.verifyFirebaseIdToken(strangerEmail).then(
+    () => assert(false, 'токен постороннего email должен быть отклонён'),
+    () => {}
+  );
+  const noEmail = makeToken({ email: undefined });
+  await fn._testing.verifyFirebaseIdToken(noEmail).then(
+    () => assert(false, 'токен без email должен быть отклонён'),
+    () => {}
+  );
+
   // --- handler(): без X-Firebase-Token — 401, запрос до подписи не доходит ---
   const evNoAuth = { httpMethod: 'GET', headers: {}, queryStringParameters: { method: 'PUT', part: 'orig', id: 'photo1' } };
   const resNoAuth = await fn.handler(evNoAuth);
@@ -120,4 +136,7 @@ function makeToken(payloadOverrides, headerOverrides) {
 
   if (failed) process.exit(1);
   console.log('OK: photo-sign auth — валидный/просроченный/чужой/поддельный/неавторизованный токены обработаны верно');
-})().catch(e => { console.log('FAIL: ' + (e && e.stack || e)); process.exit(1); });
+})().catch(e => {
+  console.log('FAIL: ' + ((e && e.stack) || e));
+  process.exit(1);
+});

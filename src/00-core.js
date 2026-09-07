@@ -89,7 +89,6 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 const VAULT_KEY = 'universe_vault'; // зашифрованный сейф
-const VAULT_KEY_PREV = 'universe_vault_prev'; // резервная копия старого сейфа при усыновлении облачного
 const PBKDF2_ITERS = 600000; // стойкость обёртки паролем
 const AUTO_LOCK_MS = 30 * 60 * 1000; // автозамок после 30 минут без действий
 

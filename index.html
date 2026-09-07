@@ -195,15 +195,13 @@
         </div>
       </div>
       <div class="settings-card">
-        <h3>🔐 Личный кабинет</h3>
-        <p>Сейчас в системе: <b id="lkUser"></b>. Пароль открывает наши данные только тому, кто его знает.</p>
-        <div id="lkPassInfo" style="margin-bottom:14px;font-size:14px;display:flex;gap:18px;flex-wrap:wrap"></div>
+        <h3>🔐 Доступ</h3>
+        <p>Вход в сайт: <b id="gateAccountInfo"></b></p>
         <div class="settings-btns">
-          <button class="btn" id="changePassBtn">🔑 Сменить свой пароль</button>
-          <button class="btn" id="addPassBtn">🔑 Добавить пароль для партнёра</button>
-          <button class="btn" id="lockNowBtn">🔒 Выйти</button>
+          <button class="btn" id="lockNowBtn">🔒 Скрыть (приватность на этом устройстве)</button>
+          <button class="btn btn-danger" id="gateSignOutBtn">🚪 Выйти из Google-аккаунта</button>
         </div>
-        <p class="cal-tip" style="margin-top:12px">Забыл свой пароль? Второй человек может пересоздать его здесь — иначе восстановить пароль невозможно. Запишите их в надёжном месте.</p>
+        <p class="cal-tip" style="margin-top:12px">Доступ на сайт есть только у двух аккаунтов Google — Гоши и Даши.</p>
       </div>
       <div class="settings-card">
         <h3>🌙 Оформление</h3>
@@ -355,28 +353,6 @@
     </div>
   </div>
 
-  <!-- ===== Личный кабинет: пароли ===== -->
-  <div class="overlay" id="passOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="passTitle">
-    <div class="modal">
-      <button class="modal-x" data-close="passOverlay">✕</button>
-      <h3 id="passTitle">🔑 Пароль</h3>
-      <div id="passWhoWrap" hidden>
-        <label for="passWho">Для кого пароль?</label>
-        <select id="passWho"></select>
-      </div>
-      <div id="passCurWrap" hidden>
-        <label for="passCur">Текущий пароль</label>
-        <input type="password" id="passCur" autocomplete="current-password">
-      </div>
-      <label for="passNew">Новый пароль (не короче 6 символов)</label>
-      <input type="password" id="passNew" autocomplete="new-password">
-      <label for="passNew2">Повтори пароль</label>
-      <input type="password" id="passNew2" autocomplete="new-password">
-      <p class="auth-err" id="passErr" role="alert"></p>
-      <button class="btn" id="passSave">Сохранить 💜</button>
-    </div>
-  </div>
-
   <!-- ===== Просмотр фото (светбокс 2.0: стрелки, свайп, зум, счётчик, скачивание) ===== -->
   <div class="overlay lightbox" id="lightbox" hidden role="dialog" aria-modal="true" aria-label="Просмотр фото">
     <button type="button" class="modal-x lb-close" data-close="lightbox" aria-label="Закрыть" title="Закрыть (Esc)">✕</button>
@@ -395,48 +371,21 @@
     </div>
   </div>
 
-  <!-- ===== Замок: экран входа ===== -->
-  <section class="auth-screen" id="lockScreen" aria-label="Вход">
+  <!-- ===== Гейт: вход только для двух Google-аккаунтов (src/01-gate.js) ===== -->
+  <section class="auth-screen" id="gateScreen" aria-label="Вход">
     <div class="auth-card">
       <div class="auth-logo">💜</div>
       <h1>Наша вселенная</h1>
-      <p class="auth-sub">Всё хранится в зашифрованном виде.<br>Войди, чтобы открыть наши секреты.</p>
-      <div class="auth-who" role="group" aria-label="Кто входит?">
-        <button class="user-btn auth-user" data-auth-who="gosha">👦<br>Гоша</button>
-        <button class="user-btn auth-user" data-auth-who="dasha">👧<br>Даша</button>
-      </div>
-      <label for="authPass" class="auth-label">Пароль для <span id="authWhoLabel">Гоши</span></label>
-      <input type="password" id="authPass" autocomplete="current-password" placeholder="••••••">
-      <button class="btn" id="authGo" style="width:100%">Войти 💜</button>
-      <p class="auth-err" id="authErr" role="alert" aria-live="polite"></p>
-      <p class="auth-hint" id="cloudHint" hidden>💜 В облаке найден ваш сейф — войди с паролем, и данные восстановятся на этом устройстве.</p>
-      <p class="auth-hint" id="cloudHint2" hidden>💜 На этом устройстве лежит сейф с другим паролем, а в облаке — общий сейф пары. Введи пароль облачного сейфа — облачные данные заберутся на это устройство.</p>
-      <button type="button" class="btn-plain" id="cloudRetryBtn" hidden>🔄 Повторить проверку облака</button>
-      <button type="button" class="btn-plain" id="toSetupBtn" hidden>Создать новый сейф на этом устройстве</button>
-      <button type="button" class="btn-plain" id="forgetVaultBtn">Забыть сейф на этом устройстве</button>
-      <p class="auth-hint">Забыл пароль? Второй человек может пересоздать его в настройках — только он.</p>
-    </div>
-  </section>
+      <p class="auth-sub" id="gateSub">Заходи через Google — доступ есть только у нас двоих.</p>
+      <button type="button" class="btn" id="gateSignInBtn" style="width:100%">Войти через Google 💜</button>
+      <button type="button" class="btn" id="gateResumeBtn" style="width:100%" hidden>Продолжить 💜</button>
+      <p class="auth-err" id="gateErr" role="alert" aria-live="polite"></p>
 
-  <!-- ===== Первый запуск: создание пароля ===== -->
-  <section class="auth-screen" id="setupScreen" hidden aria-label="Создание пароля">
-    <div class="auth-card">
-      <div class="auth-logo">💜</div>
-      <h1>Добро пожаловать!</h1>
-      <p class="auth-sub">Наши заметки, списки и фото будут храниться только здесь — в зашифрованном виде.</p>
-      <label for="setupWho" class="auth-label">Кто создаёт пароль первым?</label>
-      <select id="setupWho">
-        <option value="gosha">👦 Гоша</option>
-        <option value="dasha">👧 Даша</option>
-      </select>
-      <label for="setupPass" class="auth-label">Придумай пароль (не короче 6 символов)</label>
-      <input type="password" id="setupPass" autocomplete="new-password" placeholder="••••••">
-      <label for="setupPass2" class="auth-label">Повтори пароль</label>
-      <input type="password" id="setupPass2" autocomplete="new-password" placeholder="••••••">
-      <button class="btn" id="setupGo" style="width:100%">Создать и войти 💜</button>
-      <p class="auth-err" id="setupErr" role="alert" aria-live="polite"></p>
-      <p class="auth-hint">⚠️ Пароль не хранится нигде. Если вы оба забудете пароли — данные не восстановить. Запишите их в надёжном месте.</p>
-      <button type="button" class="btn-plain" id="setupToLock">У меня уже есть сейф — войти с паролем</button>
+      <div id="gateMigrateWrap" hidden>
+        <label for="gateMigratePass" class="auth-label">Пароль от старого сейфа (нужен последний раз)</label>
+        <input type="password" id="gateMigratePass" autocomplete="current-password" placeholder="••••••">
+        <button type="button" class="btn" id="gateMigrateGo" style="width:100%">Подтвердить — и больше не спросим 💜</button>
+      </div>
     </div>
   </section>
 

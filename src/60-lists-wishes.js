@@ -501,12 +501,6 @@ function closeOverlay(id) {
   if (id === 'dateInviteOverlay') markInvitesDismissed(pendingDateInvites().map(d => d.id));
 }
 document.addEventListener('click', e => {
-  const userBtn = e.target.closest('[data-user]');
-  if (userBtn) {
-    setUser(userBtn.dataset.user);
-    return;
-  }
-
   const day = e.target.closest('[data-day]');
   if (day) {
     selectedDate = day.dataset.day;

@@ -214,9 +214,11 @@ function __TEST__(s){
   s.filteredPhotos = filteredPhotos; s.renderEventBar = renderEventBar; s.eventsForPhoto = eventsForPhoto; s.photoByRef = photoByRef; s.addEventPhotosToGallery = addEventPhotosToGallery; s.evThumbs = evThumbs; s.dtThumbs = dtThumbs;
   s.wishCard = wishCard; s.fmtWishDate = fmtWishDate;
   s.relabelEventPhotos = relabelEventPhotos;
-  s.createVault = createVault; s.unlockWith = unlockWith; s.savePassFor = savePassFor; s.changePass = changePass;
+  s.unlockWithKey = unlockWithKey; s.ensureMasterKey = ensureMasterKey; s.tryUnwrapKey = tryUnwrapKey;
+  s.publishMigratedKey = publishMigratedKey; s.migrateLegacyVault = migrateLegacyVault;
+  s.pbkdf2Key = pbkdf2Key; s.aesEnc = aesEnc; s.randBytes = randBytes; s.b64 = b64;
   s.lock = lock; s.isLocked = isLocked; s.loadVault = loadVault; s.legacyDB = legacyDB; s.save = save;
-  s.resumeSession = resumeSession; s.saveSessionKey = saveSessionKey; s.clearSessionKey = clearSessionKey;
+  Object.defineProperty(s, 'gateUser', { get: () => gateUser, set: v => { gateUser = v; }, configurable: true });
   s.exportData = exportData; s.importData = importData; s.showAuth = showAuth; s.unlockApp = unlockApp;
   s.initSync = initSync; s.scheduleSyncPush = scheduleSyncPush; s.stopSync = stopSync; s.syncNow = syncNow;
   Object.defineProperty(s, 'syncReady', { get: () => syncReady, set: v => { syncReady = v; }, configurable: true });
@@ -288,16 +290,16 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(w('(s)=>s.isLocked()') === true, 'приложение закрыто до входа');
   assert(w('(s)=>s.loadVault()') === null, 'сейфа ещё нет');
 
-  // --- Первый запуск: старые открытые данные мигрируют и шифруются ---
-  await w('(s)=>s.createVault("gosha","123456")');
-  assert(w('(s)=>s.isLocked()') === true, 'создание сейфа само по себе не открывает приложение');
-  assert(w('(s)=>s.currentUser') === 'gosha', 'создавший сейф — Гоша');
+  // --- Первый вход (гейт Google уже прошёл — тестируем то, что после него):
+  // старые открытые данные мигрируют и шифруются единым ключом пары ---
+  w('(s)=>{s.setUser("gosha"); return 1;}');
+  await w('(s)=>s.ensureMasterKey("gosha").then(k=>s.unlockWithKey(k))');
+  assert(w('(s)=>s.isLocked()') === false, 'после unlockWithKey приложение открыто');
+  assert(w('(s)=>s.currentUser') === 'gosha', 'вошёл Гоша');
   const vault1 = w('(s)=>s.loadVault()');
-  assert(vault1 && vault1.ver === 1 && vault1.db && Array.isArray(vault1.keys), 'сейф имеет структуру: db + keys');
-  assert(vault1.keys.length === 1 && vault1.keys[0].who === 'gosha', 'ключ обёрнут только для Гоши');
+  assert(vault1 && vault1.db, 'сейф имеет структуру { db }');
   const vaultRaw = w('(s)=>JSON.stringify(s.loadVault())');
   assert(!vaultRaw.includes('Поездка') && !vaultRaw.includes('pOld'), 'в localStorage нет открытого текста');
-  assert(!vaultRaw.includes('"123456"'), 'пароль не хранится в сейфе');
   assert(w('(s)=>s.localStorage.getItem("universe")') === null, 'старый открытый файл удалён после миграции');
 
   // --- Миграция: старые данные получили version и новые поля ---
@@ -310,18 +312,13 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(!!w('(s)=>s.db.labels[0].id'), 'у мигрированного лейбла есть стабильный id');
   assert(w('(s)=>s.db.photos[0].labels[0] === s.db.labels[0].id'), 'фото ссылается на лейбл по id, а не по имени');
 
-  // --- Закрываем сессию, чтобы проверить вход с чистого листа ---
+  // --- Приватный «замок» (по бездействию) — прячет данные, но не требует
+  // Google-логина заново: ensureMasterKey достаёт ключ из локального кэша ---
   w('(s)=>s.lock()');
-  assert(w('(s)=>s.masterKey') === null, 'после создания и блокировки ключ очищен из памяти');
+  assert(w('(s)=>s.masterKey') === null, 'после lock() ключ очищен из памяти');
   assert(w('(s)=>s.db.photos.length') === 0, 'данные очищены из памяти');
-
-  // --- Неверный пароль не открывает сейф ---
-  assert((await w('(s)=>s.unlockWith("gosha","wrong-pass")')) === false, 'неверный пароль отклонён');
-  assert(w('(s)=>s.masterKey') === null, 'ключ закрыт при неверном пароле');
-
-  // --- Вход Гоши ---
-  assert((await w('(s)=>s.unlockWith("gosha","123456")')) === true, 'правильный пароль открывает сейф');
-  assert(w('(s)=>s.isLocked()') === false, 'после входа приложение открыто');
+  await w('(s)=>s.ensureMasterKey("gosha").then(k=>s.unlockWithKey(k))');
+  assert(w('(s)=>s.isLocked()') === false, 'локальный кэш ключа снова открывает приложение без пароля');
   assert(w('(s)=>s.currentUser') === 'gosha', 'система знает: вошёл Гоша');
   assert(w('(s)=>s.db.labels.some(l=>l.name==="Поездка")'), 'данные расшифрованы и на месте');
 
@@ -568,11 +565,15 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>s.pickDpDate("2026-08-09")');
   assert(fakeDp.value === '2026-08-09', 'выбор даты пишет ISO в поле');
   assert(registry['#datePop'].hidden === true, 'после выбора попап закрывается');
+  // aria-current зависит от реального «сегодня» — проверяем на текущем
+  // месяце отдельно, чтобы не переписывать всю августовскую арифметику ниже.
+  const realNow = new Date();
+  w(`(s)=>{s.dpM=${realNow.getMonth()};s.dpY=${realNow.getFullYear()};s.renderDatePop();}`);
+  assert(registry['#dpDays'].innerHTML.includes('aria-current="date"'), 'сегодня помечено aria-current');
   // --- date-picker: aria-паттерн «dialog + grid» и клавиатура ---
   w('(s)=>{s.dpM=7;s.dpY=2026;s.dpFocus="2026-08-09";s.renderDatePop();}');
   assert(registry['#dpDays'].innerHTML.includes('role="columnheader"'), 'шапка дней — columnheader');
   assert(registry['#dpDays'].innerHTML.includes('aria-label="9 августа 2026 года"'), 'кнопка дня несёт полное aria-label');
-  assert(registry['#dpDays'].innerHTML.includes('aria-current="date"'), 'сегодня помечено aria-current');
   const dpTab0 = (registry['#dpDays'].innerHTML.match(/tabindex="0"/g) || []).length;
   assert(dpTab0 === 1, 'ровно одна ячейка с tabindex=0 (roving tabindex)');
   assert(registry['#dpDays'].innerHTML.includes('aria-hidden="true"'), 'пустые ячейки скрыты от скринридера');
@@ -991,9 +992,8 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>s.renderSettings()');
   assert(registry['#backupHint'].innerHTML.includes('копия ещё не делалась'), 'напоминание о бэкапе');
   assert(/КБ|МБ/.test(registry['#storageInfo'].textContent), 'место в браузере показано');
-  assert(registry['#lkUser'].textContent === '👦 Гоша', 'в ЛК видно текущего пользователя');
-  assert(registry['#lkPassInfo'].innerHTML.includes('пароль есть') && registry['#lkPassInfo'].innerHTML.includes('пароля нет'), 'ЛК показывает статус паролей');
-  assert(registry['#addPassBtn'].style.display === '', 'кнопка «пароль для партнёра» видна');
+  w('(s)=>{s.gateUser = {email:"shakov.georgy@gmail.com"}; s.renderSettings(); return 1;}');
+  assert(registry['#gateAccountInfo'].textContent === 'shakov.georgy@gmail.com (Гоша)', 'в разделе «Доступ» видно вошедший Google-аккаунт');
 
   // --- Настройки: переключатель «Отключить анимации» ---
   w('(s)=>{s.localStorage.removeItem("universe_motion");s.applyMotion(null);}');
@@ -1009,52 +1009,44 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(w('(s)=>s.motionReduced()') === false, 'явное «full» перекрывает системную настройку');
   assert(registry['#motionToggle'].checked === false, 'чекбокс снят при включённых анимациях');
 
-  // --- Пароль для Даши ---
-  assert((await w('(s)=>s.savePassFor("dasha","654321")')) === true, 'пароль Даши добавлен');
-  assert(w('(s)=>s.loadVault().keys.length') === 2, 'в сейфе теперь два ключа');
-
-  // --- Смена пароля Гоши ---
-  assert((await w('(s)=>s.changePass("wrong","x")')) === false, 'смена с неверным текущим паролем отклонена');
-  assert((await w('(s)=>s.changePass("123456","gosha-new")')) === true, 'свой пароль сменён');
-  assert((await w('(s)=>s.unlockWith("gosha","123456")')) === false, 'старый пароль больше не работает');
-  assert((await w('(s)=>s.unlockWith("gosha","gosha-new")')) === true, 'новый пароль работает');
-
-  // --- «Запомнить меня»: ключ в sessionStorage переживает reload, не lock() ---
-  const sessKeyBefore = w('(s)=>s.sessionStorage.getItem("universe_session")');
-  assert(sessKeyBefore !== null, 'после входа сессия сама сохранилась в sessionStorage (unlockApp→saveSessionKey)');
+  // --- Второй Google-аккаунт (Даша) на этом же «устройстве» — тот же общий
+  // ключ, та же расшифровка, никакого отдельного пароля не нужно ---
   w('(s)=>s.lock()');
-  assert(w('(s)=>s.sessionStorage.getItem("universe_session")') === null, 'lock() чистит сохранённую сессию (clearSessionKey)');
-  // имитируем reload БЕЗ lock(): память чиста (как после настоящего lock() выше),
-  // но в sessionStorage — «пережившая» запись (при реальном reload lock() не вызывается)
-  w(`(s)=>{s.sessionStorage.setItem("universe_session", ${JSON.stringify(sessKeyBefore)}); return 1;}`);
-  assert((await w('(s)=>s.resumeSession()')) === true, 'resumeSession восстанавливает сессию без пароля');
-  assert(w('(s)=>s.currentUser') === 'gosha', 'после resumeSession известен вошедший');
-  assert(w('(s)=>s.isLocked()') === false, 'после resumeSession приложение разблокировано');
-  assert(w('(s)=>s.masterKey') !== null, 'после resumeSession ключ снова в памяти');
-  assert(w('(s)=>Array.isArray(s.db.photos)') === true, 'после resumeSession данные расшифрованы');
-  w('(s)=>s.lock()');
-  assert((await w('(s)=>s.resumeSession()')) === false, 'после lock() resumeSession больше не проходит — сессии нет');
-  assert(w('(s)=>s.isLocked()') === true, 'без сохранённой сессии остаёмся на экране входа');
-  // битая запись в sessionStorage не должна ронять resumeSession — тихо чистится
-  w('(s)=>{s.sessionStorage.setItem("universe_session", "not-json"); return 1;}');
-  assert((await w('(s)=>s.resumeSession()')) === false, 'битая запись в sessionStorage не роняет resumeSession');
-  assert(w('(s)=>s.sessionStorage.getItem("universe_session")') === null, 'битая запись вычищается');
+  w('(s)=>{s.setUser("dasha"); return 1;}');
+  await w('(s)=>s.ensureMasterKey("dasha").then(k=>s.unlockWithKey(k))');
+  assert(w('(s)=>s.isLocked()') === false, 'Даша заходит тем же кэшированным ключом без пароля');
+  assert(w('(s)=>s.currentUser') === 'dasha', 'система знает: вошла Даша');
+  assert(w('(s)=>s.db.labels.some(l=>l.name==="Поездка")'), 'Даша видит те же данные, что и Гоша');
 
-  // --- Замок вычищает память ---
+  // --- Замок вычищает память, но не требует нового Google-входа ---
   w('(s)=>s.lock()');
   assert(w('(s)=>s.isLocked()') === true, 'замок активирован');
   assert(w('(s)=>s.masterKey') === null, 'ключ выброшен из памяти при блокировке');
   assert(w('(s)=>s.db.photos.length') === 0, 'данные очищены из памяти при блокировке');
+  await w('(s)=>s.ensureMasterKey("dasha").then(k=>s.unlockWithKey(k))'); // возврат в «разблокированное» состояние для следующих тестов
 
-  // --- Вход Даши своим паролем ---
-  assert((await w('(s)=>s.unlockWith("dasha","654321")')) === true, 'Даша входит своим паролем');
-  assert(w('(s)=>s.currentUser') === 'dasha', 'система знает: вошла Даша');
-  assert(w('(s)=>s.db.labels.some(l=>l.name==="Поездка")'), 'Даша видит те же данные');
+  // --- Миграция со старого (парольного) сейфа: tryUnwrapKey всё ещё умеет
+  // открыть ДРЕВНИЙ формат {ver,a,db,keys:[{who,s,i,d}]} — см.
+  // migrateLegacyVault в src/01-gate.js. Ключ такого сейфа независим от
+  // текущего (общего) — проверяем на отдельном самодельном сейфе. ---
+  await w(`(s)=>(async()=>{
+    const legacyKey = await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);
+    const kraw = new Uint8Array(await crypto.subtle.exportKey('raw', legacyKey));
+    const salt = s.randBytes(16);
+    const pwdKey = await s.pbkdf2Key('starPass1', salt, 600000);
+    const wrap = { who:'gosha', s: s.b64(salt), ...(await s.aesEnc(pwdKey, kraw)) };
+    s.localStorage.setItem('legacyVaultTest', JSON.stringify({ver:1,a:600000,db:{i:'x',d:'x'},keys:[wrap]}));
+    return 1;
+  })()`);
+  const legacyVaultTest = JSON.parse(w('(s)=>s.localStorage.getItem("legacyVaultTest")'));
+  assert((await w('(s)=>s.tryUnwrapKey("gosha","starPass1",' + JSON.stringify(legacyVaultTest) + ')')) !== null, 'tryUnwrapKey всё ещё открывает старый (парольный) сейф верным паролем');
+  assert((await w('(s)=>s.tryUnwrapKey("gosha","wrong-pass",' + JSON.stringify(legacyVaultTest) + ')')) === null, 'tryUnwrapKey отклоняет неверный пароль на старом сейфе');
+  assert((await w('(s)=>s.tryUnwrapKey("dasha","starPass1",' + JSON.stringify(legacyVaultTest) + ')')) === null, 'tryUnwrapKey: у Даши в этом старом сейфе обёртки нет');
 
   // --- Экспорт — зашифрованный сейф без открытого текста ---
   const exp = await w('(s)=>s.exportData()');
   const expJson = JSON.stringify(exp);
-  assert(expJson.includes('"keys"') && expJson.includes('"ver"'), 'экспорт — это сейф');
+  assert(expJson.includes('"db"') && expJson.includes('"i"') && expJson.includes('"d"'), 'экспорт — это сейф (шифртекст)');
   assert(!expJson.includes('Поездка') && !expJson.includes('кафе'), 'в экспорте нет открытого текста');
   assert((await w('(s)=>s.importData(' + JSON.stringify(expJson) + ')')) === true, 'импорт распознаёт сейф');
 
@@ -1183,7 +1175,8 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   await w('(s)=>s.save()'); // фиксируем фото в сейфе
   w('(s)=>s.lock()');
   assert(w('(s)=>s.getThumbUrl("psOld")') === null, 'lock очищает кэш миниатюр');
-  assert((await w('(s)=>s.unlockWith("dasha","654321")')) === true, 'повторный вход Даши работает');
+  await w('(s)=>s.ensureMasterKey("dasha").then(k=>s.unlockWithKey(k))');
+  assert(w('(s)=>s.isLocked()') === false, 'повторный вход после lock() работает');
   assert(w('(s)=>s.db.photos.some(p=>p.id==="psOld")'), 'после входа фото на месте');
 
   // --- Сброс очищает сейф ---

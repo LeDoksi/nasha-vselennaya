@@ -89,7 +89,6 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 const VAULT_KEY = 'universe_vault'; // зашифрованный сейф
-const VAULT_KEY_PREV = 'universe_vault_prev'; // резервная копия старого сейфа при усыновлении облачного
 const PBKDF2_ITERS = 600000; // стойкость обёртки паролем
 const AUTO_LOCK_MS = 30 * 60 * 1000; // автозамок после 30 минут без действий
 
@@ -257,6 +256,295 @@ function setUser(u) {
   currentUser = u;
   renderHome();
   renderCalendar();
+}
+/* ===== Гейт: вход только для двух Google-аккаунтов =====
+   Раньше сайт был закрыт паролем (PBKDF2 + AES, свой пароль у каждого).
+   Теперь первый (и единственный) барьер — Google-вход, ограниченный
+   ALLOWED_EMAILS: без него никто не видит даже экран приложения, а Firebase
+   RTDB и обе Cloud Function (photo-sign, send-push) точно так же проверяют
+   auth.token.email — так что дыра «кто угодно анонимно» (см. PROJECT-MEMORY)
+   закрыта не только на клиенте.
+
+   Каждый — на своём устройстве под своим Google-аккаунтом, поэтому кто есть
+   кто определяется ТОЛЬКО email из GATE_WHO_BY_EMAIL — без ручного выбора
+   «Гоша/Даша», как было раньше на экране входа.
+
+   Шифрование данных осталось (AES-GCM), но ключ больше не оборачивается
+   паролем персонально: единый мастер-ключ пары лежит в RTDB по пути
+   vaults/secret — читать его может только уже вошедший через Google (те же
+   правила, что и на vaults/shared). Локально ключ кэшируется в localStorage
+   (universe_mk), поэтому офлайн всё работает мгновенно и повторный вход не
+   спрашивает вообще ничего. */
+const ALLOWED_EMAILS = ['shakov.georgy@gmail.com', 'dashach98@gmail.com'];
+const GATE_WHO_BY_EMAIL = {
+  'shakov.georgy@gmail.com': 'gosha',
+  'dashach98@gmail.com': 'dasha'
+};
+const KEY_CACHE = 'universe_mk'; // локально закэшированный сырой AES-ключ (base64)
+const RTDB_SECRET_PATH = 'vaults/secret';
+
+let fbApp = null; // единственное Firebase-приложение на весь сайт (гейт + синк + фото)
+let gateUser = null; // Google-пользователь, прошедший проверку email
+
+function ensureFbApp() {
+  if (fbApp) return fbApp;
+  if (typeof firebase === 'undefined' || typeof firebase.initializeApp !== 'function') return null;
+  try {
+    fbApp = firebase.initializeApp(FIREBASE_CONFIG);
+  } catch (e) {
+    console.warn('[gate] initializeApp failed', e);
+    return null;
+  }
+  return fbApp;
+}
+
+function showGateErr(msg) {
+  const el = $('#gateErr');
+  if (el) el.textContent = msg || '';
+}
+
+/* ===== Ключ шифрования: локальный кэш → облако → (первый запуск) новый ===== */
+async function importRawKey(rawB64) {
+  return crypto.subtle.importKey('raw', unb64(rawB64), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+}
+async function exportRawKey(key) {
+  return b64(new Uint8Array(await crypto.subtle.exportKey('raw', key)));
+}
+async function publishMigratedKey(key) {
+  const rawB64 = await exportRawKey(key);
+  store.set(KEY_CACHE, rawB64);
+  const app = ensureFbApp();
+  if (app) {
+    try {
+      await firebase.database(app).ref(RTDB_SECRET_PATH).set(rawB64);
+    } catch (e) {
+      console.warn('[gate] не удалось опубликовать ключ в облако', e);
+    }
+  }
+}
+
+// Старый сейф (до этого обновления) хранит мастер-ключ, обёрнутый паролем
+// каждого — tryUnwrapKey/pbkdf2Key (10-vault.js) остались нетронутыми именно
+// для этой разовой миграции. Если с прошлого раза жива сессия в
+// sessionStorage (старый «запомнить меня» трюк) — ключ достаём без пароля;
+// иначе один-единственный раз показываем поле для пароля.
+async function migrateLegacyVault(who, legacy) {
+  try {
+    const raw = sessionStorage.getItem('universe_session');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.who === who && parsed.k) {
+        const key = await crypto.subtle.importKey('raw', unb64(parsed.k), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+        await aesDec(key, legacy.db); // проверяем, что ключ и правда подходит
+        await publishMigratedKey(key);
+        return key;
+      }
+    }
+  } catch (e) {
+    /* сессия не подошла — показываем разовую миграцию ниже */
+  }
+  showAuth('gate');
+  $('#gateMigrateWrap').hidden = false;
+  showGateErr('');
+  const p = $('#gateMigratePass');
+  if (p && p.focus) p.focus();
+  return null;
+}
+
+async function ensureMasterKey(who) {
+  const cachedB64 = store.get(KEY_CACHE);
+  if (cachedB64) {
+    try {
+      return await importRawKey(cachedB64);
+    } catch (e) {
+      store.remove(KEY_CACHE);
+    }
+  }
+  const app = ensureFbApp();
+  if (app) {
+    try {
+      const snap = await withTimeout(firebase.database(app).ref(RTDB_SECRET_PATH).once('value'), 10000);
+      const raw = snap && snap.val ? snap.val() : null;
+      if (typeof raw === 'string' && raw) {
+        store.set(KEY_CACHE, raw);
+        return await importRawKey(raw);
+      }
+    } catch (e) {
+      console.warn('[gate] не удалось получить облачный ключ', e);
+    }
+  }
+  const legacy = loadVault();
+  if (legacy && Array.isArray(legacy.keys) && legacy.keys.length) {
+    return await migrateLegacyVault(who, legacy);
+  }
+  // Совсем первый запуск (ни локально, ни в облаке ничего нет) — заводим ключ.
+  const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+  await publishMigratedKey(key);
+  return key;
+}
+
+async function gateMigrateSubmit() {
+  const who = GATE_WHO_BY_EMAIL[gateUser && gateUser.email];
+  const pass = $('#gateMigratePass').value;
+  const legacy = loadVault();
+  const key = who && legacy ? await tryUnwrapKey(who, pass, legacy) : null;
+  if (!key) {
+    showGateErr('Неверный пароль. Попробуй ещё раз.');
+    return;
+  }
+  await publishMigratedKey(key);
+  $('#gateMigrateWrap').hidden = true;
+  await unlockWithKey(key);
+}
+
+/* ===== Вход: собственно AES-ключ получен — расшифровываем локальный сейф
+   (или начинаем с пустого, если его ещё нет — данные подтянутся из облака) ===== */
+async function unlockWithKey(key) {
+  masterKey = key;
+  applyMotion(getMotion()); // раньше стояло в удалённом initAuth() — сохранённый выбор анимаций
+  const vault = loadVault();
+  try {
+    if (vault && vault.db) {
+      const raw = await aesDec(masterKey, vault.db);
+      db = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(raw)) });
+    } else {
+      // Совсем свежее устройство: если остались древние незашифрованные данные
+      // (localStorage['universe'] — до появления сейфов вообще) — забираем их,
+      // а не начинаем с пустого. store.remove(KEY) — как раньше в createVault().
+      db = migrateDB({ ...defaultDB(), ...legacyDB() });
+      store.remove(KEY);
+    }
+  } catch (e) {
+    console.warn('Не удалось расшифровать локальный сейф — начинаем с пустого, ждём облако', e);
+    db = defaultDB();
+  }
+  await initPhotoStore();
+  await photoStore.migratePhotos(db);
+  await photoStore.refreshSizes();
+  warmThumbCache();
+  try {
+    await save();
+  } catch (e) {
+    console.warn('Не удалось закрепить миграцию', e);
+  }
+  unlockApp();
+}
+
+/* ===== Собственно Google-вход ===== */
+async function tryEnterWithUser(user) {
+  if (!user || !user.email || !ALLOWED_EMAILS.includes(user.email)) {
+    if (user) {
+      showGateErr('Этот Google-аккаунт не имеет доступа сюда. Выйди и попробуй другим аккаунтом 💜');
+      try {
+        await firebase.auth(fbApp).signOut();
+      } catch (e) {}
+    }
+    return;
+  }
+  gateUser = user;
+  setUser(GATE_WHO_BY_EMAIL[user.email]);
+  showGateErr('Загружаем…');
+  const key = await ensureMasterKey(GATE_WHO_BY_EMAIL[user.email]);
+  if (!key) return; // ensureMasterKey уже показал разовый экран миграции
+  await unlockWithKey(key);
+}
+
+async function gateSignIn() {
+  const app = ensureFbApp();
+  if (!app) {
+    showGateErr('Firebase не загрузился — проверь интернет и обнови страницу.');
+    return;
+  }
+  const provider = new firebase.auth.GoogleAuthProvider();
+  showGateErr('Открываем окно входа Google…');
+  try {
+    if (isStandalone()) {
+      // В установленном PWA (iOS/Android «на главный экран») всплывающее окно
+      // часто не открывается вообще — надёжно работает только редирект.
+      await firebase.auth(app).signInWithRedirect(provider);
+      return; // страница уйдёт и вернётся сама — дальше подхватит boot()
+    }
+    const cred = await firebase.auth(app).signInWithPopup(provider);
+    await tryEnterWithUser(cred && cred.user);
+  } catch (e) {
+    if (e && e.code === 'auth/popup-closed-by-user') {
+      showGateErr('');
+      return;
+    }
+    console.warn('[gate] signIn failed', e);
+    showGateErr('Не удалось войти через Google. Попробуй ещё раз.');
+  }
+}
+
+// Возврат после lock() (приватный «замок» по бездействию — см. 10-vault.js):
+// Google-сессия жива, повторно логиниться не нужно, достаточно одного тапа.
+async function gateResume() {
+  $('#gateResumeBtn').hidden = true;
+  $('#gateSignInBtn').hidden = false;
+  const who = gateUser && GATE_WHO_BY_EMAIL[gateUser.email];
+  if (!who) return; // Google-сессия почему-то пропала — обычный вход через кнопку
+  showGateErr('Загружаем…');
+  const key = await ensureMasterKey(who);
+  if (key) await unlockWithKey(key);
+}
+
+async function gateSignOut() {
+  if (!confirm('Выйти из Google-аккаунта на этом устройстве? Чтобы открыть сайт снова, понадобится войти через Google ещё раз.')) return;
+  try {
+    if (fbApp) await firebase.auth(fbApp).signOut();
+  } catch (e) {}
+  gateUser = null;
+  store.remove(KEY_CACHE);
+  location.reload();
+}
+
+const gateSignInBtnEl = $('#gateSignInBtn');
+if (gateSignInBtnEl) gateSignInBtnEl.addEventListener('click', gateSignIn);
+const gateResumeBtnEl = $('#gateResumeBtn');
+if (gateResumeBtnEl) gateResumeBtnEl.addEventListener('click', gateResume);
+const gateMigrateGoEl = $('#gateMigrateGo');
+if (gateMigrateGoEl) gateMigrateGoEl.addEventListener('click', gateMigrateSubmit);
+const gateMigratePassEl = $('#gateMigratePass');
+if (gateMigratePassEl)
+  gateMigratePassEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter') gateMigrateSubmit();
+  });
+const gateSignOutBtnEl = $('#gateSignOutBtn');
+if (gateSignOutBtnEl) gateSignOutBtnEl.addEventListener('click', gateSignOut);
+
+/* ===== Старт приложения =====
+   Вызов boot() стоит в конце 95-sync.js (последний модуль сборки) — как и
+   раньше initAuth(), он читает FIREBASE_CONFIG (let из 95-sync.js), который
+   ещё в «мёртвой зоне» во время выполнения этого файла. */
+async function boot() {
+  document.body.classList.add('auth');
+  showAuth('gate');
+  const app = ensureFbApp();
+  if (!app) {
+    showGateErr('Firebase не загрузился — без интернета сайт открыть нельзя.');
+    return;
+  }
+  const auth = firebase.auth(app);
+  let user = null;
+  try {
+    const redirectCred = await auth.getRedirectResult();
+    if (redirectCred && redirectCred.user) user = redirectCred.user;
+  } catch (e) {
+    console.warn('[gate] redirect result failed', e);
+  }
+  if (!user) {
+    user = await new Promise(resolve => {
+      // let, не const: колбэк может сработать синхронно (в реальном SDK — нет,
+      // но не полагаемся на это), а до присвоения unsub ещё не существует.
+      let unsub;
+      unsub = auth.onAuthStateChanged(u => {
+        if (unsub) unsub();
+        resolve(u);
+      });
+    });
+  }
+  if (user) await tryEnterWithUser(user);
+  // иначе остаёмся на экране гейта — ждём клика «Войти через Google»
 }
 /* ===== Перетаскивание чипа лейбла на фото (навесить лейбл броском) =====
    Единственный кросс-контейнерный жест, оставшийся вне SortableJS. Чипы лежат
@@ -1148,20 +1436,25 @@ function loadVault() {
   }
 }
 // Сохранение всегда идёт через шифрование; очередь снимков не даёт
-// гонке записать более старый снимок поверх свежего.
+// гонке записать более старый снимок поверх свежего. Формат сейфа — просто
+// { db: {i,d} }: один общий мастер-ключ на пару (см. src/01-gate.js), без
+// пер-пользовательских обёрток паролем, как было раньше.
 let saveChain = Promise.resolve();
 function save() {
   if (!masterKey) return Promise.resolve();
   const snap = JSON.stringify(db);
+  // Ключ берём СЕЙЧАС (не читаем masterKey заново внутри .then): очередь может
+  // выполниться позже, когда lock() уже обнулит masterKey — раньше это роняло
+  // aesEnc с «2nd argument is not of type CryptoKey» при частых lock/unlock.
+  const keyAtCall = masterKey;
   // Цепочка никогда не «падает»: один сбой шифрования отравил бы saveChain, и каждый
   // следующий save() без await давал бы unhandledrejection с ложным тостом при входе.
   saveChain = saveChain.then(async () => {
+    if (!keyAtCall) return;
     try {
-      const vault = loadVault();
-      if (!vault) return;
-      vault.db = await aesEnc(masterKey, enc.encode(snap));
+      const blob = await aesEnc(keyAtCall, enc.encode(snap));
       try {
-        localStorage.setItem(VAULT_KEY, JSON.stringify(vault));
+        localStorage.setItem(VAULT_KEY, JSON.stringify({ db: blob }));
       } catch (e) {
         notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true);
       }
@@ -1175,27 +1468,10 @@ function save() {
   return saveChain;
 }
 
-/* ===== Создание сейфа, вход, пароли ===== */
-async function createVault(who, pass, legacyDb) {
-  masterKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
-  const kraw = new Uint8Array(await crypto.subtle.exportKey('raw', masterKey));
-  db = migrateDB({ ...defaultDB(), ...(legacyDb || legacyDB()) });
-  await initPhotoStore(); // гарантируем бэкенд (в тестах — память)
-  await photoStore.migratePhotos(db);
-  await photoStore.refreshSizes();
-  warmThumbCache(); // миниатюры в кэш — галерея рендерится без ожидания
-  const dbBlob = await aesEnc(masterKey, enc.encode(JSON.stringify(db)));
-  const salt = randBytes(16);
-  const pwdKey = await pbkdf2Key(pass, salt, PBKDF2_ITERS);
-  const wrap = { who, s: b64(salt), ...(await aesEnc(pwdKey, kraw)) };
-  if (!store.set(VAULT_KEY, JSON.stringify({ ver: 1, a: PBKDF2_ITERS, db: dbBlob, keys: [wrap] }))) return false;
-  store.remove(KEY); // старый открытый файл больше не нужен — всё уже зашифровано
-  currentUser = who;
-  return true;
-}
-// Пробует вытащить мастер-ключ сейфа паролем БЕЗ побочных эффектов: не трогает
-// masterKey, db и VAULT_KEY. Возвращает CryptoKey или null (нет записи для who,
-// неверный пароль, повреждённая обёртка).
+/* ===== Разовая миграция со старого (парольного) сейфа =====
+   tryUnwrapKey понадобится ТОЛЬКО пока у кого-то ещё жив старый сейф с
+   keys:[...] — см. migrateLegacyVault в src/01-gate.js. Новые сейфы такого
+   поля не имеют вовсе. */
 async function tryUnwrapKey(who, pass, vault) {
   const wrap = (vault && (vault.keys || [])).find(k => k.who === who);
   if (!wrap) return null;
@@ -1208,120 +1484,44 @@ async function tryUnwrapKey(who, pass, vault) {
   }
 }
 
-async function unlockWith(who, pass, vaultOverride) {
-  const vault = vaultOverride || loadVault();
-  const key = await tryUnwrapKey(who, pass, vault);
-  if (!key) return false;
-  try {
-    masterKey = key;
-    currentUser = who;
-    const raw = await aesDec(masterKey, vault.db);
-    db = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(raw)) });
-    await initPhotoStore(); // гарантируем бэкенд (в тестах — память)
-    await photoStore.migratePhotos(db);
-    await photoStore.refreshSizes();
-    warmThumbCache(); // миниатюры в кэш — галерея рендерится без ожидания
-    if (vaultOverride) {
-      // Вход по облачному сейфу (новый браузер / восстановление): забираем его
-      // себе — дальше он живёт на устройстве, а фото докачаются из облака.
-      // Если на устройстве оставался ДРУГОЙ сейф — кладём его в резервную
-      // копию (universe_vault_prev), чтобы ничего не пропало безвозвратно.
-      const prevLocal = loadVault();
-      if (prevLocal && JSON.stringify(prevLocal) !== JSON.stringify(vaultOverride)) {
-        try {
-          localStorage.setItem(VAULT_KEY_PREV, JSON.stringify(prevLocal));
-        } catch (e) {
-          console.warn('Не удалось сохранить бэкап сейфа', e);
-        }
-      }
-      if (!store.set(VAULT_KEY, JSON.stringify(vaultOverride))) return false;
-      pendingCloudVault = null;
-      notify('Сейф восстановлен из облака 💜');
-    }
-    try {
-      await save();
-    } catch (e) {
-      console.warn('Не удалось закрепить миграцию', e);
-    } // p.data убран, ссылки событий на id
-    unlockApp();
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-async function savePassFor(who, pass) {
-  const vault = loadVault();
-  if (!vault || !masterKey) return false;
-  const kraw = new Uint8Array(await crypto.subtle.exportKey('raw', masterKey));
-  const salt = randBytes(16);
-  const pwdKey = await pbkdf2Key(pass, salt, vault.a || PBKDF2_ITERS);
-  const wrap = { who, s: b64(salt), ...(await aesEnc(pwdKey, kraw)) };
-  vault.keys = (vault.keys || []).filter(x => x.who !== who).concat(wrap);
-  try {
-    localStorage.setItem(VAULT_KEY, JSON.stringify(vault));
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-async function changePass(cur, next) {
-  const vault = loadVault();
-  if (!vault || !masterKey || !currentUser) return false;
-  const wrap = (vault.keys || []).find(k => k.who === currentUser);
-  if (!wrap) return false;
-  try {
-    const pwdKey = await pbkdf2Key(cur, unb64(wrap.s), vault.a || PBKDF2_ITERS);
-    const kraw = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(wrap.i) }, pwdKey, unb64(wrap.d)));
-    const newSalt = randBytes(16);
-    const nk = await pbkdf2Key(next, newSalt, vault.a || PBKDF2_ITERS);
-    vault.keys = await Promise.all(vault.keys.map(async x => (x.who === currentUser ? { who: currentUser, s: b64(newSalt), ...(await aesEnc(nk, kraw)) } : x)));
-    try {
-      localStorage.setItem(VAULT_KEY, JSON.stringify(vault));
-      return true;
-    } catch (e) {
-      return false;
-    }
-  } catch (e) {
-    return false;
-  }
-}
-
-/* ===== Замок: экраны входа и создания ===== */
+/* ===== Замок: экран гейта (см. src/01-gate.js) ===== */
 function showAuth(which) {
-  $('#lockScreen').hidden = which !== 'lock';
-  $('#setupScreen').hidden = which !== 'setup';
+  $('#gateScreen').hidden = which !== 'gate';
 }
 function unlockApp() {
   authLocked = false;
   document.body.classList.remove('auth');
-  $('#authPass').value = '';
-  $('#authErr').textContent = '';
   setTheme(getTheme());
   renderSettings();
   go('home');
   lastActivity = Date.now();
   startAutoLock();
-  saveSessionKey(); // «запомнить меня» на время вкладки — переживает reload
   maybeShowDateInvitePopup(); // неотвеченные приглашения на свидание — сразу видно, не только листая вниз
   // Облачная синхронизация: после входа пробуем забрать/отдать данные
   if (typeof initSync === 'function') initSync();
 }
+// Приватный «замок» по бездействию (см. AUTO_LOCK_MS ниже): прячет данные на
+// этом устройстве, но НЕ разлогинивает из Google — сессия жива, возврат
+// (gateResume в src/01-gate.js) занимает один тап, без пароля.
 function lock() {
   if (!masterKey) return; // уже закрыто
   masterKey = null;
-  currentUser = null;
   db = defaultDB();
   clearPhotoStore();
   clearThumbCache();
   countdownTarget = null;
   authLocked = true;
-  clearSessionKey();
   document.body.classList.add('auth');
-  showAuth('lock');
-  renderAuthWho();
-  $('#authPass').value = '';
-  $('#authErr').textContent = '';
-  // Облачная синхронизация: при блокировке отключаем слушатели и вход
+  showAuth('gate');
+  const migrateWrap = $('#gateMigrateWrap');
+  if (migrateWrap) migrateWrap.hidden = true;
+  const signInBtn = $('#gateSignInBtn');
+  if (signInBtn) signInBtn.hidden = true;
+  const resumeBtn = $('#gateResumeBtn');
+  if (resumeBtn) resumeBtn.hidden = false;
+  showGateErr('');
+  // Облачная синхронизация: при блокировке отключаем слушатели (но НЕ
+  // Google-сессию — см. stopSync в src/95-sync.js)
   if (typeof stopSync === 'function') stopSync();
 }
 // Публичный API: сам app.js её не вызывает (UI смотрит на authLocked
@@ -1330,177 +1530,6 @@ function lock() {
 // eslint-disable-next-line no-unused-vars
 function isLocked() {
   return authLocked;
-}
-
-/* ===== «Запомнить меня» на время вкладки =====
-   Раньше расшифрованный ключ жил ТОЛЬКО в памяти (обычная JS-переменная) —
-   любое обновление страницы стирало его, приходилось вводить пароль заново
-   каждый раз. Пользователь попросил не разлогинивать при обновлении страницы;
-   решили (обсуждён компромисс, вариант A из трёх): держать ключ в
-   sessionStorage — он переживает reload, но НЕ переживает закрытие вкладки
-   или браузера. Полный уход с устройства всё ещё требует пароль. */
-const SESSION_KEY = 'universe_session';
-async function saveSessionKey() {
-  if (!masterKey || !currentUser) return;
-  const keyAtStart = masterKey; // ловим гонку с lock() ниже
-  try {
-    const kraw = new Uint8Array(await crypto.subtle.exportKey('raw', masterKey));
-    // unlockApp() зовёт эту функцию не дожидаясь (fire-and-forget) — пока шёл
-    // асинхронный экспорт ключа, могли успеть lock() (masterKey стал null)
-    // или новый unlock() другим ключом. Пишем в sessionStorage только если
-    // это всё ещё та же сессия — иначе допишем протухшие/чужие данные поверх
-    // уже почищенного clearSessionKey() состояния (гонка, ловится не всегда:
-    // на быстрой машине экспорт обычно успевает раньше, а на CI — нет).
-    if (masterKey !== keyAtStart || !currentUser) return;
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ who: currentUser, k: b64(kraw) }));
-  } catch (e) {
-    console.warn('Не удалось сохранить сессию', e);
-  }
-}
-function clearSessionKey() {
-  try {
-    sessionStorage.removeItem(SESSION_KEY);
-  } catch (e) {}
-}
-// Пробуем войти без пароля по ключу, пережившему reload. Возвращает true при
-// успехе (приложение уже разблокировано) — вызывающий пропускает обычный
-// экран входа. Любая нестыковка (сейф сменился, ключ повреждён) — тихо чистим
-// протухшую запись и откатываемся на обычный вход, а не мучаем повторами.
-async function resumeSession() {
-  let raw;
-  try {
-    raw = sessionStorage.getItem(SESSION_KEY);
-  } catch (e) {
-    return false;
-  }
-  if (!raw) return false;
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    clearSessionKey();
-    return false;
-  }
-  const vault = loadVault();
-  if (!vault || !parsed || !parsed.who || !parsed.k) {
-    clearSessionKey();
-    return false;
-  }
-  try {
-    const key = await crypto.subtle.importKey('raw', unb64(parsed.k), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
-    const rawDb = await aesDec(key, vault.db);
-    masterKey = key;
-    currentUser = parsed.who;
-    db = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(rawDb)) });
-    await initPhotoStore(); // гарантируем бэкенд (в тестах — память)
-    await photoStore.migratePhotos(db);
-    await photoStore.refreshSizes();
-    warmThumbCache(); // миниатюры в кэш — галерея рендерится без ожидания
-    unlockApp();
-    return true;
-  } catch (e) {
-    clearSessionKey();
-    return false;
-  }
-}
-
-let pendingAuthWho = 'gosha';
-// Сейф, найденный в облаке до входа. Может быть «вторым» сейфом (на устройстве
-// остался локальный сейф с другим паролем). tryUnlock проверяет пароль и по
-// локальному, и по облачному сейфу: если пароль открывает облачный — он
-// «усыновляется» (см. unlockWith), и облачные данные приходят на устройство.
-let pendingCloudVault = null;
-function renderAuthWho() {
-  $$('.auth-user').forEach(b => b.classList.toggle('auth-on', b.dataset.authWho === pendingAuthWho));
-  const lbl = $('#authWhoLabel');
-  if (lbl) lbl.textContent = pendingAuthWho === 'dasha' ? '👧 Даша' : '👦 Гоша';
-}
-async function tryUnlock() {
-  const err = $('#authErr');
-  let local = loadVault();
-  let cloud = pendingCloudVault;
-  if (!local && !cloud && typeof fetchCloudVault === 'function') {
-    // Облако могли ещё не успеть проверить (медленная сеть на телефоне) —
-    // пробуем ещё раз до того, как сказать «сейф не найден».
-    if (err) err.textContent = 'Проверяем облако ещё раз…';
-    const fresh = await fetchCloudVault();
-    cloud = fresh ? fresh.vault : null;
-    if (cloud) {
-      pendingCloudVault = cloud;
-      const hint = $('#cloudHint');
-      if (hint) hint.hidden = false;
-    }
-  }
-  if (!local && !cloud) {
-    if (err) err.textContent = 'Сейф не найден ни на устройстве, ни в облаке. Проверь интернет и нажми «Войти» ещё раз, либо создай новый пароль.';
-    return;
-  }
-  const hasPass = !!((local && (local.keys || []).some(k => k.who === pendingAuthWho)) || (cloud && (cloud.keys || []).some(k => k.who === pendingAuthWho)));
-  if (!hasPass) {
-    if (err) err.textContent = 'Пароль для этого человека ещё не создан. Добавь его в настройках — или войди другим.';
-    return;
-  }
-  const pass = $('#authPass').value;
-  if (!pass) {
-    if (err) err.textContent = 'Введи пароль 💜';
-    return;
-  }
-  // Проверяем пароль СРАЗУ против обоих сейфов (без побочных эффектов) и решаем,
-  // каким входим:
-  //  • локальный не открылся, а облачный открылся      → облачный (новый браузер)
-  //  • открылись оба, но это РАЗНЫЕ сейфы (облачный не
-  //    расшифровывается ключом локального)             → облачный: введён пароль
-  //                                                     облачного сейфа — нужны
-  //                                                     облачные данные
-  //  • открылись оба, одна линия (тот же мастер-ключ)  → локальный: облачная
-  //                                                     копия — та же линия,
-  //                                                     не теряем свежие правки
-  //  • открылся только локальный                       → локальный (обычный вход)
-  const localKey = local ? await tryUnwrapKey(pendingAuthWho, pass, local) : null;
-  const cloudKey = cloud ? await tryUnwrapKey(pendingAuthWho, pass, cloud) : null;
-  let useCloud = false;
-  if (!localKey && cloudKey) {
-    useCloud = true;
-  } else if (localKey && cloudKey) {
-    let sameLineage = false;
-    try {
-      await aesDec(localKey, cloud.db);
-      sameLineage = true;
-    } catch (e) {}
-    useCloud = !sameLineage;
-  }
-  const ok = await unlockWith(pendingAuthWho, pass, useCloud ? cloud : undefined);
-  if (!ok && err) err.textContent = 'Неверный пароль. Попробуй ещё раз 💜';
-}
-async function doSetup() {
-  const err = $('#setupErr');
-  // Если в облаке уже есть сейф, а на устройстве его нет — не плодим второй:
-  // ведём на экран входа, там сейф восстановится по паролю.
-  if (pendingCloudVault && !loadVault()) {
-    showAuth('lock');
-    $('#cloudHint').hidden = false;
-    return;
-  }
-  const who = $('#setupWho').value;
-  const p1 = $('#setupPass').value;
-  const p2 = $('#setupPass2').value;
-  if (p1.length < 6) {
-    if (err) err.textContent = 'Пароль должен быть не короче 6 символов.';
-    return;
-  }
-  if (p1 !== p2) {
-    if (err) err.textContent = 'Пароли не совпадают — проверь ещё раз.';
-    return;
-  }
-  try {
-    await createVault(who, p1);
-    unlockApp();
-  } catch (e) {
-    // createVault может упасть (нет WebCrypto/IndexedDB) — понятная ошибка на экране,
-    // а не «unhandledrejection» с тостом «Не удалось сохранить» при создании сейфа.
-    console.warn('Не удалось создать сейф', e);
-    if (err) err.textContent = 'Не удалось создать сейф. Обнови страницу и попробуй ещё раз 💜';
-  }
 }
 
 /* ===== Автозамок ===== */
@@ -1522,94 +1551,9 @@ function startAutoLock() {
   }, 60000);
 }
 
-/* ===== Кнопки экранов входа ===== */
-$('#authGo').addEventListener('click', tryUnlock);
-$('#authPass').addEventListener('keydown', e => {
-  if (e.key === 'Enter') tryUnlock();
-});
-$('#setupGo').addEventListener('click', doSetup);
-$('#setupPass2').addEventListener('keydown', e => {
-  if (e.key === 'Enter') doSetup();
-});
-// «У меня уже есть сейф» на экране первого запуска: переходим на вход и
-// пробуем ещё раз найти сейф в облаке (сетевой запрос мог не успеть).
-const setupToLockEl = $('#setupToLock');
-if (setupToLockEl)
-  setupToLockEl.addEventListener('click', async () => {
-    showAuth('lock');
-    $('#authErr').textContent = '';
-    const cloud = typeof fetchCloudVault === 'function' ? await fetchCloudVault() : null;
-    pendingCloudVault = cloud ? cloud.vault : null;
-    const hint = $('#cloudHint');
-    if (hint) hint.hidden = !cloud;
-    if (cloud) $('#authPass').focus();
-  });
-// «Повторить проверку облака» — когда первый запрос не нашёл сейф (сеть могла
-// моргнуть, анонимный вход не успел).
-const cloudRetryBtnEl = $('#cloudRetryBtn');
-if (cloudRetryBtnEl)
-  cloudRetryBtnEl.addEventListener('click', async () => {
-    const btn = $('#cloudRetryBtn');
-    if (btn) btn.disabled = true;
-    $('#authErr').textContent = 'Проверяем облако…';
-    const cloud = typeof fetchCloudVault === 'function' ? await fetchCloudVault() : null;
-    if (btn) btn.disabled = false;
-    if (cloud && cloud.vault) {
-      pendingCloudVault = cloud.vault;
-      $('#cloudHint').hidden = false;
-      $('#cloudRetryBtn').hidden = true;
-      $('#toSetupBtn').hidden = true;
-      $('#authErr').textContent = '';
-      $('#authPass').focus();
-    } else {
-      $('#authErr').textContent = 'Всё ещё не можем связаться с облаком. Проверь интернет и попробуй ещё раз, либо создай новый сейф.';
-    }
-  });
-// «Создать новый сейф» — осознанный выбор для настоящего первого запуска.
-const toSetupBtnEl = $('#toSetupBtn');
-if (toSetupBtnEl) toSetupBtnEl.addEventListener('click', () => showAuth('setup'));
-// «Забыть сейф на этом устройстве» — восстановление после случайного второго
-// сейфа (телефон «создал свой пароль» вместо входа): стираем локальный сейф и
-// фото этого устройства, и при следующем открытии приложение снова найдёт общий
-// сейф пары в облаке. Облачные данные при этом не трогаются.
-const forgetVaultBtnEl = $('#forgetVaultBtn');
-if (forgetVaultBtnEl)
-  forgetVaultBtnEl.addEventListener('click', async () => {
-    const msg = pendingCloudVault
-      ? 'Забыть сейф и фото на ЭТОМ устройстве? Облачные данные пары не пострадают — при следующем входе они восстановятся.'
-      : 'Сбросить это устройство к «первому запуску»? Локальный сейф и фото будут удалены с ЭТОГО устройства.';
-    if (!confirm(msg)) return;
-    try {
-      localStorage.removeItem(VAULT_KEY);
-    } catch (e) {}
-    try {
-      localStorage.removeItem(VAULT_KEY_PREV);
-    } catch (e) {}
-    try {
-      localStorage.removeItem(SYNC_KEY);
-    } catch (e) {}
-    try {
-      localStorage.removeItem(KEY);
-    } catch (e) {}
-    if (photoStore && typeof photoStore.clear === 'function') {
-      try {
-        await photoStore.clear();
-      } catch (e) {}
-    }
-    clearThumbCache();
-    location.reload();
-  });
-document.addEventListener('click', e => {
-  const au = e.target.closest('[data-auth-who]');
-  if (au) {
-    pendingAuthWho = au.dataset.authWho;
-    renderAuthWho();
-    const p = $('#authPass');
-    if (p && p.focus) p.focus();
-    return;
-  }
-});
-renderAuthWho();
+/* ===== Кнопка «скрыть приватность» в настройках ===== */
+const lockNowBtnEl = $('#lockNowBtn');
+if (lockNowBtnEl) lockNowBtnEl.addEventListener('click', lock);
 /* ===== Тема ===== */
 const THEME_KEY = 'universe_theme';
 function getTheme() {
@@ -4130,12 +4074,6 @@ function closeOverlay(id) {
   if (id === 'dateInviteOverlay') markInvitesDismissed(pendingDateInvites().map(d => d.id));
 }
 document.addEventListener('click', e => {
-  const userBtn = e.target.closest('[data-user]');
-  if (userBtn) {
-    setUser(userBtn.dataset.user);
-    return;
-  }
-
   const day = e.target.closest('[data-day]');
   if (day) {
     selectedDate = day.dataset.day;
@@ -5177,21 +5115,9 @@ function renderSettings() {
         ? `<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Последняя копия была ${days} дн. назад. Самое время обновить её.</span>`
         : `<span style="color:#059669;font-weight:700;font-size:14px">✅ Копия сделана ${days === 0 ? 'сегодня' : days + ' дн. назад'}. Всё под защитой.</span>`;
   }
-  // Личный кабинет: кто вошёл, чьи пароли есть
-  const lkUser = $('#lkUser');
-  if (lkUser) lkUser.textContent = getUser() === 'dasha' ? '👧 Даша' : '👦 Гоша';
-  const vault = loadVault();
-  const hasPass = who => !!(vault && (vault.keys || []).some(k => k.who === who));
-  const info = $('#lkPassInfo');
-  if (info)
-    info.innerHTML =
-      `<span><b>Гоша:</b> ${hasPass('gosha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>` +
-      `<span><b>Даша:</b> ${hasPass('dasha') ? '<span style="color:#059669;font-weight:700">✅ пароль есть</span>' : '<span style="color:var(--muted)">пароля нет</span>'}</span>`;
-  const addBtn = $('#addPassBtn');
-  if (addBtn) {
-    addBtn.style.display = '';
-    addBtn.textContent = hasPass('gosha') && hasPass('dasha') ? '🔑 Сменить пароль партнёра' : '🔑 Добавить пароль для партнёра';
-  }
+  // Личный кабинет: какой Google-аккаунт вошёл
+  const gi = $('#gateAccountInfo');
+  if (gi) gi.textContent = gateUser && gateUser.email ? gateUser.email + (getUser() === 'dasha' ? ' (Даша)' : ' (Гоша)') : '—';
 }
 // Экспорт — зашифрованный сейф: без пароля файл не прочитать.
 // Фото-блобы лежат в IndexedDB (не в localStorage), поэтому их зашифрованные
@@ -5230,8 +5156,9 @@ $('#exportBtn').addEventListener('click', () => {
 async function importData(text) {
   try {
     const d = JSON.parse(text);
-    if (d && d.ver && d.db && Array.isArray(d.keys)) {
-      // это зашифрованный сейф — просто восстанавливаем, войти можно своим паролем
+    if (d && d.db && typeof d.db.d === 'string') {
+      // это зашифрованный сейф (свой же экспорт, тем же общим ключом пары) —
+      // просто восстанавливаем, отдельного пароля больше не требуется
       store.set(VAULT_KEY, JSON.stringify(d));
       // Фото-секция v6: зашифрованные блобы возвращаем в хранилище
       if (d.photos && d.photos.ver === 1 && Array.isArray(d.photos.blobs) && photoStore) {
@@ -5273,60 +5200,6 @@ $('#resetBtn').addEventListener('click', () => {
     location.reload();
   }
 });
-
-/* ===== Личный кабинет: смена пароля и пароль для партнёра ===== */
-let passMode = 'set'; // 'set' — пароль для партнёра, 'change' — сменить свой
-function openPassModal(mode) {
-  passMode = mode;
-  const whoSel = $('#passWho');
-  if (whoSel) {
-    whoSel.innerHTML = ['gosha', 'dasha']
-      .filter(w => w !== getUser())
-      .map(w => `<option value="${w}">${w === 'dasha' ? '👧 Даша' : '👦 Гоша'}</option>`)
-      .join('');
-  }
-  $('#passWhoWrap').hidden = mode !== 'set';
-  $('#passCurWrap').hidden = mode !== 'change';
-  $('#passTitle').textContent = mode === 'change' ? '🔑 Сменить свой пароль' : '🔑 Пароль для партнёра';
-  $('#passCur').value = '';
-  $('#passNew').value = '';
-  $('#passNew2').value = '';
-  $('#passErr').textContent = '';
-  $('#passOverlay').hidden = false;
-  const first = mode === 'change' ? $('#passCur') : $('#passNew');
-  if (first && first.focus) first.focus();
-}
-async function savePass() {
-  const err = $('#passErr');
-  const p1 = $('#passNew').value;
-  const p2 = $('#passNew2').value;
-  if (p1.length < 6) {
-    if (err) err.textContent = 'Пароль должен быть не короче 6 символов.';
-    return;
-  }
-  if (p1 !== p2) {
-    if (err) err.textContent = 'Пароли не совпадают — проверь ещё раз.';
-    return;
-  }
-  let ok;
-  if (passMode === 'change') ok = await changePass($('#passCur').value, p1);
-  else ok = await savePassFor($('#passWho').value, p1);
-  if (!ok) {
-    if (err) err.textContent = 'Не получилось. Проверь текущий пароль и попробуй ещё раз.';
-    return;
-  }
-  $('#passOverlay').hidden = true;
-  renderSettings();
-  if (passMode === 'change') alert('Пароль обновлён 💜');
-  else {
-    const who = $('#passWho').value === 'dasha' ? 'Даша' : 'Гоша';
-    alert('Пароль сохранён — теперь «' + who + '» может войти 💜');
-  }
-}
-$('#passSave').addEventListener('click', savePass);
-$('#changePassBtn').addEventListener('click', () => openPassModal('change'));
-$('#addPassBtn').addEventListener('click', () => openPassModal('set'));
-$('#lockNowBtn').addEventListener('click', lock);
 
 /* ===== Настройки: уменьшенное движение =====
    data-motion на <html>: 'reduced' — анимации всегда выключены, 'full' — всегда
@@ -5710,66 +5583,14 @@ function spawnHeart() {
   h.className = 'heart';
   h.textContent = ['💜', '💖', '💕', '🌸', '✨'][Math.floor(Math.random() * 5)];
   h.style.left = Math.random() * 100 + 'vw';
-  h.style.fontSize = (12 + Math.random() * 16) + 'px';
-  h.style.animationDuration = (6 + Math.random() * 6) + 's';
+  h.style.fontSize = 12 + Math.random() * 16 + 'px';
+  h.style.animationDuration = 6 + Math.random() * 6 + 's';
   document.body.appendChild(h);
   setTimeout(() => h.remove(), 12000);
 }
 
 $('#themeToggle').addEventListener('click', toggleTheme);
 $('#settingsThemeBtn').addEventListener('click', toggleTheme);
-
-/* ===== Запуск: приложение закрыто, пока не вошли ===== */
-async function initAuth() {
-  initPhotoStore(); // открываем IndexedDB (или fallback) до первого входа
-  setTheme(getTheme());
-  applyMotion(getMotion());
-  lastActivity = Date.now();
-  startAutoLock();
-  // «Запомнить меня» на время вкладки: ключ, переживший обновление страницы —
-  // пробуем войти им сразу, без экрана логина. Не получилось (закрывали
-  // вкладку/браузер, сейф сменился и т.п.) — обычный вход ниже.
-  if (await resumeSession()) return;
-  document.body.classList.add('auth');
-  pendingAuthWho = 'gosha';
-  renderAuthWho();
-  const hasLocal = !!loadVault();
-  // Всегда открываем ЗАМОК (вход), а не экран «создать пароль». Экран создания —
-  // только по явной кнопке или когда облако проверено и сейфа там точно нет.
-  // Раньше «создать пароль» показывался сразу на свежем устройстве, и если облако
-  // отвечало медленно (мобильный интернет), телефон предлагал завести ВТОРОЙ сейф
-  // вместо входа в существующий — так появились «фото, зашифрованные другим паролем».
-  showAuth('lock');
-  $('#authErr').textContent = 'Ищем сейф пары в облаке…';
-  let cloud = null;
-  try { cloud = await fetchCloudVault(); } catch (e) { console.warn('initAuth: облако недоступно', e); }
-  if (cloud && cloud.vault) {
-    pendingCloudVault = cloud.vault;
-    $('#authErr').textContent = '';
-    if (hasLocal) {
-      // Локальный сейф есть + облачный отдельный: вход паролем облачного сейфа
-      // вернёт облачные данные (см. cloudHint2 в index.html).
-      $('#cloudHint2').hidden = false;
-    } else {
-      $('#cloudHint').hidden = false;
-    }
-    $('#authPass').focus();
-  } else if (!hasLocal) {
-    // Свежее устройство и облако не ответило (или сейфа там нет): объясняем и
-    // даём выбор — повторить проверку или действительно создать новый сейф.
-    $('#authErr').textContent = 'Не удалось найти сейф в облаке. Проверь интернет и нажми «Повторить проверку», или создай новый сейф на этом устройстве.';
-    $('#cloudRetryBtn').hidden = false;
-    $('#toSetupBtn').hidden = false;
-  } else {
-    // Локальный сейф есть, а облако не ответило — обычный вход локальным паролем.
-    $('#authErr').textContent = '';
-  }
-  // Если JS по какой-то причине не выполнится — контент так и останется скрытым
-  // (body.auth прячет шапку и main), никто ничего не увидит.
-}
-// Вызов initAuth() стоит в конце 95-sync.js (самый последний модуль сборки):
-// initAuth читает FIREBASE_CONFIG (let из 95-sync.js), а он ещё в «мёртвой зоне»
-// во время выполнения 90-effects-init.js.
 
 setInterval(() => {
   // сердечки летают не слишком часто, не под замком и не во время открытых модалок
@@ -5780,36 +5601,33 @@ setInterval(() => {
 }, 3800);
 // Коллаж «Наша история» стабилен в течение дня — обновлять его не нужно.
 spawnHeart();
-
-
-
-
-/* ===== Облачная синхронизация (фаза B, Firebase Realtime Database) =====
+/* ===== Облачная синхронизация (Firebase Realtime Database) =====
    Принцип: localStorage — «правда» локально, Firebase — канал синхронизации.
    Синхронизируем САМ зашифрованный сейф `universe_vault` (zero-knowledge):
-   на сервере лежит только шифртекст (AES-GCM мастер-ключом + обёртки обоих
-   паролей внутри), поэтому и Гоша, и Даша открывают облачные данные своим
-   паролем, а Firebase ничего прочитать не может.
+   на сервере лежит только шифртекст (AES-GCM единым мастер-ключом пары —
+   см. src/01-gate.js), Firebase ничего прочитать не может.
 
-   Путь в RTDB: vaults/shared = { syncTs, vault }. Правила: read/write auth != null
-   (см. README). Конфликты: «последняя правка выигрывает» по syncTs.
+   Путь в RTDB: vaults/shared = { syncTs, vault }, vaults/secret = сам ключ
+   (см. 01-gate.js). Правила: доступ только auth.token.email из ALLOWED_EMAILS
+   (см. README, раздел про Google-гейт). Конфликты: «последняя правка
+   выигрывает» по syncTs.
 
-   Фаза B1: вставь config из Firebase Console в FIREBASE_CONFIG ниже.
+   Firebase-приложение (fbApp) и Google-вход инициализируются гейтом
+   (src/01-gate.js) ДО того, как этот модуль вообще нужен — initSync() здесь
+   только переиспользует уже готовую сессию, отдельного входа не делает.
    Фаза B3 (фото): оригиналы+показ-версии+миниатюры синхронизируются через
    Yandex Object Storage (см. YANDEX_CLOUD_CONFIG и makeCloudStorage ниже) —
-   бакет публичный (без секретных ключей на клиенте), см. README.
-   Без config (или без интернета) приложение работает как раньше — локально.
-   Работает на http(s); на file:// SDK может не загрузиться — тоже локально. */
+   бакет публичный на чтение (без секретных ключей на клиенте), см. README. */
 
 let FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyDuAkskIpj3bsFOX6aPecFWZGJOlOzGzUk",
-  authDomain:        "nasha-vselennaya.firebaseapp.com",
-  databaseURL:       "https://nasha-vselennaya-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId:         "nasha-vselennaya",
-  storageBucket:     "nasha-vselennaya.firebasestorage.app",
-  messagingSenderId: "222445763153",
-  appId:             "1:222445763153:web:df254e6b681c2e40289670",
-  measurementId:     "G-JZY24EXCX3"
+  apiKey: 'AIzaSyDuAkskIpj3bsFOX6aPecFWZGJOlOzGzUk',
+  authDomain: 'nasha-vselennaya.firebaseapp.com',
+  databaseURL: 'https://nasha-vselennaya-default-rtdb.europe-west1.firebasedatabase.app',
+  projectId: 'nasha-vselennaya',
+  storageBucket: 'nasha-vselennaya.firebasestorage.app',
+  messagingSenderId: '222445763153',
+  appId: '1:222445763153:web:df254e6b681c2e40289670',
+  measurementId: 'G-JZY24EXCX3'
 }; // ← config из Firebase Console (фаза B1). let — чтобы тесты могли подставить мок.
 
 /* Фото-облако: Yandex Object Storage вместо Firebase Storage (Storage — только
@@ -5822,48 +5640,46 @@ let FIREBASE_CONFIG = {
    подписанную ссылку и сам грузит/удаляет файл по ней. `signFnUrl` — не
    секрет, просто публичный адрес функции. */
 let YANDEX_CLOUD_CONFIG = {
-  bucket: 'nasha-vselennaya',    // имя бакета (не секрет)
-  region: 'ru-central1',         // регион Yandex Cloud
+  bucket: 'nasha-vselennaya', // имя бакета (не секрет)
+  region: 'ru-central1', // регион Yandex Cloud
   signFnUrl: 'https://functions.yandexcloud.net/d4empeq0dp76dkug5c9r' // Cloud Function photo-sign (не секрет)
 };
 
-const SYNC_KEY = 'universe_syncTs';  // последний известный syncTs (метаданные, не секрет)
-const SYNC_PATH = 'vaults/shared';   // общий зашифрованный сейф пары
+const SYNC_KEY = 'universe_syncTs'; // последний известный syncTs (метаданные, не секрет)
+const SYNC_PATH = 'vaults/shared'; // общий зашифрованный сейф пары
 
-let syncFirebase = null;   // firebaseApp (compat)
-let syncDb = null;         // firebase.database()
-let syncReady = false;     // SDK есть, config есть, анонимный вход сделан
-let syncTs = 0;            // последний применённый syncTs
-let syncPushTimer = null;  // debounce push после save()
-let syncApplying = false;  // защита от рекурсии pull→save→push
-let lastRemoteSnapshot;    // последний снимок vaults/shared от живого слушателя;
-                            // undefined = слушатель ещё ничего не прислал (см. pushVault)
+let syncFirebase = null; // firebaseApp (compat)
+let syncDb = null; // firebase.database()
+let syncReady = false; // SDK есть, config есть, анонимный вход сделан
+let syncTs = 0; // последний применённый syncTs
+let syncPushTimer = null; // debounce push после save()
+let syncApplying = false; // защита от рекурсии pull→save→push
+let lastRemoteSnapshot; // последний снимок vaults/shared от живого слушателя;
+// undefined = слушатель ещё ничего не прислал (см. pushVault)
 
-/* ===== Инициализация: вызывается из unlockApp() после входа ===== */
+/* ===== Инициализация: вызывается из unlockApp() после входа =====
+   Google-вход и Firebase-приложение уже готовы к этому моменту (гейт,
+   src/01-gate.js) — здесь только переиспользуем их, отдельного signIn нет. */
 async function initSync() {
   syncTs = parseInt(store.get(SYNC_KEY) || '0', 10) || 0;
-  if (!FIREBASE_CONFIG) { renderSyncStatus('off'); return; }
-  if (typeof firebase === 'undefined' || typeof firebase.initializeApp !== 'function' ||
-      typeof firebase.database !== 'function' || typeof firebase.auth !== 'function') {
+  const app = typeof ensureFbApp === 'function' ? ensureFbApp() : null;
+  if (!app || !gateUser) {
     renderSyncStatus('off');
     return;
   }
   try {
-        syncFirebase = firebase.initializeApp(FIREBASE_CONFIG, 'nasha_sync');
+    syncFirebase = app;
     syncDb = firebase.database(syncFirebase);
-    // Хранилище фото: Yandex Object Storage (публичный бакет, без секретов на
-    // клиенте — см. YANDEX_CLOUD_CONFIG выше и README). Firebase используется
-    // только для крошечного зашифрованного сейфа (vaults/shared), не для фото.
+    // Хранилище фото: Yandex Object Storage (публичный на чтение бакет, без
+    // секретов на клиенте — см. YANDEX_CLOUD_CONFIG выше и README). Firebase
+    // используется только для крошечного зашифрованного сейфа (vaults/shared)
+    // и общего ключа (vaults/secret), не для фото.
     syncStorage = makeCloudStorage();
-    // Anonymous Auth: оба устройства — «гости», доступ к общему vaults/shared.
-    // UID нигде не храним: правила разрешают любому анониму, данные зашифрованы.
-    const cred = await firebase.auth(syncFirebase).signInAnonymously();
-    if (!cred || !cred.user) throw new Error('no anonymous user');
     syncReady = true;
     renderSyncStatus('idle');
-    listenRemote();      // живые обновления с другого устройства
-    pullVault();          // при входе пробуем забрать свежие данные
-    scheduleSyncPush();  // и отдать свои, если они свежее
+    listenRemote(); // живые обновления с другого устройства
+    pullVault(); // при входе пробуем забрать свежие данные
+    scheduleSyncPush(); // и отдать свои, если они свежее
     schedulePhotoSync(); // фото: выгрузить свои / скачать недостающие
   } catch (e) {
     console.warn('[sync] init failed', e);
@@ -5889,48 +5705,19 @@ function scheduleSyncPush() {
 // конфликт, дальше решает человек («Синхронизировать сейчас» = forcePushVault).
 let syncPushBlocked = false;
 
-// Быстрый опрос облака ДО первого входа (экран замка/создания): есть ли уже
-// зашифрованный сейф пары? Ничего не пишет, слушатели не вешает. Возвращает
-// { vault, ts } или null, если сейфа нет / нет сети / config пустой.
-// Таймаут для сетевых вызовов: не держим пользователя на «проверяем облако…»
-// бесконечно, если Firebase отвечает медленно (мобильный интернет).
+// Таймаут для сетевых вызовов: не держим пользователя на «загружаем…»
+// бесконечно, если Firebase отвечает медленно (мобильный интернет). Также
+// используется гейтом (src/01-gate.js) при чтении vaults/secret.
 function withTimeout(promise, ms) {
   let timer = null;
   return Promise.race([
     promise,
-    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), ms); })
-  ]).finally(() => { if (timer) clearTimeout(timer); });
-}
-let probeApp = null;
-let probeUser = null; // анонимный пользователь probe-приложения — переиспользуем между проверками
-async function fetchCloudVault() {
-  if (!FIREBASE_CONFIG || typeof firebase === 'undefined' || typeof firebase.initializeApp !== 'function' ||
-      typeof firebase.auth !== 'function' || typeof firebase.database !== 'function') return null;
-  try {
-    // Несколько попыток: на мобильном интернете анонимный вход или чтение могут
-    // не успеть с первого раза. «Пустое облако» — не ошибка, повторяться не нужно.
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        probeApp = probeApp || firebase.initializeApp(FIREBASE_CONFIG, 'nasha_probe');
-        if (!probeUser) {
-          const cred = await withTimeout(firebase.auth(probeApp).signInAnonymously(), 10000);
-          if (!cred || !cred.user) return null;
-          probeUser = cred.user;
-        }
-        const snap = await withTimeout(firebase.database(probeApp).ref(SYNC_PATH).once('value'), 10000);
-        const data = snap && snap.val ? snap.val() : null;
-        if (!data || !data.vault || !data.vault.db || typeof data.vault.db.d !== 'string') return null;
-        return { vault: data.vault, ts: data.syncTs || 0 };
-      } catch (e) {
-        console.warn('[sync] нет доступа к облаку при старте (попытка ' + (attempt + 1) + ')', e);
-        if (attempt < 2) await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
-      }
-    }
-    return null;
-  } catch (e) {
-    console.warn('[sync] нет доступа к облаку при старте', e);
-    return null;
-  }
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('timeout')), ms);
+    })
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 // Запись сейфа в облако (общий путь для push и принудительного восстановления).
@@ -5969,7 +5756,10 @@ async function pushVault() {
     }
     if (remote && remote.vault && remote.vault.db && typeof remote.vault.db.d === 'string' && masterKey) {
       let ok = false;
-      try { await aesDec(masterKey, remote.vault.db); ok = true; } catch (e) {}
+      try {
+        await aesDec(masterKey, remote.vault.db);
+        ok = true;
+      } catch (e) {}
       if (!ok) {
         syncPushBlocked = true;
         renderSyncStatus('conflict');
@@ -5983,8 +5773,9 @@ async function pushVault() {
     return;
   }
   syncPushBlocked = false;
-  try { await writeVault(); }
-  catch (e) {
+  try {
+    await writeVault();
+  } catch (e) {
     console.warn('[sync] push failed', e);
     renderSyncStatus('error');
   }
@@ -5995,8 +5786,9 @@ async function pushVault() {
 async function forcePushVault() {
   if (!syncReady) return;
   syncPushBlocked = false;
-  try { await writeVault(); }
-  catch (e) {
+  try {
+    await writeVault();
+  } catch (e) {
     console.warn('[sync] force push failed', e);
     renderSyncStatus('error');
   }
@@ -6012,7 +5804,10 @@ async function pullVault() {
     const rts = remote.syncTs || 0;
     if (rts <= syncTs) return; // облако не свежее — не трогаем локальные данные
     const applied = await applyRemoteVault(remote.vault);
-    if (!applied) { renderSyncStatus('error'); return; }
+    if (!applied) {
+      renderSyncStatus('error');
+      return;
+    }
     syncTs = rts;
     store.set(SYNC_KEY, String(rts));
     renderSyncStatus('ok', rts);
@@ -6035,13 +5830,21 @@ function listenRemote() {
     const rts = remote.syncTs || 0;
     if (rts <= syncTs) return; // свой же push
     renderSyncStatus('syncing');
-    applyRemoteVault(remote.vault).then(ok => {
-      if (!ok) { renderSyncStatus('error'); return; }
-      syncTs = rts;
-      store.set(SYNC_KEY, String(rts));
-      renderSyncStatus('ok', rts);
-      notify('Данные обновлены с другого устройства 💜');
-    }).catch(e => { console.warn('[sync] live apply failed', e); renderSyncStatus('error'); });
+    applyRemoteVault(remote.vault)
+      .then(ok => {
+        if (!ok) {
+          renderSyncStatus('error');
+          return;
+        }
+        syncTs = rts;
+        store.set(SYNC_KEY, String(rts));
+        renderSyncStatus('ok', rts);
+        notify('Данные обновлены с другого устройства 💜');
+      })
+      .catch(e => {
+        console.warn('[sync] live apply failed', e);
+        renderSyncStatus('error');
+      });
   });
 }
 
@@ -6074,8 +5877,14 @@ async function applyRemoteVault(remoteVault) {
       warmThumbCache();
     }
     await save(); // закрепить миграции локально (push не запустится: syncApplying)
-    renderHome(); renderCalendar(); renderNotes();
-    renderLists(); renderWishlist(); renderPhotos(); renderMemory(); renderSettings();
+    renderHome();
+    renderCalendar();
+    renderNotes();
+    renderLists();
+    renderWishlist();
+    renderPhotos();
+    renderMemory();
+    renderSettings();
     schedulePhotoSync(); // пришли новые/удалённые фото — сверимся с облаком
     return true;
   } catch (e) {
@@ -6091,12 +5900,13 @@ function stopSync() {
   clearTimeout(syncPushTimer);
   clearTimeout(photoSyncTimer);
   if (syncLiveOn && syncDb) {
-    try { syncDb.ref(SYNC_PATH).off('value'); } catch (e) {}
+    try {
+      syncDb.ref(SYNC_PATH).off('value');
+    } catch (e) {}
     syncLiveOn = false;
   }
-  if (syncFirebase && typeof syncFirebase.auth === 'function') {
-    try { syncFirebase.auth().signOut(); } catch (e) {}
-  }
+  // Google-сессию НЕ трогаем — это приватный «замок», не выход из аккаунта
+  // (см. lock() в src/10-vault.js и gateSignOut в src/01-gate.js).
   syncReady = false;
   syncFirebase = null;
   syncDb = null;
@@ -6106,7 +5916,6 @@ function stopSync() {
   lastRemoteSnapshot = undefined; // следующий initSync() начнёт с чистого кэша
   renderSyncStatus('off');
 }
-
 
 /* ===== Фото в облаке: оригиналы + показ-версии + миниатюры в Yandex Object
    Storage =====
@@ -6127,10 +5936,9 @@ function stopSync() {
    иначе первый вход на новом устройстве с большой галереей тянул бы фото
    одно за другим. */
 const PHOTO_PARTS = ['orig', 'full', 'thumb'];
-let syncStorage = null;      // Yandex Object Storage (S3)
-let photoSyncTimer = null;   // debounce после операций с фото
-let photoSyncing = false;    // защита от параллельных сверок
-
+let syncStorage = null; // Yandex Object Storage (S3)
+let photoSyncTimer = null; // debounce после операций с фото
+let photoSyncing = false; // защита от параллельных сверок
 
 /* ===== Адаптер для Yandex Object Storage =====
    Чтение (GetObject/ListBucket) — анонимно и напрямую в бакет: политика
@@ -6163,7 +5971,7 @@ function makeCloudStorage() {
     if (!cfg.signFnUrl) throw new Error('YANDEX_CLOUD_CONFIG.signFnUrl не задан — запись фото невозможна');
     // photo-sign проверяет Firebase ID-токен перед выдачей подписи (иначе
     // подписать мог бы кто угодно, кто откроет devtools — URL функции не
-    // секрет). Токен берём у уже выполненного анонимного входа (initSync).
+    // секрет). Токен берём у уже выполненного Google-входа (src/01-gate.js).
     // Заголовок называется X-Firebase-Token, а не Authorization: Yandex
     // Cloud перехватывает Authorization на уровне своей платформы (пытается
     // прочитать его как СВОЙ IAM-токен) ещё до кода функции — с этим именем
@@ -6173,7 +5981,9 @@ function makeCloudStorage() {
     try {
       const user = syncFirebase && firebase.auth(syncFirebase).currentUser;
       if (user) authHeaders = { 'X-Firebase-Token': await user.getIdToken() };
-    } catch (e) { console.warn('[sync] не удалось получить ID-токен для photo-sign', e); }
+    } catch (e) {
+      console.warn('[sync] не удалось получить ID-токен для photo-sign', e);
+    }
     const signRes = await fetch(cfg.signFnUrl + '?method=' + method + '&part=' + encodeURIComponent(part) + '&id=' + encodeURIComponent(id), { headers: authHeaders });
     if (!signRes.ok) throw new Error('sign-fn ' + signRes.status);
     const { url } = await signRes.json();
@@ -6186,19 +5996,24 @@ function makeCloudStorage() {
     return res;
   }
 
-  function objectPath(part, id) { return '/photos/' + part + '/' + encodeURIComponent(id); }
+  function objectPath(part, id) {
+    return '/photos/' + part + '/' + encodeURIComponent(id);
+  }
 
   return {
     ref(path) {
-      const seg = String(path || '').split('/').filter(Boolean);
+      const seg = String(path || '')
+        .split('/')
+        .filter(Boolean);
       if (seg.length >= 3) {
-        const part = seg[1], id = seg.slice(2).join('/');
+        const part = seg[1],
+          id = seg.slice(2).join('/');
         const p = objectPath(part, id);
         return {
           name: id,
           fullPath: seg.join('/'),
           async put(blob) {
-            const txt = (typeof blob === 'string') ? blob : await blob.text();
+            const txt = typeof blob === 'string' ? blob : await blob.text();
             await presignedFetch('PUT', part, id, txt);
           },
           async getBlob() {
@@ -6211,7 +6026,11 @@ function makeCloudStorage() {
             }
           },
           async delete() {
-            try { await presignedFetch('DELETE', part, id, null); } catch (e) { if (!/404/.test(String(e))) throw e; }
+            try {
+              await presignedFetch('DELETE', part, id, null);
+            } catch (e) {
+              if (!/404/.test(String(e))) throw e;
+            }
           }
         };
       }
@@ -6236,7 +6055,7 @@ function makeCloudStorage() {
               }
               const truncated = /<IsTruncated>true<\/IsTruncated>/.test(txt);
               const tokenMatch = /<NextContinuationToken>([^<]+)<\/NextContinuationToken>/.exec(txt);
-              token = (truncated && tokenMatch) ? tokenMatch[1] : null;
+              token = truncated && tokenMatch ? tokenMatch[1] : null;
             } while (token);
           } catch (e) {
             if (!/404/.test(String(e))) throw e;
@@ -6248,8 +6067,9 @@ function makeCloudStorage() {
   };
 }
 
-
-function photoRef(part, id) { return syncStorage.ref('photos/' + part + '/' + id); }
+function photoRef(part, id) {
+  return syncStorage.ref('photos/' + part + '/' + id);
+}
 
 // Запуск сверки фото (debounce 1.2 с — было 2.5, снижено вместе с
 // оптимизацией самой сверки: listIds() больше не читает блобы, а probe не
@@ -6259,7 +6079,9 @@ function photoRef(part, id) { return syncStorage.ref('photos/' + part + '/' + id
 function schedulePhotoSync() {
   if (!syncStorage || !photoStore || !masterKey || photoSyncing) return;
   clearTimeout(photoSyncTimer);
-  photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 1200);
+  photoSyncTimer = setTimeout(() => {
+    syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
+  }, 1200);
 }
 
 // Что сейчас лежит в облаке: { id: { orig: true, full: true, thumb: true } }
@@ -6268,8 +6090,10 @@ async function listCloudPhotos() {
   for (const part of PHOTO_PARTS) {
     try {
       const res = await syncStorage.ref('photos/' + part).listAll();
-      for (const it of (res.items || [])) (out[it.name] = out[it.name] || {})[part] = true;
-    } catch (e) { console.warn('[sync] не удалось прочитать облако photos/' + part, e); }
+      for (const it of res.items || []) (out[it.name] = out[it.name] || {})[part] = true;
+    } catch (e) {
+      console.warn('[sync] не удалось прочитать облако photos/' + part, e);
+    }
   }
   return out;
 }
@@ -6282,15 +6106,17 @@ async function uploadCloudPhoto(id, cloud, local) {
     for (const part of PHOTO_PARTS) {
       const has = cloud[id] && cloud[id][part];
       if (has || !local['has' + part[0].toUpperCase() + part.slice(1)]) continue;
-      jobs.push((async () => {
-        const getter = part === 'orig' ? 'getEncryptedOrig' : (part === 'full' ? 'getEncryptedFull' : 'getEncryptedThumb');
-        const enc = await photoStore[getter](id);
-        if (!enc) return;
-        // Обёртка: сам шифртекст + несекретные MIME/размер (размер и так виден
-        // в метаданных Storage), чтобы на другом устройстве восстановить тип файла.
-        const payload = { e: enc, m: { t: meta.origType || meta.type || '', ft: meta.type || '', st: meta.thumbType || '', s: meta.size || 0 } };
-        await photoRef(part, id).put(new Blob([JSON.stringify(payload)], { type: 'application/json' }));
-      })());
+      jobs.push(
+        (async () => {
+          const getter = part === 'orig' ? 'getEncryptedOrig' : part === 'full' ? 'getEncryptedFull' : 'getEncryptedThumb';
+          const enc = await photoStore[getter](id);
+          if (!enc) return;
+          // Обёртка: сам шифртекст + несекретные MIME/размер (размер и так виден
+          // в метаданных Storage), чтобы на другом устройстве восстановить тип файла.
+          const payload = { e: enc, m: { t: meta.origType || meta.type || '', ft: meta.type || '', st: meta.thumbType || '', s: meta.size || 0 } };
+          await photoRef(part, id).put(new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+        })()
+      );
     }
     await Promise.all(jobs);
     return { ok: true };
@@ -6299,7 +6125,6 @@ async function uploadCloudPhoto(id, cloud, local) {
     return { ok: false, err: e };
   }
 }
-
 
 // Скачивание недостающих частей фото из облака (без повторного шифрования).
 // Части (orig/full/thumb) качаются параллельно, а не по очереди — раньше
@@ -6312,15 +6137,16 @@ async function downloadCloudPhoto(id, cloud, local) {
       const hasLocal = local && local['has' + part[0].toUpperCase() + part.slice(1)];
       return hasCloud && !hasLocal;
     });
-    const fetched = await Promise.all(need.map(async part => {
-      const data = await photoRef(part, id).getBlob();
-      const txt = (typeof data === 'string') ? data : await data.text();
-      const parsed = JSON.parse(txt);
-      // Новый формат { e: шифртекст, m: {t,ft,st,s} } и старый { i, d } — оба понимаем
-      const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
-                : (parsed && typeof parsed.d === 'string') ? parsed : null;
-      return { part, enc, m: parsed && parsed.m };
-    }));
+    const fetched = await Promise.all(
+      need.map(async part => {
+        const data = await photoRef(part, id).getBlob();
+        const txt = typeof data === 'string' ? data : await data.text();
+        const parsed = JSON.parse(txt);
+        // Новый формат { e: шифртекст, m: {t,ft,st,s} } и старый { i, d } — оба понимаем
+        const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
+        return { part, enc, m: parsed && parsed.m };
+      })
+    );
     const got = {};
     let gotMeta = null;
     for (const f of fetched) {
@@ -6330,9 +6156,9 @@ async function downloadCloudPhoto(id, cloud, local) {
     }
     if (!got.orig && !got.full && !got.thumb) return { ok: false, err: new Error('в облаке нет частей для скачивания') };
     // Сохраняем всё разом, чтобы не потерять уже имеющиеся локальные части
-    const exOrig = (local && local.hasOrig) ? await photoStore.getEncryptedOrig(id) : null;
-    const exFull = (local && local.hasFull) ? await photoStore.getEncryptedFull(id) : null;
-    const exThumb = (local && local.hasThumb) ? await photoStore.getEncryptedThumb(id) : null;
+    const exOrig = local && local.hasOrig ? await photoStore.getEncryptedOrig(id) : null;
+    const exFull = local && local.hasFull ? await photoStore.getEncryptedFull(id) : null;
+    const exThumb = local && local.hasThumb ? await photoStore.getEncryptedThumb(id) : null;
     const meta2 = { ...meta };
     if (gotMeta) {
       if (gotMeta.t) meta2.origType = gotMeta.t;
@@ -6388,16 +6214,15 @@ async function probeCloudKeys(cloud) {
     if (!part) continue;
     try {
       const data = await photoRef(part, id).getBlob();
-      const txt = (typeof data === 'string') ? data : await data.text();
+      const txt = typeof data === 'string' ? data : await data.text();
       const parsed = JSON.parse(txt);
-      const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
-                : (parsed && typeof parsed.d === 'string') ? parsed : null;
+      const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
       if (!enc) throw new Error('незнакомый формат облачного файла');
       await aesDec(masterKey, enc);
     } catch (e) {
       // Криптографический сбой (неверный ключ/IV/шифртекст) — фото «чужое».
       // Любая другая ошибка (сеть, JSON) — временная, помечаем unknown.
-      const emsg = String(e && e.message || e);
+      const emsg = String((e && e.message) || e);
       if (e && (e.name === 'OperationError' || /decrypt/i.test(emsg))) {
         console.warn('[sync] облачное фото не расшифровывается текущим ключом', id, part);
         foreign.set(id, part);
@@ -6422,11 +6247,11 @@ async function syncPhotos() {
     // засорять «Наши моменты» скриншотами подарков), но синхронизировать их
     // между устройствами всё равно нужно — иначе партнёр не увидит фото
     // хотелки на своём телефоне. Добавляем их id в want отдельно.
-    const want = new Set([
-      ...(db.photos || []).map(p => p && p.id).filter(Boolean),
-      ...(db.wishlist || []).map(w => w && w.photoId).filter(Boolean)
-    ]);
-    const hasPart = (id, part) => { const l = localMap.get(id); return !!(l && l['has' + part[0].toUpperCase() + part.slice(1)]); };
+    const want = new Set([...(db.photos || []).map(p => p && p.id).filter(Boolean), ...(db.wishlist || []).map(w => w && w.photoId).filter(Boolean)]);
+    const hasPart = (id, part) => {
+      const l = localMap.get(id);
+      return !!(l && l['has' + part[0].toUpperCase() + part.slice(1)]);
+    };
     // Проверяем расшифровку не для ВСЕХ облачных фото, а только для тех, что
     // ещё не доказаны своими: если id уже в db.photos (want) и все части,
     // которые есть в облаке, уже лежат у нас локально — мы их когда-то сами
@@ -6452,7 +6277,10 @@ async function syncPhotos() {
     // 1. Локальный мусор: блоб без фото в db (фото удалено) — чистим store
     for (const id of localMap.keys()) {
       if (want.has(id)) continue;
-      try { await photoStore.delete(id); thumbCache.delete(id); } catch (e) {}
+      try {
+        await photoStore.delete(id);
+        thumbCache.delete(id);
+      } catch (e) {}
     }
     // 2. Облачный мусор: удаляем ТОЛЬКО если облако целиком «наше». Если есть
     //    хоть одно чужое/непроверенное фото — удаление отменяется: «мусором»
@@ -6461,7 +6289,11 @@ async function syncPhotos() {
       for (const id of Object.keys(cloud)) {
         if (want.has(id)) continue;
         for (const part of PHOTO_PARTS) {
-          if (cloud[id][part]) { try { await photoRef(part, id).delete(); } catch (e) {} }
+          if (cloud[id][part]) {
+            try {
+              await photoRef(part, id).delete();
+            } catch (e) {}
+          }
         }
       }
     }
@@ -6489,15 +6321,24 @@ async function syncPhotos() {
     await mapLimit(toDownload, SYNC_CONCURRENCY, async id => {
       const res = await downloadCloudPhoto(id, cloud, localMap.get(id));
       if (res && res.ok) stats.downloaded++;
-      else { stats.failed++; stats.retry = true; }
+      else {
+        stats.failed++;
+        stats.retry = true;
+      }
     });
     // 4. Выгружаем недостающее в облако (новые фото + бэкфилл старых) —
     //    тоже параллельно.
-    const toUpload = [...want].filter(id => { const l = localMap.get(id); return l && l.hasFull; });
+    const toUpload = [...want].filter(id => {
+      const l = localMap.get(id);
+      return l && l.hasFull;
+    });
     await mapLimit(toUpload, SYNC_CONCURRENCY, async id => {
       const res = await uploadCloudPhoto(id, cloud, localMap.get(id));
       if (res && res.ok) stats.uploaded++;
-      else { stats.failed++; stats.retry = true; }
+      else {
+        stats.failed++;
+        stats.retry = true;
+      }
     });
     if (stats.failed) {
       notify('Часть фото не синхронизировалась — проверь интернет, повторю через минуту 💜', true);
@@ -6513,24 +6354,28 @@ async function syncPhotos() {
     // проверяем часто и недолго, а не 20 секунд, как при настоящих сбоях.
     if (stats.retrySoon) {
       clearTimeout(photoSyncTimer);
-      photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 3000);
+      photoSyncTimer = setTimeout(() => {
+        syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
+      }, 3000);
     } else if (stats.retry) {
       // Были временные сбои (сеть, чужой формат и т.п.) — попробуем ещё раз через 20 секунд.
       clearTimeout(photoSyncTimer);
-      photoSyncTimer = setTimeout(() => { syncPhotos().catch(e => console.warn('[sync] сверка фото', e)); }, 20000);
+      photoSyncTimer = setTimeout(() => {
+        syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
+      }, 20000);
     }
   }
 }
 
-
 /* ===== UI в настройках: статус + кнопка ===== */
 const SYNC_STATUS_TEXT = {
-  off:     'Синхронизация не настроена — данные живут только на этом устройстве. Чтобы открывать их с телефона, вставь Firebase config (README, фаза B1).',
-  idle:    'Облако подключено — ждём изменений…',
+  off: 'Синхронизация недоступна — нет связи с Google/Firebase. Проверь интернет.',
+  idle: 'Облако подключено — ждём изменений…',
   syncing: 'Синхронизируем…',
-  ok:      'Синхронизировано ✅',
-  conflict: '⚠️ В облаке сейф с другим паролем — он не затёрт. Если нужны облачные данные: нажми чип «Гоша/Даша» (замок) и введи пароль облачного сейфа — он усыновится, фото докачаются. «Синхронизировать сейчас» перезапишет облако этим устройством.',
-  error:   'Ошибка синхронизации — проверь интернет и попробуй ещё раз 💜'
+  ok: 'Синхронизировано ✅',
+  conflict:
+    '⚠️ В облаке сейф с другим паролем — он не затёрт. Если нужны облачные данные: нажми чип «Гоша/Даша» (замок) и введи пароль облачного сейфа — он усыновится, фото докачаются. «Синхронизировать сейчас» перезапишет облако этим устройством.',
+  error: 'Ошибка синхронизации — проверь интернет и попробуй ещё раз 💜'
 };
 let syncUiState = 'off';
 let syncUiTs = 0;
@@ -6541,14 +6386,19 @@ function renderSyncStatus(state, ts) {
   if (!el) return;
   const text = SYNC_STATUS_TEXT[state] || SYNC_STATUS_TEXT.off;
   el.textContent = text;
-  el.style.color = state === 'ok' ? '#059669' : (state === 'error' ? '#dc2626' : (state === 'conflict' ? '#b45309' : 'var(--muted)'));
+  el.style.color = state === 'ok' ? '#059669' : state === 'error' ? '#dc2626' : state === 'conflict' ? '#b45309' : 'var(--muted)';
   const btn = $('#syncNowBtn');
-  if (btn) btn.disabled = (state === 'syncing');
+  if (btn) btn.disabled = state === 'syncing';
 }
 async function syncNow() {
-  if (!FIREBASE_CONFIG) { renderSyncStatus('off'); return; }
-  if (!syncReady) { initSync(); return; }
-  if (syncPushBlocked) { await forcePushVault(); return; }
+  if (!syncReady) {
+    initSync();
+    return;
+  }
+  if (syncPushBlocked) {
+    await forcePushVault();
+    return;
+  }
   await pullVault();
   await pushVault();
   schedulePhotoSync(); // фото-сверка тоже по требованию
@@ -6564,8 +6414,10 @@ async function getCloudSyncTs() {
   try {
     const snap = await syncDb.ref(SYNC_PATH).once('value');
     const v = snap && snap.val ? snap.val() : null;
-    return v ? (v.syncTs || 0) : 0;
-  } catch (e) { return 'ошибка: ' + String(e && e.message || e); }
+    return v ? v.syncTs || 0 : 0;
+  } catch (e) {
+    return 'ошибка: ' + String((e && e.message) || e);
+  }
 }
 async function runCloudDiagnostics() {
   const out = $('#cloudDiagOut');
@@ -6577,52 +6429,65 @@ async function runCloudDiagnostics() {
     add('syncReady: ' + syncReady);
     add('syncStorage: ' + (syncStorage ? 'Yandex Object Storage' : 'нет'));
     add('masterKey: ' + (masterKey ? 'есть' : 'НЕТ'));
-    add('photos в db: ' + ((db.photos || []).length));
+    add('photos в db: ' + (db.photos || []).length);
     add('syncTs: локально=' + syncTs + ', в облаке=' + (await getCloudSyncTs()));
     try {
       const localList = await photoStore.listIds();
       add('локальный store: ' + localList.length + ' фото');
       for (const l of localList) add('  ' + l.id + ' full=' + l.hasFull + ' thumb=' + l.hasThumb + ' orig=' + l.hasOrig);
-    } catch (e) { add('ошибка listIds: ' + String(e && e.message || e)); }
+    } catch (e) {
+      add('ошибка listIds: ' + String((e && e.message) || e));
+    }
     let cloud = {};
-    try { cloud = await listCloudPhotos(); } catch (e) { add('ошибка listCloudPhotos: ' + String(e && e.message || e)); }
+    try {
+      cloud = await listCloudPhotos();
+    } catch (e) {
+      add('ошибка listCloudPhotos: ' + String((e && e.message) || e));
+    }
     add('облако: ' + Object.keys(cloud).length + ' фото');
     for (const id of Object.keys(cloud)) add('  ' + id + ': ' + (PHOTO_PARTS.filter(p => cloud[id][p]).join(',') || '?'));
     if (Object.keys(cloud).length) {
       add('— расшифровка облачных фото текущим ключом —');
       for (const id of Object.keys(cloud)) {
         const part = ['thumb', 'full', 'orig'].find(p => cloud[id] && cloud[id][p]);
-        if (!part) { add('  ' + id + ': нет частей'); continue; }
+        if (!part) {
+          add('  ' + id + ': нет частей');
+          continue;
+        }
         try {
           const data = await photoRef(part, id).getBlob();
-          const txt = (typeof data === 'string') ? data : await data.text();
+          const txt = typeof data === 'string' ? data : await data.text();
           const parsed = JSON.parse(txt);
-          const enc = (parsed && parsed.e && typeof parsed.e.d === 'string') ? parsed.e
-                    : (parsed && typeof parsed.d === 'string') ? parsed : null;
-          if (!enc) { add('  ' + id + ' (' + part + '): НЕЗНАКОМЫЙ ФОРМАТ'); continue; }
+          const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
+          if (!enc) {
+            add('  ' + id + ' (' + part + '): НЕЗНАКОМЫЙ ФОРМАТ');
+            continue;
+          }
           const u8 = await aesDec(masterKey, enc);
-          const head = Array.from(u8.subarray(0, 4)).map(b => String.fromCharCode(b)).join('');
+          const head = Array.from(u8.subarray(0, 4))
+            .map(b => String.fromCharCode(b))
+            .join('');
           add('  ' + id + ' (' + part + '): расшифровано ✅ ' + u8.length + ' б «' + head.replace(/[^ -~]/g, '?') + '»');
         } catch (e) {
-          const msg = String(e && e.name || '') + ': ' + String(e && e.message || e);
+          const msg = String((e && e.name) || '') + ': ' + String((e && e.message) || e);
           const isKey = /OperationError|decrypt/i.test(msg);
           add('  ' + id + ' (' + part + '): ' + (isKey ? 'ДРУГОЙ КЛЮЧ ❌' : 'ОШИБКА ⚠') + ' — ' + msg.slice(0, 140));
         }
       }
     }
   } catch (e) {
-    add('неожиданная ошибка: ' + String(e && e.message || e));
+    add('неожиданная ошибка: ' + String((e && e.message) || e));
   }
   out.textContent = lines.join(String.fromCharCode(10));
 }
 const cloudDiagBtnEl = $('#cloudDiagBtn');
 if (cloudDiagBtnEl) cloudDiagBtnEl.addEventListener('click', runCloudDiagnostics);
 /* ===== Старт приложения =====
-   initAuth() из 90-effects-init.js вызывается здесь — последним в сборке:
-   он читает FIREBASE_CONFIG (let из этого модуля), который ещё в «мёртвой зоне»
-   во время выполнения 90-effects-init.js. Так же инициализируются экраны входа. */
-initAuth();
-
+   boot() из src/01-gate.js вызывается здесь — последним в сборке: он (через
+   ensureFbApp) читает FIREBASE_CONFIG (let из этого модуля), который ещё в
+   «мёртвой зоне» во время выполнения 01-gate.js. Boot запускает Google-гейт,
+   а он уже сам ведёт к unlockApp(). */
+boot();
 /* ===== Push-уведомления о свиданиях (Фаза 3) =====
    Архитектура: подписка PushManager каждого пользователя лежит ВНУТРИ
    зашифрованного сейфа (db.pushSubs.gosha/dasha, см. 00-core.js) — оба
