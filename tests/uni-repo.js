@@ -186,6 +186,7 @@ function __TEST__(s){
   s.monthKey = monthKey; s.monthRange = monthRange;
   s.loadHotSet = loadHotSet; s.loadMonth = loadMonth; s.loadMorePhotos = loadMorePhotos;
   s.repoSet = repoSet; s.repoDelete = repoDelete; s.repoBatch = repoBatch; s.repoMeta = repoMeta;
+  s.startLiveUpdates = startLiveUpdates; s.stopLiveUpdates = stopLiveUpdates;
   Object.defineProperty(s, 'db', { get: () => db, configurable: true });
 }
 `;
@@ -361,6 +362,14 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(mock._store['couples/main/notes/b399'].order === 399, 'документ на границе нарезки (конец первого куска) записан');
   assert(mock._store['couples/main/notes/b400'].order === 400, 'документ на границе нарезки (начало второго куска) записан');
   assert(mock._commitCount - commitsBefore === 3, 'нарезка реально произошла: 850 объектов ушли тремя commit() по ≤400');
+
+  // Живое обновление: приходит правка «со второго устройства» — db меняется сам
+  w('(s)=>{s.startLiveUpdates(); return 1;}');
+  mock._store['couples/main/notes/live1'] = { text: 'От Даши', author: 'dasha', pinned: false, order: 9, ts: 9 };
+  mock._listeners.forEach(l => l.fire());
+  assert(w('(s)=>s.db.notes.some(n=>n.id==="live1")') === true, 'живое обновление внесло заметку в db');
+  w('(s)=>{s.stopLiveUpdates(); return 1;}');
+  assert(mock._listeners.length === 0, 'stopLiveUpdates снял все подписки');
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {

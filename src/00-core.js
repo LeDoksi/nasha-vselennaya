@@ -253,6 +253,7 @@ let fsReady = false; // Firestore подключён и готов (см. src/03
 // 40-calendar.js, поэтому объявлено здесь, а не в 04-repo.js — TDZ.
 let loadedMonths = new Set();
 let photosCursor = null; // курсор пагинации галереи
+let fsUnsubs = []; // активные подписки Firestore (см. src/04-repo.js)
 
 function getUser() {
   return currentUser || 'gosha';

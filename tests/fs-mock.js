@@ -59,6 +59,15 @@ function makeFsMock() {
         const data = store[path];
         return { exists: !!data, id: path.split('/').pop(), data: () => (data ? clone(data) : undefined) };
       },
+      onSnapshot(cb) {
+        const l = { fire: () => cb({ exists: !!store[path], data: () => (store[path] ? clone(store[path]) : undefined) }) };
+        listeners.push(l);
+        l.fire();
+        return () => {
+          const i = listeners.indexOf(l);
+          if (i >= 0) listeners.splice(i, 1);
+        };
+      },
       collection(name) {
         return colRef(path + '/' + name);
       }

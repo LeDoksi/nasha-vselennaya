@@ -157,3 +157,52 @@ async function repoMeta(patch) {
     await ref.update(patch);
   }
 }
+
+/* ===== Живые обновления =====
+   Подписываемся только на мелкие коллекции целиком: их десятки документов,
+   и правка партнёра должна появляться сама. События и фото сюда не берём —
+   они грузятся окнами и страницами, подписка на них стоила бы чтений на
+   каждый пролистанный месяц ради выгоды, которой почти нет. */
+
+const LIVE_COLLECTIONS = [
+  ['notes', 'notes', () => renderNotes()],
+  ['lists', 'lists', () => renderLists()],
+  ['wishes', 'wishlist', () => renderWishlist()],
+  ['labels', 'labels', () => renderPhotos()],
+  [
+    'dates',
+    'dates',
+    () => {
+      renderHome();
+      renderCalendar();
+    }
+  ]
+];
+
+function startLiveUpdates() {
+  if (!fsReady || fsUnsubs.length) return;
+  for (const [coll, field, rerender] of LIVE_COLLECTIONS) {
+    const unsub = fsCol(coll).onSnapshot(snap => {
+      db[field] = docsToArray(snap);
+      if (!authLocked) rerender();
+    });
+    fsUnsubs.push(unsub);
+  }
+  const unsubMeta = fsDoc()
+    .collection('meta')
+    .doc('settings')
+    .onSnapshot(doc => {
+      const s = doc.exists ? doc.data() : {};
+      db.pushSubs = s.pushSubs || {};
+    });
+  fsUnsubs.push(unsubMeta);
+}
+
+function stopLiveUpdates() {
+  for (const unsub of fsUnsubs) {
+    try {
+      unsub();
+    } catch (e) {}
+  }
+  fsUnsubs = [];
+}
