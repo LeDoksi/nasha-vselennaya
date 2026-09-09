@@ -56,10 +56,13 @@ function makeEl() {
 }
 // Мок Firebase Auth: onAuthStateChanged сразу отдаёт уже разрешённого
 // пользователя (Гошу) — как будто вход уже был на предыдущем сеансе.
-const mockCurrentUser = { email: 'shakov.georgy@gmail.com', uid: 'uid-gosha' };
+// mockPopupUser — для проверки полного входа через gateSignIn() (Задача 6,
+// Шаг 5): signInWithPopup() отдаёт именно его, а не всегда одного и того же.
+let mockCurrentUser = { email: 'shakov.georgy@gmail.com', uid: 'uid-gosha' };
+let mockPopupUser = mockCurrentUser;
 function authObj() {
   return {
-    signInWithPopup: async () => ({ user: mockCurrentUser }),
+    signInWithPopup: async () => ({ user: mockPopupUser }),
     signInWithRedirect: async () => {},
     getRedirectResult: async () => null,
     onAuthStateChanged: cb => {
@@ -188,6 +191,7 @@ function __TEST__(s){
   s.repoSet = repoSet; s.repoDelete = repoDelete; s.repoBatch = repoBatch; s.repoMeta = repoMeta;
   s.startLiveUpdates = startLiveUpdates; s.stopLiveUpdates = stopLiveUpdates;
   s.migrateFromVaultIfNeeded = migrateFromVaultIfNeeded; s.defaultDB = defaultDB;
+  s.gateSignIn = gateSignIn; s.isLocked = isLocked;
   // Сеттер нужен только тесту миграции ниже: он подставляет db напрямую,
   // как если бы сейф уже был расшифрован гейтом.
   Object.defineProperty(s, 'db', { get: () => db, set: v => { db = v; }, configurable: true });
@@ -539,6 +543,14 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(resumedPushSubs === true, 'повторный запуск заметил неполноту pushSubs и завершил миграцию, а не вернул false');
   assert(mock._store['couples/main/meta/settings'].pushSubs.gosha.endpoint === 'sub-gosha', 'pushSubs доехали при повторном запуске');
   assert(mock._store['couples/main/meta/settings'].migrated === true, 'флаг migrated выставлен после успешного повторного переноса pushSubs');
+
+  // Полный вход: гейт → Firestore → горячий набор → живые обновления
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  mock._store['couples/main/notes/afterlogin'] = { text: 'Из облака', author: 'gosha', pinned: false, order: 0, ts: 1 };
+  mockPopupUser = { email: 'shakov.georgy@gmail.com', uid: 'uid-gosha' };
+  await w('(s)=>s.gateSignIn()');
+  assert(w('(s)=>s.isLocked()') === false, 'вход прошёл');
+  assert(w('(s)=>s.db.notes.some(n=>n.id==="afterlogin")') === true, 'данные пришли из Firestore, а не из сейфа');
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {

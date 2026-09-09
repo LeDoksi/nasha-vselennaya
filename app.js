@@ -327,6 +327,13 @@ async function publishMigratedKey(key) {
       console.warn('[gate] не удалось опубликовать ключ в облако', e);
     }
   }
+  if (fsReady) {
+    try {
+      await repoMeta({ photoKey: rawB64 });
+    } catch (e) {
+      console.warn('[gate] не удалось положить ключ фото в Firestore', e);
+    }
+  }
 }
 
 // Старый сейф (до этого обновления) хранит мастер-ключ, обёрнутый паролем
@@ -364,6 +371,20 @@ async function ensureMasterKey(who) {
       return await importRawKey(cachedB64);
     } catch (e) {
       store.remove(KEY_CACHE);
+    }
+  }
+  // Ключ фото: сначала Firestore (новое место), потом RTDB (старое, для
+  // устройства, которое зашло первым и ещё не переносило данные).
+  if (fsReady) {
+    try {
+      const snap = await withTimeout(fsDoc().collection('meta').doc('settings').get(), 10000);
+      const raw = snap.exists ? snap.data().photoKey : null;
+      if (typeof raw === 'string' && raw) {
+        store.set(KEY_CACHE, raw);
+        return await importRawKey(raw);
+      }
+    } catch (e) {
+      console.warn('[gate] ключ фото из Firestore недоступен', e);
     }
   }
   const app = ensureFbApp();
@@ -408,22 +429,20 @@ async function gateMigrateSubmit() {
 async function unlockWithKey(key) {
   masterKey = key;
   applyMotion(getMotion()); // раньше стояло в удалённом initAuth() — сохранённый выбор анимаций
-  const vault = loadVault();
-  try {
-    if (vault && vault.db) {
-      const raw = await aesDec(masterKey, vault.db);
+  // Данные приходят из Firestore. Старый сейф читаем ровно один раз — чтобы
+  // было что переносить; после успешного переезда он больше не нужен.
+  const legacyVault = loadVault();
+  if (legacyVault && legacyVault.db) {
+    try {
+      const raw = await aesDec(masterKey, legacyVault.db);
       db = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(raw)) });
-    } else {
-      // Совсем свежее устройство: если остались древние незашифрованные данные
-      // (localStorage['universe'] — до появления сейфов вообще) — забираем их,
-      // а не начинаем с пустого. store.remove(KEY) — как раньше в createVault().
-      db = migrateDB({ ...defaultDB(), ...legacyDB() });
-      store.remove(KEY);
+      await migrateFromVaultIfNeeded();
+    } catch (e) {
+      console.warn('Старый сейф не расшифровался — работаем только с облаком', e);
     }
-  } catch (e) {
-    console.warn('Не удалось расшифровать локальный сейф — начинаем с пустого, ждём облако', e);
-    db = defaultDB();
   }
+  await loadHotSet();
+  startLiveUpdates();
   await initPhotoStore();
   await photoStore.migratePhotos(db);
   await photoStore.refreshSizes();
@@ -455,6 +474,7 @@ async function tryEnterWithUser(user) {
     gateUser = user;
     setUser(GATE_WHO_BY_EMAIL[user.email]);
     showGateErr('Загружаем…');
+    await initFirestore();
     const key = await ensureMasterKey(GATE_WHO_BY_EMAIL[user.email]);
     if (!key) return; // ensureMasterKey уже показал разовый экран миграции
     await unlockWithKey(key);
