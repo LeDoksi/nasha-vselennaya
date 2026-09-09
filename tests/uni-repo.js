@@ -371,6 +371,29 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{s.stopLiveUpdates(); return 1;}');
   assert(mock._listeners.length === 0, 'stopLiveUpdates снял все подписки');
 
+  // РЕВЬЮ (Important, находка 1): повторный startLiveUpdates() не должен
+  // создавать дублирующиеся подписки. Гвард `|| fsUnsubs.length` предотвращает
+  // это, но тест не проверял.
+  w('(s)=>{s.startLiveUpdates(); return 1;}');
+  const listenersAfterFirst = mock._listeners.length;
+  assert(listenersAfterFirst > 0, 'первый startLiveUpdates() создал подписки');
+  w('(s)=>{s.startLiveUpdates(); return 1;}');
+  assert(mock._listeners.length === listenersAfterFirst, 'повторный startLiveUpdates() не создаёт дублирующихся подписок');
+  w('(s)=>{s.stopLiveUpdates(); return 1;}');
+
+  // РЕВЬЮ (Important, находка 2): полный цикл start → stop → start должен
+  // восстановить работоспособность подписок. Очистка `fsUnsubs = []` в конце
+  // stopLiveUpdates обязательна, иначе при повторном startLiveUpdates гвард
+  // `fsUnsubs.length` помешает подписаться снова.
+  w('(s)=>{s.startLiveUpdates(); return 1;}');
+  const listenersAfterRestart = mock._listeners.length;
+  assert(listenersAfterRestart > 0, 'после перезапуска startLiveUpdates создались подписки');
+  mock._store['couples/main/notes/live2'] = { text: 'После цикла', author: 'dasha', pinned: false, order: 10, ts: 10 };
+  mock._listeners.forEach(l => l.fire());
+  assert(w('(s)=>s.db.notes.some(n=>n.id==="live2")') === true, 'подписки работают после цикла stop→start');
+  w('(s)=>{s.stopLiveUpdates(); return 1;}');
+  assert(mock._listeners.length === 0, 'финальный stopLiveUpdates очистил подписки');
+
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
   console.log('FAIL: repo: ' + (e && e.message));
