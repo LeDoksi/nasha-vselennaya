@@ -40,7 +40,25 @@ async function migrateFromVaultIfNeeded() {
     ['photos', db.photos]
   ].filter(([, arr]) => (arr || []).length);
   const probes = await Promise.all(targets.map(([coll]) => fsCol(coll).limit(1).get()));
-  if (targets.length && probes.every(p => p.docs.length)) return false;
+  if (targets.length && probes.every(p => p.docs.length)) {
+    // Important-находка ревью: обрыв на хвосте после 7 коллекций оставляет
+    // pushSubs неперенесёнными, но проба выше это не видит. Партнёр молча
+    // перестаёт получать уведомления, если его подписка не доехала. Если
+    // локально есть pushSubs, проверяем, что они уже в Firestore — иначе
+    // перенос не полный и должен повториться.
+    if (db.pushSubs && Object.keys(db.pushSubs).length) {
+      const metaSnap = await fsDoc().collection('meta').doc('settings').get();
+      const existingSubs = metaSnap.exists ? metaSnap.data().pushSubs || {} : {};
+      if (!Object.keys(existingSubs).length) {
+        // Есть локальные pushSubs, но в Firestore их нет — перенос незавершён.
+        // Продолжаем выполнение (не возвращаем false), чтобы доперенести pushSubs.
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
 
   // md нужен, чтобы годовщины находились независимо от года (см. спеку).
   const events = (db.events || []).map(e => ({ ...e, md: mdOf(e.date) }));

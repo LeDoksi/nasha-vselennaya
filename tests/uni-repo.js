@@ -494,6 +494,52 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(!!mock._store['couples/main/photos/i7'], 'photos доехали при повторном запуске');
   assert(mock._store['couples/main/meta/settings'].migrated === true, 'флаг migrated выставлен после успешного повторного переноса');
 
+  // РЕВЬЮ (Important, находка 2б): обрыв на хвосте после 7 коллекций —
+  // все батчи прошли, но pushSubs или финальный флаг упали. Проба по 7
+  // коллекциям видит «всё уже есть» и при повторном запуске молча возвращает
+  // false, оставляя подписки неперенесёнными навсегда. Тест проверяет, что
+  // при обрыве ровно на pushSubs функция заметит это и доперенесёт подписки
+  // при следующем вызове.
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  w(`(s)=>{s.db = {
+    ...s.defaultDB(),
+    events: [{ id: 'p1', title: 'Событие', date: '2026-07-01', repeat: false }],
+    dates: [{ id: 'p2', place: 'Ресторан', date: '2026-07-02' }],
+    notes: [{ id: 'p3', text: 'Заметка', author: 'gosha', pinned: false, order: 0, ts: 1 }],
+    lists: [{ id: 'p4', title: 'Список', items: [] }],
+    wishlist: [{ id: 'p5', text: 'Подарок' }],
+    labels: [{ id: 'p6', name: 'Памятное', color: '#f59e0b' }],
+    photos: [{ id: 'p7', url: 'z', order: 0 }],
+    pushSubs: { gosha: { endpoint: 'sub-gosha' } }
+  }; return 1;}`);
+
+  // Первый запуск миграции успешен
+  const migrateFirst = await w('(s)=>s.migrateFromVaultIfNeeded()');
+  assert(migrateFirst === true, 'первый запуск миграции успешен');
+  assert(!!mock._store['couples/main/events/p1'], 'events переехали');
+  assert(!!mock._store['couples/main/dates/p2'], 'dates переехали');
+  assert(!!mock._store['couples/main/notes/p3'], 'notes переехали');
+  assert(!!mock._store['couples/main/lists/p4'], 'lists переехали');
+  assert(!!mock._store['couples/main/wishes/p5'], 'wishlist переехал');
+  assert(!!mock._store['couples/main/labels/p6'], 'labels переехали');
+  assert(!!mock._store['couples/main/photos/p7'], 'photos переехали');
+  assert(mock._store['couples/main/meta/settings'].pushSubs.gosha.endpoint === 'sub-gosha', 'pushSubs переехали');
+  assert(mock._store['couples/main/meta/settings'].migrated === true, 'флаг выставлен');
+
+  // Имитируем обрыв на хвосте: удаляем pushSubs и флаг, оставляя 7 коллекций
+  if (mock._store['couples/main/meta/settings']) {
+    delete mock._store['couples/main/meta/settings'].pushSubs;
+    delete mock._store['couples/main/meta/settings'].migrated;
+  }
+
+  // Без нового кода проба по 7 коллекциям видит, что все уже есть, и возвращает false.
+  // Старая реализация без проверки pushSubs действительно вернула бы false.
+  // С новым кодом функция видит, что pushSubs нет, и доперевозит их.
+  const resumedPushSubs = await w('(s)=>s.migrateFromVaultIfNeeded()');
+  assert(resumedPushSubs === true, 'повторный запуск заметил неполноту pushSubs и завершил миграцию, а не вернул false');
+  assert(mock._store['couples/main/meta/settings'].pushSubs.gosha.endpoint === 'sub-gosha', 'pushSubs доехали при повторном запуске');
+  assert(mock._store['couples/main/meta/settings'].migrated === true, 'флаг migrated выставлен после успешного повторного переноса pushSubs');
+
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
   console.log('FAIL: repo: ' + (e && e.message));
