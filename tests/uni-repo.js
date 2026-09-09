@@ -187,7 +187,10 @@ function __TEST__(s){
   s.loadHotSet = loadHotSet; s.loadMonth = loadMonth; s.loadMorePhotos = loadMorePhotos;
   s.repoSet = repoSet; s.repoDelete = repoDelete; s.repoBatch = repoBatch; s.repoMeta = repoMeta;
   s.startLiveUpdates = startLiveUpdates; s.stopLiveUpdates = stopLiveUpdates;
-  Object.defineProperty(s, 'db', { get: () => db, configurable: true });
+  s.migrateFromVaultIfNeeded = migrateFromVaultIfNeeded; s.defaultDB = defaultDB;
+  // Сеттер нужен только тесту миграции ниже: он подставляет db напрямую,
+  // как если бы сейф уже был расшифрован гейтом.
+  Object.defineProperty(s, 'db', { get: () => db, set: v => { db = v; }, configurable: true });
 }
 `;
 
@@ -393,6 +396,16 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(w('(s)=>s.db.notes.some(n=>n.id==="live2")') === true, 'подписки работают после цикла stop→start');
   w('(s)=>{s.stopLiveUpdates(); return 1;}');
   assert(mock._listeners.length === 0, 'финальный stopLiveUpdates очистил подписки');
+
+  // Миграция: пустой Firestore + расшифрованный db → данные разложены по коллекциям
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  w('(s)=>{s.db = {...s.defaultDB(), notes:[{id:"m1",text:"Старая заметка",author:"gosha",pinned:false,order:0,ts:1}], events:[{id:"m2",title:"Дата",date:"2026-05-01",repeat:true}]}; return 1;}');
+  assert((await w('(s)=>s.migrateFromVaultIfNeeded()')) === true, 'миграция выполнилась');
+  assert(mock._store['couples/main/notes/m1'].text === 'Старая заметка', 'заметка переехала');
+  assert(mock._store['couples/main/events/m2'].md === '05-01', 'у повторяющегося события проставлен md');
+
+  // Повторный вызов ничего не делает: в базе уже есть данные
+  assert((await w('(s)=>s.migrateFromVaultIfNeeded()')) === false, 'повторная миграция не запускается');
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
