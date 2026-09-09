@@ -327,6 +327,41 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(mock._store['couples/main/meta/settings'].pushSubs.gosha.endpoint === 'g2', 'своя подписка обновилась');
   assert(mock._store['couples/main/meta/settings'].pushSubs.dasha.endpoint === 'd', 'подписка партнёра не затёрта');
 
+  // РЕВЬЮ (Important, находка 2а): документа meta/settings ещё нет —
+  // update() падает с code:'not-found', repoMeta обязан создать документ
+  // слиянием и записать поле, а не просто перевыбросить ошибку.
+  delete mock._store['couples/main/meta/settings'];
+  await w('(s)=>s.repoMeta({"pushSubs.gosha": {endpoint:"g3"}})');
+  assert(mock._store['couples/main/meta/settings'].pushSubs.gosha.endpoint === 'g3', 'repoMeta создаёт документ meta/settings, если его не было');
+
+  // РЕВЬЮ (Important, находка 2б): ошибка с ЛЮБЫМ другим кодом (например,
+  // отказ в доступе) не должна маскироваться под «документа нет» — repoMeta
+  // обязан пробросить её наружу, а не тихо создать документ и повторить update().
+  mock._failNextUpdate('couples/main/meta/settings', 'permission-denied');
+  let repoMetaError = null;
+  try {
+    await w('(s)=>s.repoMeta({"pushSubs.gosha": {endpoint:"g4"}})');
+  } catch (e) {
+    repoMetaError = e;
+  }
+  assert(repoMetaError && repoMetaError.code === 'permission-denied', 'repoMeta пробрасывает не-not-found ошибку, а не глушит её');
+  assert(mock._store['couples/main/meta/settings'].pushSubs.gosha.endpoint === 'g3', 'после проброшенной ошибки документ не тронут лишней записью');
+
+  // РЕВЬЮ (Important, находка 1): repoBatch режет запись по 400 операций —
+  // границу лимита Firestore (500 на батч) тесты выше не проверяли вообще
+  // (там всего 2 объекта). Пишем 850: должны записаться первый, последний и
+  // оба документа ровно на границе нарезки (400-й индекс), а commit() должен
+  // вызваться трижды (400 + 400 + 50), а не один раз — иначе нарезка сломана.
+  const bigItems = [];
+  for (let i = 0; i < 850; i++) bigItems.push({ id: 'b' + i, order: i });
+  const commitsBefore = mock._commitCount;
+  await w('(s)=>s.repoBatch("notes", ' + JSON.stringify(bigItems) + ')');
+  assert(mock._store['couples/main/notes/b0'].order === 0, 'батч на 850 объектов записал первый документ');
+  assert(mock._store['couples/main/notes/b849'].order === 849, 'батч на 850 объектов записал последний документ');
+  assert(mock._store['couples/main/notes/b399'].order === 399, 'документ на границе нарезки (конец первого куска) записан');
+  assert(mock._store['couples/main/notes/b400'].order === 400, 'документ на границе нарезки (начало второго куска) записан');
+  assert(mock._commitCount - commitsBefore === 3, 'нарезка реально произошла: 850 объектов ушли тремя commit() по ≤400');
+
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
   console.log('FAIL: repo: ' + (e && e.message));

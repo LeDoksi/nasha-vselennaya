@@ -8,6 +8,8 @@ function makeFsMock() {
   const store = {}; // путь → данные документа
   const listeners = []; // активные onSnapshot
   let idCounter = 0;
+  let commitCount = 0; // сколько раз реально вызвали batch().commit() — тест проверяет, что нарезка по 400 действительно происходит
+  let forcedUpdateError = null; // { path, code } — одноразовая подмена ошибки update(), чтобы проверить проброс НЕ-not-found ошибок из repoMeta
 
   const clone = v => JSON.parse(JSON.stringify(v));
   const notify = () => listeners.forEach(l => l.fire());
@@ -33,7 +35,19 @@ function makeFsMock() {
         notify();
       },
       async update(patch) {
-        if (!store[path]) throw new Error('no document to update: ' + path);
+        if (forcedUpdateError && forcedUpdateError.path === path) {
+          const err = new Error('forced test error: ' + forcedUpdateError.code);
+          err.code = forcedUpdateError.code;
+          forcedUpdateError = null;
+          throw err;
+        }
+        if (!store[path]) {
+          // Настоящий Firestore в этом случае даёт e.code === 'not-found' —
+          // без кода repoMeta не смог бы отличить «документа нет» от прочих ошибок.
+          const err = new Error('no document to update: ' + path);
+          err.code = 'not-found';
+          throw err;
+        }
         applyUpdate(store[path], clone(patch));
         notify();
       },
@@ -131,6 +145,7 @@ function makeFsMock() {
         update: (ref, patch) => ops.push(() => ref.update(patch)),
         delete: ref => ops.push(() => ref.delete()),
         commit: async () => {
+          commitCount++;
           for (const op of ops) await op();
         }
       };
@@ -138,7 +153,17 @@ function makeFsMock() {
   });
   firestore.FieldValue = { delete: () => '__DELETE__' };
 
-  return { firestore, _store: store, _listeners: listeners };
+  return {
+    firestore,
+    _store: store,
+    _listeners: listeners,
+    get _commitCount() {
+      return commitCount;
+    },
+    _failNextUpdate(path, code) {
+      forcedUpdateError = { path, code };
+    }
+  };
 }
 
 module.exports = { makeFsMock };
