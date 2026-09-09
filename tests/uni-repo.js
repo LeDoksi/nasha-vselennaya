@@ -397,15 +397,102 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{s.stopLiveUpdates(); return 1;}');
   assert(mock._listeners.length === 0, 'финальный stopLiveUpdates очистил подписки');
 
-  // Миграция: пустой Firestore + расшифрованный db → данные разложены по коллекциям
+  // Миграция: пустой Firestore + расшифрованный db со ВСЕМИ семью сущностями
+  // (+ pushSubs) → каждая переехала в свою коллекцию. РЕВЬЮ (Critical,
+  // находка 2): раньше тест наполнял только notes/events — удаление
+  // repoBatch по dates/lists/wishes/labels/photos или блока pushSubs не
+  // роняло ни одной проверки. Теперь непусты все семь + pushSubs, и id-шники
+  // ниже намеренно разные — если убрать перенос конкретной коллекции, её
+  // проверка ниже упадёт.
   Object.keys(mock._store).forEach(k => delete mock._store[k]);
-  w('(s)=>{s.db = {...s.defaultDB(), notes:[{id:"m1",text:"Старая заметка",author:"gosha",pinned:false,order:0,ts:1}], events:[{id:"m2",title:"Дата",date:"2026-05-01",repeat:true}]}; return 1;}');
+  w(`(s)=>{s.db = {
+    ...s.defaultDB(),
+    events: [{ id: 'm2', title: 'Дата', date: '2026-05-01', repeat: true }],
+    dates: [{ id: 'd1', place: 'Кафе', date: '2026-01-10' }],
+    notes: [{ id: 'm1', text: 'Старая заметка', author: 'gosha', pinned: false, order: 0, ts: 1 }],
+    lists: [{ id: 'l1', title: 'Список покупок', items: [] }],
+    wishlist: [{ id: 'w1', text: 'Хотелка' }],
+    labels: [{ id: 'lb1', name: 'Семья', color: '#ec4899' }],
+    photos: [{ id: 'p1', url: 'x', order: 0 }],
+    pushSubs: { gosha: { endpoint: 'g' } }
+  }; return 1;}`);
   assert((await w('(s)=>s.migrateFromVaultIfNeeded()')) === true, 'миграция выполнилась');
   assert(mock._store['couples/main/notes/m1'].text === 'Старая заметка', 'заметка переехала');
   assert(mock._store['couples/main/events/m2'].md === '05-01', 'у повторяющегося события проставлен md');
+  assert(mock._store['couples/main/dates/d1'].place === 'Кафе', 'свидание переехало в коллекцию dates');
+  assert(mock._store['couples/main/lists/l1'].title === 'Список покупок', 'список переехал в коллекцию lists');
+  assert(mock._store['couples/main/wishes/w1'].text === 'Хотелка', 'хотелка переехала в коллекцию wishes (db.wishlist → fsCol wishes)');
+  assert(mock._store['couples/main/labels/lb1'].name === 'Семья', 'лейбл переехал в коллекцию labels');
+  assert(mock._store['couples/main/photos/p1'].url === 'x', 'фото переехало в коллекцию photos');
+  assert(mock._store['couples/main/meta/settings'].pushSubs.gosha.endpoint === 'g', 'push-подписки переехали в meta/settings');
+  assert(mock._store['couples/main/meta/settings'].migrated === true, 'после успешного переноса выставлен флаг meta/settings.migrated');
 
-  // Повторный вызов ничего не делает: в базе уже есть данные
-  assert((await w('(s)=>s.migrateFromVaultIfNeeded()')) === false, 'повторная миграция не запускается');
+  // Повторный вызов ничего не делает: флаг migrated уже стоит
+  assert((await w('(s)=>s.migrateFromVaultIfNeeded()')) === false, 'повторная миграция не запускается благодаря флагу');
+
+  // РЕВЬЮ (Critical, находка 1): перенос обрывается посередине — часть
+  // батчей проходит, часть нет, флаг migrated не выставляется. До фикса гвард
+  // смотрел только на notes/events: увидев уже переехавшие events/dates, он
+  // решал бы, что всё сделано, и навсегда пропускал notes/lists/wishlist/
+  // labels/photos. Повторный запуск обязан доперенести остальное.
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  w(`(s)=>{s.db = {
+    ...s.defaultDB(),
+    events: [{ id: 'i1', title: 'Событие', date: '2026-06-01', repeat: false }],
+    dates: [{ id: 'i2', place: 'Парк', date: '2026-06-02' }],
+    notes: [{ id: 'i3', text: 'Заметка', author: 'gosha', pinned: false, order: 0, ts: 1 }],
+    lists: [{ id: 'i4', title: 'Список', items: [] }],
+    wishlist: [{ id: 'i5', text: 'Хотелка 2' }],
+    labels: [{ id: 'i6', name: 'Метка', color: '#000' }],
+    photos: [{ id: 'i7', url: 'y', order: 0 }]
+  }; return 1;}`);
+
+  // Подменяем firebase.firestore() так, чтобы ТРЕТИЙ по счёту batch().commit()
+  // (в коде это repoBatch('notes', ...) — третий вызов repoBatch) падал:
+  // events и dates успевают доехать, notes и всё, что после — не успевают.
+  const realFirestore = firebase.firestore;
+  let batchNo = 0;
+  firebase.firestore = (...args) => {
+    const inst = realFirestore(...args);
+    const realBatch = inst.batch;
+    inst.batch = () => {
+      batchNo++;
+      if (batchNo === 3) {
+        return {
+          set() {},
+          update() {},
+          delete() {},
+          commit: async () => {
+            throw new Error('обрыв сети');
+          }
+        };
+      }
+      return realBatch();
+    };
+    return inst;
+  };
+  let migrateError = null;
+  try {
+    await w('(s)=>s.migrateFromVaultIfNeeded()');
+  } catch (e) {
+    migrateError = e;
+  }
+  firebase.firestore = realFirestore;
+
+  assert(!!migrateError, 'миграция реально упала на 3-м батче — иначе этот тест ничего не проверяет');
+  assert(!!mock._store['couples/main/events/i1'], 'events успели доехать до обрыва');
+  assert(!!mock._store['couples/main/dates/i2'], 'dates успели доехать до обрыва');
+  assert(!mock._store['couples/main/notes/i3'], 'notes НЕ доехали — обрыв случился на них');
+  assert(!mock._store['couples/main/meta/settings'] || !mock._store['couples/main/meta/settings'].migrated, 'флаг migrated не выставлен после обрыва на середине');
+
+  const resumed = await w('(s)=>s.migrateFromVaultIfNeeded()');
+  assert(resumed === true, 'повторный запуск доперенёс остальное, а не пропустил его из-за старой пробы notes/events');
+  assert(!!mock._store['couples/main/notes/i3'], 'notes доехали при повторном запуске');
+  assert(!!mock._store['couples/main/lists/i4'], 'lists доехали при повторном запуске');
+  assert(!!mock._store['couples/main/wishes/i5'], 'wishlist доехал при повторном запуске (коллекция wishes)');
+  assert(!!mock._store['couples/main/labels/i6'], 'labels доехали при повторном запуске');
+  assert(!!mock._store['couples/main/photos/i7'], 'photos доехали при повторном запуске');
+  assert(mock._store['couples/main/meta/settings'].migrated === true, 'флаг migrated выставлен после успешного повторного переноса');
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
