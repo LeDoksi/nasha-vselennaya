@@ -124,7 +124,10 @@ function makeFsMock() {
     batch() {
       const ops = [];
       return {
-        set: (ref, data) => ops.push(() => ref.set(data)),
+        // Третий аргумент opts (например {merge:true}) обязан пробрасываться
+        // в ref.set(), иначе батч и одиночный set() будут вести себя по-разному,
+        // и тесты могут не заметить ошибку в коде, полагаясь на мок.
+        set: (ref, data, opts) => ops.push(() => ref.set(data, opts)),
         update: (ref, patch) => ops.push(() => ref.update(patch)),
         delete: ref => ops.push(() => ref.delete()),
         commit: async () => {

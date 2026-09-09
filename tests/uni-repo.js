@@ -230,6 +230,28 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert((await w('(s)=>s.initFirestore()')) === true, 'initFirestore поднимает Firestore');
   assert(w('(s)=>s.fsReady') === true, 'fsReady выставлен');
   assert(w('(s)=>s.fsCol("events").path') === 'couples/main/events', 'ссылка на коллекцию собрана верно');
+
+  // Проверка батча с merge:true — нетронутые поля должны уцелеть
+  const db = sandbox.firebase.firestore();
+  const ref = db.doc('test/merge-check');
+
+  // Создаём документ через батч
+  const batch1 = db.batch();
+  batch1.set(ref, { a: 1, b: 2 });
+  await batch1.commit();
+  const snap1 = await ref.get();
+  const doc1 = snap1.data();
+  assert(doc1.a === 1 && doc1.b === 2, 'батч создаёт полный документ');
+
+  // Обновляем через батч с merge:true
+  const batch2 = db.batch();
+  batch2.set(ref, { a: 10 }, { merge: true });
+  await batch2.commit();
+  const snap2 = await ref.get();
+  const doc2 = snap2.data();
+  assert(doc2.a === 10, 'батч merge обновляет поле a');
+  assert(doc2.b === 2, 'батч merge сохраняет поле b (ошибка без проброса opts)');
+
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
   console.log('FAIL: repo: ' + (e && e.message));
