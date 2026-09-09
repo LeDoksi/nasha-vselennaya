@@ -96,3 +96,58 @@ async function loadMorePhotos() {
   photosCursor = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
   return rows.length;
 }
+
+/* ===== Запись =====
+   Пришли на смену save(), который пересохранял весь блоб целиком. Вызывающий
+   код по-прежнему сначала меняет db (интерфейс читает его синхронно), а затем
+   говорит репозиторию, что именно изменилось.
+
+   Ждать эти промисы не обязательно: Firestore применяет запись к локальному
+   кэшу сразу, а отправку и повторы берёт на себя — в том числе когда сети нет. */
+
+function stripId(obj) {
+  const copy = { ...obj };
+  delete copy.id;
+  return copy;
+}
+
+async function repoSet(coll, obj) {
+  const id = obj.id || uid();
+  if (!fsReady) return id;
+  await fsCol(coll).doc(id).set(stripId(obj));
+  return id;
+}
+
+async function repoDelete(coll, id) {
+  if (!fsReady) return;
+  await fsCol(coll).doc(id).delete();
+}
+
+// Пачкой — для массовых изменений вроде нового порядка после перетаскивания.
+// Firestore разрешает 500 операций на батч; у нас столько не бывает, но на
+// всякий случай режем.
+async function repoBatch(coll, objs) {
+  if (!fsReady || !objs.length) return;
+  for (let i = 0; i < objs.length; i += 400) {
+    const batch = firebase.firestore(fbApp).batch();
+    for (const obj of objs.slice(i, i + 400)) {
+      batch.set(fsCol(coll).doc(obj.id || uid()), stripId(obj));
+    }
+    await batch.commit();
+  }
+}
+
+// Настройки — ОДИН документ на двоих, и пишут в него оба устройства. Поэтому
+// только точечное обновление по пути поля: set() целиком затёр бы подписку
+// партнёра на push, и уведомления тихо перестали бы к нему приходить.
+async function repoMeta(patch) {
+  if (!fsReady) return;
+  const ref = fsDoc().collection('meta').doc('settings');
+  try {
+    await ref.update(patch);
+  } catch (e) {
+    // Документа ещё нет — update по нему падает, создаём слиянием.
+    await ref.set({}, { merge: true });
+    await ref.update(patch);
+  }
+}

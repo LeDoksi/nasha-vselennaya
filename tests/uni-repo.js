@@ -185,6 +185,7 @@ function __TEST__(s){
   Object.defineProperty(s, 'fsReady', { get: () => fsReady, configurable: true });
   s.monthKey = monthKey; s.monthRange = monthRange;
   s.loadHotSet = loadHotSet; s.loadMonth = loadMonth; s.loadMorePhotos = loadMorePhotos;
+  s.repoSet = repoSet; s.repoDelete = repoDelete; s.repoBatch = repoBatch; s.repoMeta = repoMeta;
   Object.defineProperty(s, 'db', { get: () => db, configurable: true });
 }
 `;
@@ -300,6 +301,31 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   mock._store['couples/main/dates/d1'] = { place: 'Кафе', date: twoYearsAgo };
   await w('(s)=>s.loadHotSet()');
   assert(w('(s)=>s.db.dates.some(d=>d.id==="d1")') === true, 'старое свидание не отрезается окном загрузки');
+
+  // repoSet кладёт документ и возвращает id, не сохраняя id внутрь документа
+  const newId = await w('(s)=>s.repoSet("notes", {id:"n2", text:"Вторая", author:"dasha", pinned:false, order:1, ts:2})');
+  assert(newId === 'n2', 'repoSet возвращает id');
+  assert(mock._store['couples/main/notes/n2'].text === 'Вторая', 'документ записан');
+  assert(mock._store['couples/main/notes/n2'].id === undefined, 'id не дублируется внутрь документа');
+
+  // repoSet без id генерирует его сам
+  const genId = await w('(s)=>s.repoSet("notes", {text:"Третья", author:"gosha", pinned:false, order:2, ts:3})');
+  assert(typeof genId === 'string' && genId.length > 0, 'repoSet сам выдаёт id, если его нет');
+
+  // repoDelete убирает документ
+  await w('(s)=>s.repoDelete("notes","n2")');
+  assert(mock._store['couples/main/notes/n2'] === undefined, 'repoDelete удаляет документ');
+
+  // repoBatch пишет пачкой — так сохраняется новый порядок после перетаскивания
+  await w('(s)=>s.repoBatch("notes", [{id:"n1", text:"Привет", order:5}, {id:"n3", text:"Ещё", order:6}])');
+  assert(mock._store['couples/main/notes/n1'].order === 5, 'батч обновил первый документ');
+  assert(mock._store['couples/main/notes/n3'].order === 6, 'батч создал второй документ');
+
+  // repoMeta пишет ТОЧЕЧНО: подписка партнёра не должна пострадать
+  mock._store['couples/main/meta/settings'] = { pushSubs: { gosha: { endpoint: 'g' }, dasha: { endpoint: 'd' } } };
+  await w('(s)=>s.repoMeta({"pushSubs.gosha": {endpoint:"g2"}})');
+  assert(mock._store['couples/main/meta/settings'].pushSubs.gosha.endpoint === 'g2', 'своя подписка обновилась');
+  assert(mock._store['couples/main/meta/settings'].pushSubs.dasha.endpoint === 'd', 'подписка партнёра не затёрта');
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
