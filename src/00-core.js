@@ -249,6 +249,10 @@ let db = defaultDB();
 let authLocked = true; // пока замок закрыт — приложение невидимо
 let lastActivity = Date.now();
 let fsReady = false; // Firestore подключён и готов (см. src/03-firestore.js)
+// Какие месяцы календаря уже в кэше (см. src/04-repo.js). Читается из
+// 40-calendar.js, поэтому объявлено здесь, а не в 04-repo.js — TDZ.
+let loadedMonths = new Set();
+let photosCursor = null; // курсор пагинации галереи
 
 function getUser() {
   return currentUser || 'gosha';

@@ -183,6 +183,9 @@ const suffix = `
 function __TEST__(s){
   s.initFirestore = initFirestore; s.fsCol = fsCol; s.fsDoc = fsDoc;
   Object.defineProperty(s, 'fsReady', { get: () => fsReady, configurable: true });
+  s.monthKey = monthKey; s.monthRange = monthRange;
+  s.loadHotSet = loadHotSet; s.loadMonth = loadMonth; s.loadMorePhotos = loadMorePhotos;
+  Object.defineProperty(s, 'db', { get: () => db, configurable: true });
 }
 `;
 
@@ -251,6 +254,33 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   const doc2 = snap2.data();
   assert(doc2.a === 10, 'батч merge обновляет поле a');
   assert(doc2.b === 2, 'батч merge сохраняет поле b (ошибка без проброса opts)');
+
+  // Окно месяца берётся с запасом назад: длительное событие, начавшееся
+  // 28 июля и кончающееся 3 августа, обязано попасть в август.
+  const range = w('(s)=>JSON.stringify(s.monthRange(2026, 7))'); // 7 = август
+  assert(JSON.parse(range)[0] === '2026-07-01', 'окно августа начинается за 31 день до начала месяца');
+  assert(JSON.parse(range)[1] === '2026-08-31', 'окно августа кончается последним днём месяца');
+
+  // Наполняем мок напрямую и проверяем, что горячий набор разложился в db
+  mock._store['couples/main/notes/n1'] = { text: 'Привет', author: 'gosha', pinned: false, order: 0, ts: 1 };
+  mock._store['couples/main/labels/l1'] = { name: 'Семья', color: '#ec4899' };
+  mock._store['couples/main/events/e1'] = { title: 'Годовщина', date: '2026-03-30', md: '03-30', repeat: true };
+  mock._store['couples/main/meta/settings'] = { pushSubs: { gosha: { endpoint: 'x' } } };
+  await w('(s)=>s.loadHotSet()');
+  assert(w('(s)=>s.db.notes.length') === 1, 'заметки загружены целиком');
+  assert(w('(s)=>s.db.notes[0].id') === 'n1', 'id документа попал в объект');
+  assert(w('(s)=>s.db.labels[0].name') === 'Семья', 'лейблы загружены');
+  assert(w('(s)=>s.db.events.some(e=>e.id==="e1")') === true, 'повторяющееся событие в наборе независимо от года');
+  assert(w('(s)=>!!s.db.pushSubs.gosha') === true, 'подписки подтянулись из meta/settings');
+
+  // Событие вне окна не грузится, пока не откроют его месяц
+  mock._store['couples/main/events/e2'] = { title: 'Далёкое', date: '2027-12-01', md: '12-01', repeat: false };
+  await w('(s)=>s.loadHotSet()');
+  assert(w('(s)=>s.db.events.some(e=>e.id==="e2")') === false, 'далёкое событие не в горячем наборе');
+  await w('(s)=>s.loadMonth(2027, 11)');
+  assert(w('(s)=>s.db.events.some(e=>e.id==="e2")') === true, 'loadMonth дотянул нужный месяц');
+  await w('(s)=>s.loadMonth(2027, 11)');
+  assert(w('(s)=>s.db.events.filter(e=>e.id==="e2").length') === 1, 'повторный loadMonth не дублирует события');
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
