@@ -248,6 +248,7 @@ let currentUser = null; // кто вошёл (gosha/dasha)
 let db = defaultDB();
 let authLocked = true; // пока замок закрыт — приложение невидимо
 let lastActivity = Date.now();
+let fsReady = false; // Firestore подключён и готов (см. src/03-firestore.js)
 
 function getUser() {
   return currentUser || 'gosha';
