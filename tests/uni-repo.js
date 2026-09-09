@@ -282,6 +282,25 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   await w('(s)=>s.loadMonth(2027, 11)');
   assert(w('(s)=>s.db.events.filter(e=>e.id==="e2").length') === 1, 'повторный loadMonth не дублирует события');
 
+  // РЕВЬЮ (Critical): тест выше на самом деле не проверял mergeById — второй
+  // loadMonth(2027, 11) останавливается на guard'е `loadedMonths.has(key)` и
+  // до mergeById не доходит. Настоящее пересечение возникает внутри одного
+  // loadHotSet(): repeat:true-событие, чья дата попадает в окно текущего
+  // месяца, приходит сразу от двух параллельных запросов (repeats и window) —
+  // склеить их без дублей обязан именно mergeById.
+  const today = new Date();
+  const overlapDate = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-15';
+  mock._store['couples/main/events/e3'] = { title: 'Пересечение', date: overlapDate, md: overlapDate.slice(5), repeat: true };
+  await w('(s)=>s.loadHotSet()');
+  assert(w('(s)=>s.db.events.filter(e=>e.id==="e3").length') === 1, 'repeat-событие внутри окна месяца не дублируется при склейке repeats+window');
+
+  // Находка 2: свидания больше не режутся окном — «Память» ищет годовщины
+  // свиданий среди ВСЕХ лет, а не только последнего месяца.
+  const twoYearsAgo = today.getFullYear() - 2 + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-01';
+  mock._store['couples/main/dates/d1'] = { place: 'Кафе', date: twoYearsAgo };
+  await w('(s)=>s.loadHotSet()');
+  assert(w('(s)=>s.db.dates.some(d=>d.id==="d1")') === true, 'старое свидание не отрезается окном загрузки');
+
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
   console.log('FAIL: repo: ' + (e && e.message));

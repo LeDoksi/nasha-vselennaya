@@ -31,7 +31,6 @@ async function loadHotSet() {
   if (!fsReady) return;
   const now = new Date();
   const [fromIso, toIso] = monthRange(now.getFullYear(), now.getMonth());
-  const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
 
   const [labels, notes, lists, wishes, repeats, events, dates, settings, photos] = await Promise.all([
     fsCol('labels').get(),
@@ -40,9 +39,12 @@ async function loadHotSet() {
     fsCol('wishes').get(),
     fsCol('events').where('repeat', '==', true).get(),
     fsCol('events').where('date', '>=', fromIso).where('date', '<=', toIso).get(),
-    fsCol('dates')
-      .where('date', '>=', iso(monthAgo.getFullYear(), monthAgo.getMonth(), monthAgo.getDate()))
-      .get(),
+    // Свидания грузим целиком, без окна: «Память» (src/35-memory.js,
+    // onThisDayItems) перебирает весь db.dates в поисках свиданий ПРОШЛЫХ
+    // лет в этот же день. У свиданий, в отличие от годовщин-событий, нет
+    // repeat — окно в месяц молча вымыло бы их из раздела. Объём того же
+    // порядка, что у заметок, так что грузить целиком не накладно.
+    fsCol('dates').get(),
     fsDoc().collection('meta').doc('settings').get(),
     fsCol('photos').orderBy('order', 'asc').limit(PHOTO_PAGE).get()
   ]);
