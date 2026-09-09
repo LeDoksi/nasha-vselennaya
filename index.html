@@ -5,7 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>💜 Наша вселенная</title>
   <meta name="theme-color" content="#7c3aed">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; connect-src 'self' https://*.firebasedatabase.app wss://*.firebasedatabase.app https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.storage.yandexcloud.net https://functions.yandexcloud.net">
+  <!-- script-src apis.google.com и frame-src — обязательны для Google-входа:
+       Firebase Auth грузит apis.google.com/js/api.js и поднимает служебный
+       iframe на authDomain (и на accounts.google.com), через который popup
+       возвращает результат входа. Без них вход падает с auth/internal-error,
+       причём на десктопе окно Google даже не открывается. Ловушка в том, что
+       анонимный вход (был до 09.2026) ходил только XHR — поэтому дыру в CSP
+       не было видно, пока не появился настоящий Google-вход. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-src https://nasha-vselennaya.firebaseapp.com https://accounts.google.com https://apis.google.com; connect-src 'self' https://*.firebasedatabase.app wss://*.firebasedatabase.app https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.storage.yandexcloud.net https://functions.yandexcloud.net">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
