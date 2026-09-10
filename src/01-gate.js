@@ -94,8 +94,30 @@ async function ensureMasterKey() {
     }
   }
   // Ни локально, ни в Firestore ключа нет — совсем первый запуск пары.
-  // Заводим новый и публикуем (см. publishPhotoKey выше).
+  // Заводим новый, но перед публикацией перечитаем Firestore ещё раз:
+  // если за время генерации другое устройство уже опубликовало ключ,
+  // возьмём его вместо своего. Это не полная защита от race condition
+  // (нужна транзакция для гарантии), но закрывает реальный сценарий:
+  // два человека заходят с разницей в секунды, а не в миллисекунды.
   const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+
+  // Перечитаем Firestore перед публикацией
+  if (fsReady) {
+    try {
+      const snap = await withTimeout(fsDoc().collection('meta').doc('settings').get(), 10000);
+      const raw = snap.exists ? snap.data().photoKey : null;
+      if (typeof raw === 'string' && raw) {
+        // Другое устройство успело опубликовать ключ — возьмём его
+        store.set(KEY_CACHE, raw);
+        return await importRawKey(raw);
+      }
+    } catch (e) {
+      console.warn('[gate] не удалось перепроверить ключ фото перед публикацией', e);
+      // Если перечитание упало, публикуем свой ключ (fallback)
+    }
+  }
+
+  // Firestore всё ещё пуст или недоступен — публикуем наш сгенерированный ключ
   await publishPhotoKey(key);
   return key;
 }
