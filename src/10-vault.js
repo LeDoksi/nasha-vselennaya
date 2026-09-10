@@ -9,44 +9,19 @@ function legacyDB() {
     return defaultDB();
   }
 }
+// Читает старый зашифрованный сейф (universe_vault) — только на чтение.
+// Раньше сюда же писал save() на каждое изменение (и его закреплял push
+// блоб-синхронизации), но с переходом на Firestore как источник правды
+// (каждый экран пишет точечно через репозиторий, см. src/04-repo.js) запись
+// сюда убрана целиком — незачем. Само чтение остаётся: разовый перенос
+// данных пары (src/06-migrate.js, вызывается из unlockWithKey в
+// src/01-gate.js) читает отсюда старый сейф ровно один раз.
 function loadVault() {
   try {
     return JSON.parse(localStorage.getItem(VAULT_KEY));
   } catch (e) {
     return null;
   }
-}
-// Сохранение всегда идёт через шифрование; очередь снимков не даёт
-// гонке записать более старый снимок поверх свежего. Формат сейфа — просто
-// { db: {i,d} }: один общий мастер-ключ на пару (см. src/01-gate.js), без
-// пер-пользовательских обёрток паролем, как было раньше.
-let saveChain = Promise.resolve();
-function save() {
-  if (!masterKey) return Promise.resolve();
-  const snap = JSON.stringify(db);
-  // Ключ берём СЕЙЧАС (не читаем masterKey заново внутри .then): очередь может
-  // выполниться позже, когда lock() уже обнулит masterKey — раньше это роняло
-  // aesEnc с «2nd argument is not of type CryptoKey» при частых lock/unlock.
-  const keyAtCall = masterKey;
-  // Цепочка никогда не «падает»: один сбой шифрования отравил бы saveChain, и каждый
-  // следующий save() без await давал бы unhandledrejection с ложным тостом при входе.
-  saveChain = saveChain.then(async () => {
-    if (!keyAtCall) return;
-    try {
-      const blob = await aesEnc(keyAtCall, enc.encode(snap));
-      try {
-        localStorage.setItem(VAULT_KEY, JSON.stringify({ db: blob }));
-      } catch (e) {
-        notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true);
-      }
-      // Облачная синхронизация: после каждого успешного сохранения — push (debounce)
-      if (typeof scheduleSyncPush === 'function') scheduleSyncPush();
-    } catch (e) {
-      console.warn('Не удалось сохранить сейф', e);
-      notify('Не удалось сохранить — попробуй ещё раз 💜', true);
-    }
-  });
-  return saveChain;
 }
 
 /* ===== Разовая миграция со старого (парольного) сейфа =====
@@ -78,8 +53,11 @@ function unlockApp() {
   lastActivity = Date.now();
   startAutoLock();
   maybeShowDateInvitePopup(); // неотвеченные приглашения на свидание — сразу видно, не только листая вниз
-  // Облачная синхронизация: после входа пробуем забрать/отдать данные
-  if (typeof initSync === 'function') initSync();
+  // Облако фото (Yandex Object Storage, см. src/95-photos-cloud.js): после
+  // входа выгружаем свои фото / скачиваем недостающие. Данные (события,
+  // заметки и т.п.) синхронизировать не нужно — они читаются/пишутся прямо
+  // в Firestore каждым экраном, отдельного шага при входе не требуют.
+  if (typeof initPhotoSync === 'function') initPhotoSync();
 }
 // Приватный «замок» по бездействию (см. AUTO_LOCK_MS ниже): прячет данные на
 // этом устройстве, но НЕ разлогинивает из Google — сессия жива, возврат
@@ -103,9 +81,9 @@ function lock() {
   const resumeHint = $('#gateResumeHint');
   if (resumeHint) resumeHint.hidden = false;
   showGateErr('');
-  // Облачная синхронизация: при блокировке отключаем слушатели (но НЕ
-  // Google-сессию — см. stopSync в src/95-sync.js)
-  if (typeof stopSync === 'function') stopSync();
+  // Облако фото: при блокировке отключаем таймер сверки (но НЕ Google-сессию —
+  // см. stopPhotoSync в src/95-photos-cloud.js)
+  if (typeof stopPhotoSync === 'function') stopPhotoSync();
 }
 // Публичный API: сам app.js её не вызывает (UI смотрит на authLocked
 // напрямую), но тесты дёргают через s.isLocked — держим как явную точку

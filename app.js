@@ -192,6 +192,26 @@ function migrateDB(d) {
     d.shopping = [];
     d.todos = [];
   }
+  // У списков появляется order — тот же паттерн, что у заметок чуть выше:
+  // раньше порядок карточек списков держался только позицией в массиве
+  // db.lists, что работало с единым JSON-блобом сейфа, но не с отдельными
+  // документами Firestore (Critical-находка ревью задач 8-9 — см.
+  // listsSortEnd в src/60-lists-wishes.js). Существующим спискам без order
+  // проставляем его по текущей позиции в массиве, иначе при первой же
+  // загрузке через Firestore порядок пары оказался бы случайным.
+  if (d.lists.some(l => l.order === undefined)) {
+    // Опора на позицию во входном массиве — тот же класс ошибки, что был
+    // с лейблами фото: порядок документов из Firestore .get() без orderBy
+    // не гарантирован, и один и тот же набор списков может прийти в разных
+    // порядках между вызовами. Сначала раскладываем по устойчивому признаку
+    // (id), и только потом раздаём номера — тогда backfill детерминирован
+    // независимо от порядка входа.
+    [...d.lists]
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .forEach((l, i) => {
+        if (l.order === undefined) l.order = i;
+      });
+  }
   // Фикс мёртвой логики «оба ответили да»: раньше responses[from] у создателя
   // свидания никогда не выставлялся в 'yes' (UI не даёт создателю отвечать —
   // он и так «уже согласен»), поэтому bothYes/celebrate() требовали 'yes' от
@@ -248,6 +268,19 @@ let currentUser = null; // кто вошёл (gosha/dasha)
 let db = defaultDB();
 let authLocked = true; // пока замок закрыт — приложение невидимо
 let lastActivity = Date.now();
+let fsReady = false; // Firestore подключён и готов (см. src/03-firestore.js)
+// Какие месяцы календаря уже в кэше (см. src/04-repo.js). Читается из
+// 40-calendar.js, поэтому объявлено здесь, а не в 04-repo.js — TDZ.
+let loadedMonths = new Set();
+let photosCursor = null; // курсор пагинации галереи
+// Идёт ли сейчас запрос следующей страницы галереи — без этого флага два
+// параллельных вызова loadMorePhotos() (например, повторное срабатывание
+// photosObserver или гонка между ним и ручным вызовом) читали бы Firestore
+// одним и тем же photosCursor одновременно, задваивая чтение одной и той же страницы.
+// Читается в src/04-repo.js (loadMorePhotos) — объявлено здесь, а не там,
+// по тому же правилу, что и photosCursor выше (TDZ).
+let photosLoadingMore = false;
+let fsUnsubs = []; // активные подписки Firestore (см. src/04-repo.js)
 
 function getUser() {
   return currentUser || 'gosha';
@@ -321,6 +354,13 @@ async function publishMigratedKey(key) {
       console.warn('[gate] не удалось опубликовать ключ в облако', e);
     }
   }
+  if (fsReady) {
+    try {
+      await repoMeta({ photoKey: rawB64 });
+    } catch (e) {
+      console.warn('[gate] не удалось положить ключ фото в Firestore', e);
+    }
+  }
 }
 
 // Старый сейф (до этого обновления) хранит мастер-ключ, обёрнутый паролем
@@ -358,6 +398,20 @@ async function ensureMasterKey(who) {
       return await importRawKey(cachedB64);
     } catch (e) {
       store.remove(KEY_CACHE);
+    }
+  }
+  // Ключ фото: сначала Firestore (новое место), потом RTDB (старое, для
+  // устройства, которое зашло первым и ещё не переносило данные).
+  if (fsReady) {
+    try {
+      const snap = await withTimeout(fsDoc().collection('meta').doc('settings').get(), 10000);
+      const raw = snap.exists ? snap.data().photoKey : null;
+      if (typeof raw === 'string' && raw) {
+        store.set(KEY_CACHE, raw);
+        return await importRawKey(raw);
+      }
+    } catch (e) {
+      console.warn('[gate] ключ фото из Firestore недоступен', e);
     }
   }
   const app = ensureFbApp();
@@ -402,31 +456,28 @@ async function gateMigrateSubmit() {
 async function unlockWithKey(key) {
   masterKey = key;
   applyMotion(getMotion()); // раньше стояло в удалённом initAuth() — сохранённый выбор анимаций
-  const vault = loadVault();
-  try {
-    if (vault && vault.db) {
-      const raw = await aesDec(masterKey, vault.db);
+  // Данные приходят из Firestore. Старый сейф читаем ровно один раз — чтобы
+  // было что переносить; после успешного переезда он больше не нужен.
+  const legacyVault = loadVault();
+  if (legacyVault && legacyVault.db) {
+    try {
+      const raw = await aesDec(masterKey, legacyVault.db);
       db = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(raw)) });
-    } else {
-      // Совсем свежее устройство: если остались древние незашифрованные данные
-      // (localStorage['universe'] — до появления сейфов вообще) — забираем их,
-      // а не начинаем с пустого. store.remove(KEY) — как раньше в createVault().
-      db = migrateDB({ ...defaultDB(), ...legacyDB() });
-      store.remove(KEY);
+      await migrateFromVaultIfNeeded();
+    } catch (e) {
+      console.warn('Старый сейф не расшифровался — работаем только с облаком', e);
     }
-  } catch (e) {
-    console.warn('Не удалось расшифровать локальный сейф — начинаем с пустого, ждём облако', e);
-    db = defaultDB();
   }
+  await loadHotSet();
+  startLiveUpdates();
   await initPhotoStore();
   await photoStore.migratePhotos(db);
   await photoStore.refreshSizes();
   warmThumbCache();
-  try {
-    await save();
-  } catch (e) {
-    console.warn('Не удалось закрепить миграцию', e);
-  }
+  // Раньше здесь закреплялся save() — переписывал зашифрованный сейф текущим
+  // db, чтобы следующий вход мог его перечитать. Источник правды теперь
+  // Firestore (loadHotSet() выше), локальная запись сейфа убрана целиком
+  // (см. src/10-vault.js) — закреплять миграцию некуда и незачем.
   unlockApp();
 }
 
@@ -449,6 +500,7 @@ async function tryEnterWithUser(user) {
     gateUser = user;
     setUser(GATE_WHO_BY_EMAIL[user.email]);
     showGateErr('Загружаем…');
+    await initFirestore();
     const key = await ensureMasterKey(GATE_WHO_BY_EMAIL[user.email]);
     if (!key) return; // ensureMasterKey уже показал разовый экран миграции
     await unlockWithKey(key);
@@ -536,9 +588,10 @@ const gateSignOutBtnEl = $('#gateSignOutBtn');
 if (gateSignOutBtnEl) gateSignOutBtnEl.addEventListener('click', gateSignOut);
 
 /* ===== Старт приложения =====
-   Вызов boot() стоит в конце 95-sync.js (последний модуль сборки) — как и
-   раньше initAuth(), он читает FIREBASE_CONFIG (let из 95-sync.js), который
-   ещё в «мёртвой зоне» во время выполнения этого файла. */
+   Вызов boot() стоит в конце 95-photos-cloud.js (последний модуль сборки) —
+   как и раньше initAuth(), он читает FIREBASE_CONFIG (let из
+   95-photos-cloud.js), который ещё в «мёртвой зоне» во время выполнения
+   этого файла. */
 async function boot() {
   document.body.classList.add('auth');
   showAuth('gate');
@@ -578,6 +631,270 @@ async function boot() {
     showGateErr('Вход через Google не завершился. Попробуй ещё раз — если не поможет, открой сайт в обычном браузере вместо установленного приложения.');
   }
   // иначе остаёмся на экране гейта — ждём клика «Войти через Google»
+}
+/* ===== Firestore: подключение и ссылки =====
+   Единственное место, которое знает адрес данных в облаке. Всё остальное
+   ходит через репозиторий (src/04-repo.js).
+
+   Приложение Firebase и Google-вход к этому моменту уже готовы — их поднимает
+   гейт (src/01-gate.js) раньше всех. Здесь только берём готовое.
+
+   Офлайн-кэш включается сразу: именно он даёт мгновенное открытие при втором
+   и последующих заходах — данные отдаются с диска ещё до обращения к сети. */
+
+const FS_ROOT = ['couples', 'main']; // всё живёт под одним поддеревом — одно правило доступа на всё
+
+function fsDoc() {
+  return firebase.firestore(fbApp).collection(FS_ROOT[0]).doc(FS_ROOT[1]);
+}
+function fsCol(name) {
+  return fsDoc().collection(name);
+}
+
+async function initFirestore() {
+  const app = typeof ensureFbApp === 'function' ? ensureFbApp() : null;
+  if (!app || typeof firebase.firestore !== 'function') {
+    fsReady = false;
+    return false;
+  }
+  try {
+    // synchronizeTabs — чтобы две открытые вкладки не дрались за один кэш.
+    // Ошибки тут не смертельны: без офлайн-кэша приложение просто ходит в сеть
+    // каждый раз, поэтому глушим и продолжаем.
+    await firebase.firestore(app).enablePersistence({ synchronizeTabs: true });
+  } catch (e) {
+    console.warn('[fs] офлайн-кэш недоступен, работаем только по сети', e && e.code);
+  }
+  fsReady = true;
+  return true;
+}
+/* ===== Репозиторий: единственный, кто ходит в Firestore =====
+   db больше не «все наши данные», а кэш-проекция того, что нужно экрану:
+   мелкие коллекции (заметки, списки, хотелки, лейблы) держим целиком, а
+   события и фото — окнами и страницами. */
+
+const PHOTO_PAGE = 60;
+
+function monthKey(year, month) {
+  return year + '-' + String(month + 1).padStart(2, '0');
+}
+
+// Запас назад на 31 день — максимальная длина события в интерфейсе. Без него
+// событие с 28 июля по 3 августа выпало бы из запроса по августу, потому что
+// его поле date лежит в июле.
+function monthRange(year, month) {
+  const from = new Date(year, month, 1);
+  from.setDate(from.getDate() - 31);
+  const to = new Date(year, month + 1, 0);
+  // Внимание: iso() в этом проекте принимает (год, месяц, день), а не Date —
+  // см. src/40-calendar.js.
+  return [iso(from.getFullYear(), from.getMonth(), from.getDate()), iso(to.getFullYear(), to.getMonth(), to.getDate())];
+}
+
+function docsToArray(snap) {
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+// Горячий набор при входе: всё, что нужно первому экрану и ближайшей навигации.
+// Десятки-сотни килобайт; при повторных заходах отдаётся из офлайн-кэша мгновенно.
+async function loadHotSet() {
+  if (!fsReady) return;
+  const now = new Date();
+  const [fromIso, toIso] = monthRange(now.getFullYear(), now.getMonth());
+
+  const [labels, notes, lists, wishes, repeats, events, dates, settings, photos] = await Promise.all([
+    fsCol('labels').get(),
+    fsCol('notes').get(),
+    fsCol('lists').get(),
+    fsCol('wishes').get(),
+    fsCol('events').where('repeat', '==', true).get(),
+    fsCol('events').where('date', '>=', fromIso).where('date', '<=', toIso).get(),
+    // Свидания грузим целиком, без окна: «Память» (src/35-memory.js,
+    // onThisDayItems) перебирает весь db.dates в поисках свиданий ПРОШЛЫХ
+    // лет в этот же день. У свиданий, в отличие от годовщин-событий, нет
+    // repeat — окно в месяц молча вымыло бы их из раздела. Объём того же
+    // порядка, что у заметок, так что грузить целиком не накладно.
+    fsCol('dates').get(),
+    fsDoc().collection('meta').doc('settings').get(),
+    fsCol('photos').orderBy('order', 'asc').limit(PHOTO_PAGE).get()
+  ]);
+
+  db.labels = docsToArray(labels);
+  db.notes = docsToArray(notes);
+  // lists читаем без orderBy (тот же .get(), что и раньше) — Firestore не
+  // гарантирует порядок документов между вызовами. order — источник истины
+  // для позиции карточки (проставлен backfill'ом в migrateDB), а id — вторичный
+  // устойчивый признак для списков без order, чтобы такой список вставал на
+  // одно и то же место при каждой загрузке, а не скакал. Дозапись order в базу
+  // здесь не делаем — лишняя запись на каждом входе ради ситуации, которая
+  // пользователям не встретится (order проставлен при миграции).
+  db.lists = docsToArray(lists).sort((a, b) => {
+    const ao = a.order === undefined ? Infinity : a.order;
+    const bo = b.order === undefined ? Infinity : b.order;
+    return ao - bo || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  });
+  db.wishlist = docsToArray(wishes);
+  db.dates = docsToArray(dates);
+  db.events = mergeById(docsToArray(repeats), docsToArray(events));
+  db.photos = docsToArray(photos);
+  const s = settings.exists ? settings.data() : {};
+  db.pushSubs = s.pushSubs || {};
+
+  photosCursor = photos.docs.length ? photos.docs[photos.docs.length - 1] : null;
+  loadedMonths = new Set([monthKey(now.getFullYear(), now.getMonth())]);
+}
+
+// Одно и то же событие приходит и запросом повторяющихся, и запросом окна —
+// склеиваем по id, чтобы в календаре не двоилось.
+function mergeById(a, b) {
+  const seen = new Set();
+  const out = [];
+  for (const item of a.concat(b)) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    out.push(item);
+  }
+  return out;
+}
+
+// Подгрузка месяца при переходе календаря. Уже загруженные не перезапрашиваем.
+async function loadMonth(year, month) {
+  if (!fsReady) return;
+  const key = monthKey(year, month);
+  if (loadedMonths.has(key)) return;
+  const [fromIso, toIso] = monthRange(year, month);
+  const snap = await fsCol('events').where('date', '>=', fromIso).where('date', '<=', toIso).get();
+  db.events = mergeById(db.events, docsToArray(snap));
+  loadedMonths.add(key);
+}
+
+// Следующая страница галереи. Возвращает, сколько фото добавилось (0 — конец).
+// photosLoadingMore — защита от гонки: пока идёт запрос, второй параллельный
+// вызов (см. photosObserver в src/70-photos.js) выходит сразу же, не
+// повторяя чтение того же photosCursor — иначе он держал бы старое значение
+// курсора до завершения первого запроса и прочитал бы ту же страницу второй раз.
+async function loadMorePhotos() {
+  if (!fsReady || !photosCursor || photosLoadingMore) return 0;
+  photosLoadingMore = true;
+  try {
+    const snap = await fsCol('photos').orderBy('order', 'asc').startAfter(photosCursor).limit(PHOTO_PAGE).get();
+    const rows = docsToArray(snap);
+    db.photos = mergeById(db.photos, rows);
+    photosCursor = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
+    return rows.length;
+  } finally {
+    photosLoadingMore = false;
+  }
+}
+
+/* ===== Запись =====
+   Пришли на смену save(), который пересохранял весь блоб целиком. Вызывающий
+   код по-прежнему сначала меняет db (интерфейс читает его синхронно), а затем
+   говорит репозиторию, что именно изменилось.
+
+   Ждать эти промисы не обязательно: Firestore применяет запись к локальному
+   кэшу сразу, а отправку и повторы берёт на себя — в том числе когда сети нет. */
+
+function stripId(obj) {
+  const copy = { ...obj };
+  delete copy.id;
+  return copy;
+}
+
+async function repoSet(coll, obj) {
+  const id = obj.id || uid();
+  if (!fsReady) return id;
+  await fsCol(coll).doc(id).set(stripId(obj));
+  return id;
+}
+
+async function repoDelete(coll, id) {
+  if (!fsReady) return;
+  await fsCol(coll).doc(id).delete();
+}
+
+// Пачкой — для массовых изменений вроде нового порядка после перетаскивания.
+// Firestore разрешает 500 операций на батч; у нас столько не бывает, но на
+// всякий случай режем.
+async function repoBatch(coll, objs) {
+  if (!fsReady || !objs.length) return;
+  for (let i = 0; i < objs.length; i += 400) {
+    const batch = firebase.firestore(fbApp).batch();
+    for (const obj of objs.slice(i, i + 400)) {
+      batch.set(fsCol(coll).doc(obj.id || uid()), stripId(obj));
+    }
+    await batch.commit();
+  }
+}
+
+// Настройки — ОДИН документ на двоих, и пишут в него оба устройства. Поэтому
+// только точечное обновление по пути поля: set() целиком затёр бы подписку
+// партнёра на push, и уведомления тихо перестали бы к нему приходить.
+async function repoMeta(patch) {
+  if (!fsReady) return;
+  const ref = fsDoc().collection('meta').doc('settings');
+  try {
+    await ref.update(patch);
+  } catch (e) {
+    // update() падает не только когда документа ещё нет — так же выглядит,
+    // например, отказ в доступе или недоступность сети. Глушить всё подряд
+    // нельзя: настоящая причина сбоя тогда потеряется, а на «нет доступа»
+    // код молча попытается создать документ пустым set() и лишний раз
+    // записать — то есть замаскирует ошибку лишней операцией. Пересоздаём
+    // только когда это точно «документа нет».
+    if (!(e && e.code === 'not-found')) throw e;
+    await ref.set({}, { merge: true });
+    await ref.update(patch);
+  }
+}
+
+/* ===== Живые обновления =====
+   Подписываемся только на мелкие коллекции целиком: их десятки документов,
+   и правка партнёра должна появляться сама. События и фото сюда не берём —
+   они грузятся окнами и страницами, подписка на них стоила бы чтений на
+   каждый пролистанный месяц ради выгоды, которой почти нет. */
+
+const LIVE_COLLECTIONS = [
+  ['notes', 'notes', () => renderNotes()],
+  ['lists', 'lists', () => renderLists()],
+  ['wishes', 'wishlist', () => renderWishlist()],
+  ['labels', 'labels', () => renderPhotos()],
+  [
+    'dates',
+    'dates',
+    () => {
+      renderHome();
+      renderCalendar();
+    }
+  ]
+];
+
+function startLiveUpdates() {
+  if (!fsReady || fsUnsubs.length) return;
+  for (const [coll, field, rerender] of LIVE_COLLECTIONS) {
+    const unsub = fsCol(coll).onSnapshot(snap => {
+      db[field] = docsToArray(snap);
+      if (!authLocked) rerender();
+    });
+    fsUnsubs.push(unsub);
+  }
+  const unsubMeta = fsDoc()
+    .collection('meta')
+    .doc('settings')
+    .onSnapshot(doc => {
+      const s = doc.exists ? doc.data() : {};
+      db.pushSubs = s.pushSubs || {};
+    });
+  fsUnsubs.push(unsubMeta);
+}
+
+function stopLiveUpdates() {
+  for (const unsub of fsUnsubs) {
+    try {
+      unsub();
+    } catch (e) {}
+  }
+  fsUnsubs = [];
 }
 /* ===== Перетаскивание чипа лейбла на фото (навесить лейбл броском) =====
    Единственный кросс-контейнерный жест, оставшийся вне SortableJS. Чипы лежат
@@ -626,17 +943,27 @@ function chipDragPointerDown(e) {
   const chip = chipDragTarget(e.target);
   if (!chip) return;
   chipDrag.state = {
-    chip, label: chip.dataset.label, started: false,
-    px: e.clientX || 0, py: e.clientY || 0, x: e.clientX || 0, y: e.clientY || 0,
-    grabDX: 0, grabDY: 0, ghost: null, hoverPhoto: null
+    chip,
+    label: chip.dataset.label,
+    started: false,
+    px: e.clientX || 0,
+    py: e.clientY || 0,
+    x: e.clientX || 0,
+    y: e.clientY || 0,
+    grabDX: 0,
+    grabDY: 0,
+    ghost: null,
+    hoverPhoto: null
   };
 }
 
 function chipDragPointerMove(e) {
   const st = chipDrag.state;
   if (!st) return;
-  const x = e.clientX || 0, y = e.clientY || 0;
-  st.x = x; st.y = y;
+  const x = e.clientX || 0,
+    y = e.clientY || 0;
+  st.x = x;
+  st.y = y;
   if (!st.started) {
     if (Math.abs(x - st.px) < CHIP_DRAG_THRESHOLD && Math.abs(y - st.py) < CHIP_DRAG_THRESHOLD) return;
     chipDragBegin(st, e);
@@ -660,7 +987,9 @@ function chipDragPointerMove(e) {
 function chipDragPhotoAt(x, y, fallbackEl) {
   let el = null;
   if (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function') {
-    try { el = document.elementFromPoint(x, y); } catch (err) {}
+    try {
+      el = document.elementFromPoint(x, y);
+    } catch (err) {}
   }
   if (!el) el = fallbackEl;
   return el && el.closest ? el.closest('.photo') : null;
@@ -669,10 +998,13 @@ function chipDragPhotoAt(x, y, fallbackEl) {
 function chipDragBegin(st, e) {
   st.started = true;
   if (e && e.pointerId !== undefined && st.chip.setPointerCapture) {
-    try { st.chip.setPointerCapture(e.pointerId); } catch (err) {}
+    try {
+      st.chip.setPointerCapture(e.pointerId);
+    } catch (err) {}
   }
   const r = st.chip.getBoundingClientRect ? st.chip.getBoundingClientRect() : { left: st.x, top: st.y, width: 0 };
-  st.grabDX = st.x - r.left; st.grabDY = st.y - r.top;
+  st.grabDX = st.x - r.left;
+  st.grabDY = st.y - r.top;
   if (st.chip.cloneNode) {
     const ghost = st.chip.cloneNode(true);
     ghost.classList.add('drag-ghost');
@@ -693,9 +1025,14 @@ function chipDragBegin(st, e) {
   if (document.body && document.body.classList) document.body.classList.add('uni-dragging');
 }
 
-function chipDragPointerUp(e) { chipDragEnd(chipDrag.state, e, true); }
-function chipDragPointerCancel() { chipDragEnd(chipDrag.state, null, false); }
-function chipDragCancelSafe() { // потеря фокуса окна
+function chipDragPointerUp(e) {
+  chipDragEnd(chipDrag.state, e, true);
+}
+function chipDragPointerCancel() {
+  chipDragEnd(chipDrag.state, null, false);
+}
+function chipDragCancelSafe() {
+  // потеря фокуса окна
   const st = chipDrag.state;
   if (!st) return;
   if (st.started) chipDragEnd(st, null, false);
@@ -713,16 +1050,22 @@ function chipDragEnd(st, e, ok) {
   if (st.ghost && st.ghost.remove) st.ghost.remove();
   if (document.body && document.body.classList) document.body.classList.remove('uni-dragging');
   if (!started) return; // обычный клик по чипу — фильтр переключит обычный делегат клика
-  if (!ok) { chipDragSuppressClick(); return; } // Esc/cancel/blur — без применения лейбла
-  const photo = e && (e.clientX !== undefined || e.clientY !== undefined)
-    ? chipDragPhotoAt(e.clientX || st.x, e.clientY || st.y, e.target)
-    : st.hoverPhoto;
+  if (!ok) {
+    chipDragSuppressClick();
+    return;
+  } // Esc/cancel/blur — без применения лейбла
+  const photo = e && (e.clientX !== undefined || e.clientY !== undefined) ? chipDragPhotoAt(e.clientX || st.x, e.clientY || st.y, e.target) : st.hoverPhoto;
   if (photo && photo.dataset && photo.dataset.id) {
     const targets = new Set(selectedPhotos); // всем отмеченным…
-    targets.add(photo.dataset.id);           // …и фото под курсором
+    targets.add(photo.dataset.id); // …и фото под курсором
     applyLabelToPhotos(st.label, targets);
     selectedPhotos.clear();
-    save(); renderPhotos();
+    // лейбл меняется сразу у нескольких фото (под курсором + отмеченные) — батч
+    repoBatch(
+      'photos',
+      db.photos.filter(p => targets.has(p.id))
+    );
+    renderPhotos();
   }
   chipDragSuppressClick();
 }
@@ -1450,6 +1793,86 @@ async function hydratePhotoImgs(scope) {
     // следующий hydratePhotoImgs после докачки подхватит его сам.
   }
 }
+/* ===== Разовый переезд из старого зашифрованного сейфа в Firestore =====
+   Запускается сам при первом входе новой версии и безопасен при повторах:
+   если в базе уже есть хоть один документ — не делает ничего.
+
+   Старый блоб в Realtime Database НЕ удаляется: пока владелец своими глазами
+   не подтвердит, что всё на месте, он остаётся нетронутой страховкой. */
+
+function mdOf(dateIso) {
+  return typeof dateIso === 'string' && dateIso.length >= 10 ? dateIso.slice(5, 10) : '';
+}
+
+async function migrateFromVaultIfNeeded() {
+  if (!fsReady) return false;
+
+  // Флаг завершения — meta/settings.migrated. Батчи ниже идут по одному, БЕЗ
+  // общей транзакции: если перенос оборвётся посередине (упала сеть, закрыли
+  // вкладку), часть коллекций уже уедет в Firestore, а часть — нет. Флаг
+  // ставится только после того, как ВСЕ батчи прошли успешно (см. конец
+  // функции), поэтому именно он, а не проба ниже, — надёжный признак «перенос
+  // точно закончен». Без него повторный запуск при обрыве на середине рисковал
+  // бы навсегда пропустить то, что не успело доехать.
+  const settings = await fsDoc().collection('meta').doc('settings').get();
+  if (settings.exists && settings.data().migrated) return false;
+
+  if (!db || (!(db.events || []).length && !(db.notes || []).length && !(db.photos || []).length)) return false;
+
+  // Проба — доп. защита на случай «данные уже есть, а флага нет» (например,
+  // перенос делала более старая версия кода, до появления флага). ВАЖНО
+  // проверять ВСЕ семь переносимых коллекций, а не только notes/events как
+  // было раньше (Critical-находка ревью): иначе один случайно уже переехавший
+  // кусок навсегда прятал бы от повторного запуска всё остальное, что не
+  // успело доехать при обрыве на середине.
+  const targets = [
+    ['events', db.events],
+    ['dates', db.dates],
+    ['notes', db.notes],
+    ['lists', db.lists],
+    ['wishes', db.wishlist],
+    ['labels', db.labels],
+    ['photos', db.photos]
+  ].filter(([, arr]) => (arr || []).length);
+  const probes = await Promise.all(targets.map(([coll]) => fsCol(coll).limit(1).get()));
+  if (targets.length && probes.every(p => p.docs.length)) {
+    // Important-находка ревью: обрыв на хвосте после 7 коллекций оставляет
+    // pushSubs неперенесёнными, но проба выше это не видит. Партнёр молча
+    // перестаёт получать уведомления, если его подписка не доехала. Если
+    // локально есть pushSubs, проверяем, что они уже в Firestore — иначе
+    // перенос не полный и должен повториться.
+    if (db.pushSubs && Object.keys(db.pushSubs).length) {
+      const metaSnap = await fsDoc().collection('meta').doc('settings').get();
+      const existingSubs = metaSnap.exists ? metaSnap.data().pushSubs || {} : {};
+      if (!Object.keys(existingSubs).length) {
+        // Есть локальные pushSubs, но в Firestore их нет — перенос незавершён.
+        // Продолжаем выполнение (не возвращаем false), чтобы доперенести pushSubs.
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+
+  // md нужен, чтобы годовщины находились независимо от года (см. спеку).
+  const events = (db.events || []).map(e => ({ ...e, md: mdOf(e.date) }));
+
+  await repoBatch('events', events);
+  await repoBatch('dates', db.dates || []);
+  await repoBatch('notes', db.notes || []);
+  await repoBatch('lists', db.lists || []);
+  await repoBatch('wishes', db.wishlist || []);
+  await repoBatch('labels', db.labels || []);
+  await repoBatch('photos', db.photos || []);
+  if (db.pushSubs && Object.keys(db.pushSubs).length) {
+    await repoMeta({ pushSubs: db.pushSubs });
+  }
+  // Флаг — только теперь, когда все батчи выше точно прошли успешно.
+  await repoMeta({ migrated: true });
+  console.warn('[migrate] данные перенесены в Firestore; старый сейф в RTDB оставлен как страховка');
+  return true;
+}
 /* ===== Хранилище ===== */
 function legacyDB() {
   try {
@@ -1461,44 +1884,19 @@ function legacyDB() {
     return defaultDB();
   }
 }
+// Читает старый зашифрованный сейф (universe_vault) — только на чтение.
+// Раньше сюда же писал save() на каждое изменение (и его закреплял push
+// блоб-синхронизации), но с переходом на Firestore как источник правды
+// (каждый экран пишет точечно через репозиторий, см. src/04-repo.js) запись
+// сюда убрана целиком — незачем. Само чтение остаётся: разовый перенос
+// данных пары (src/06-migrate.js, вызывается из unlockWithKey в
+// src/01-gate.js) читает отсюда старый сейф ровно один раз.
 function loadVault() {
   try {
     return JSON.parse(localStorage.getItem(VAULT_KEY));
   } catch (e) {
     return null;
   }
-}
-// Сохранение всегда идёт через шифрование; очередь снимков не даёт
-// гонке записать более старый снимок поверх свежего. Формат сейфа — просто
-// { db: {i,d} }: один общий мастер-ключ на пару (см. src/01-gate.js), без
-// пер-пользовательских обёрток паролем, как было раньше.
-let saveChain = Promise.resolve();
-function save() {
-  if (!masterKey) return Promise.resolve();
-  const snap = JSON.stringify(db);
-  // Ключ берём СЕЙЧАС (не читаем masterKey заново внутри .then): очередь может
-  // выполниться позже, когда lock() уже обнулит masterKey — раньше это роняло
-  // aesEnc с «2nd argument is not of type CryptoKey» при частых lock/unlock.
-  const keyAtCall = masterKey;
-  // Цепочка никогда не «падает»: один сбой шифрования отравил бы saveChain, и каждый
-  // следующий save() без await давал бы unhandledrejection с ложным тостом при входе.
-  saveChain = saveChain.then(async () => {
-    if (!keyAtCall) return;
-    try {
-      const blob = await aesEnc(keyAtCall, enc.encode(snap));
-      try {
-        localStorage.setItem(VAULT_KEY, JSON.stringify({ db: blob }));
-      } catch (e) {
-        notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true);
-      }
-      // Облачная синхронизация: после каждого успешного сохранения — push (debounce)
-      if (typeof scheduleSyncPush === 'function') scheduleSyncPush();
-    } catch (e) {
-      console.warn('Не удалось сохранить сейф', e);
-      notify('Не удалось сохранить — попробуй ещё раз 💜', true);
-    }
-  });
-  return saveChain;
 }
 
 /* ===== Разовая миграция со старого (парольного) сейфа =====
@@ -1530,8 +1928,11 @@ function unlockApp() {
   lastActivity = Date.now();
   startAutoLock();
   maybeShowDateInvitePopup(); // неотвеченные приглашения на свидание — сразу видно, не только листая вниз
-  // Облачная синхронизация: после входа пробуем забрать/отдать данные
-  if (typeof initSync === 'function') initSync();
+  // Облако фото (Yandex Object Storage, см. src/95-photos-cloud.js): после
+  // входа выгружаем свои фото / скачиваем недостающие. Данные (события,
+  // заметки и т.п.) синхронизировать не нужно — они читаются/пишутся прямо
+  // в Firestore каждым экраном, отдельного шага при входе не требуют.
+  if (typeof initPhotoSync === 'function') initPhotoSync();
 }
 // Приватный «замок» по бездействию (см. AUTO_LOCK_MS ниже): прячет данные на
 // этом устройстве, но НЕ разлогинивает из Google — сессия жива, возврат
@@ -1555,9 +1956,9 @@ function lock() {
   const resumeHint = $('#gateResumeHint');
   if (resumeHint) resumeHint.hidden = false;
   showGateErr('');
-  // Облачная синхронизация: при блокировке отключаем слушатели (но НЕ
-  // Google-сессию — см. stopSync в src/95-sync.js)
-  if (typeof stopSync === 'function') stopSync();
+  // Облако фото: при блокировке отключаем таймер сверки (но НЕ Google-сессию —
+  // см. stopPhotoSync в src/95-photos-cloud.js)
+  if (typeof stopPhotoSync === 'function') stopPhotoSync();
 }
 // Публичный API: сам app.js её не вызывает (UI смотрит на authLocked
 // напрямую), но тесты дёргают через s.isLocked — держим как явную точку
@@ -2124,7 +2525,7 @@ function saveDateFromModal() {
     existing.note = $('#dtNote').value.trim();
     existing.emoji = $('#dtEmoji').value.trim() || '💘';
     editingDateId = null;
-    save();
+    repoSet('dates', existing);
     $('#dateOverlay').hidden = true;
     renderHome();
     renderCalendar();
@@ -2137,7 +2538,7 @@ function saveDateFromModal() {
   // никогда не мог ответить сам — bothYes/celebrate() требовали 'yes' от
   // обоих буквально, из-за чего «Мы идём на свидание!» не срабатывало
   // НИКОГДА ни при каком сценарии использования.
-  db.dates.push({
+  const dt = {
     id: uid(),
     date,
     time: $('#dtTime').value,
@@ -2147,8 +2548,9 @@ function saveDateFromModal() {
     note: $('#dtNote').value.trim(),
     emoji: $('#dtEmoji').value.trim() || '💘',
     done: false
-  });
-  save();
+  };
+  db.dates.push(dt);
+  repoSet('dates', dt);
   $('#dateOverlay').hidden = true;
   renderHome();
   renderCalendar();
@@ -2736,10 +3138,20 @@ function renderDayPanel() {
 function addDayEvent() {
   const title = $('#dayTitle').value.trim();
   if (!title) return;
-  db.events.push({ id: uid(), title, date: selectedDate, emoji: $('#dayEmoji').value.trim() || '💜', repeat: true });
-  save();
+  const ev = { id: uid(), title, date: selectedDate, emoji: $('#dayEmoji').value.trim() || '💜', repeat: true };
+  ev.md = mdOf(ev.date); // md ищут годовщины по 'MM-DD' независимо от года
+  db.events.push(ev);
+  repoSet('events', ev);
   renderCalendar();
   renderHome();
+}
+// Календарь держит в памяти не все события, а только загруженные окна
+// месяцев — после любой смены calY/calM дотягиваем сам месяц и оба соседних
+// (соседние — заранее, чтобы дальнейшее листание шло без пауз на сеть).
+function loadCalMonthNeighbors() {
+  loadMonth(calY, calM).then(() => renderCalendar());
+  loadMonth(calM === 0 ? calY - 1 : calY, calM === 0 ? 11 : calM - 1);
+  loadMonth(calM === 11 ? calY + 1 : calY, calM === 11 ? 0 : calM + 1);
 }
 $('#calPrev').addEventListener('click', () => {
   calM--;
@@ -2749,6 +3161,7 @@ $('#calPrev').addEventListener('click', () => {
   }
   selectedDate = null;
   renderCalendar();
+  loadCalMonthNeighbors();
 });
 $('#calNext').addEventListener('click', () => {
   calM++;
@@ -2758,6 +3171,7 @@ $('#calNext').addEventListener('click', () => {
   }
   selectedDate = null;
   renderCalendar();
+  loadCalMonthNeighbors();
 });
 $('#addEventBtn').addEventListener('click', () => openEventModal());
 
@@ -2837,6 +3251,7 @@ function jumpToNearestEvent() {
   calM = m - 1;
   selectedDate = nx.date;
   renderCalendar(); // updateNearestJump() скроет кнопку/плашку: ближайшее уже на экране
+  loadCalMonthNeighbors();
 }
 $('#jumpNextBtn').addEventListener('click', jumpToNearestEvent);
 
@@ -2869,6 +3284,7 @@ function jumpCalendar(m, y) {
   calY = +y;
   selectedDate = null;
   renderCalendar();
+  loadCalMonthNeighbors();
 }
 $('#calMonthSelect').addEventListener('change', e => jumpCalendar(e.target.value, calY));
 $('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.value));
@@ -2920,7 +3336,10 @@ function addEventPhotosToGallery(photos, title) {
     const existing = db.photos.find(p => p.id === photoRef);
     if (existing) {
       if (!Array.isArray(existing.labels)) existing.labels = [];
-      if (!existing.labels.includes(EVENT_LABEL)) existing.labels.push(EVENT_LABEL);
+      if (!existing.labels.includes(EVENT_LABEL)) {
+        existing.labels.push(EVENT_LABEL);
+        repoSet('photos', existing); // лейбл поменялся у уже существующего фото — своя запись
+      }
       ids.push(existing.id);
     } else {
       const ph = { id: uid(), data: photoRef, title, labels: [EVENT_LABEL], pinned: false, ts: Date.now(), order: 0 };
@@ -2937,6 +3356,7 @@ function addEventPhotosToGallery(photos, title) {
               const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size, origType: origFile ? origFile.type || '' : '' };
               await photoStore.put(ph.id, blob, thumb, meta, origFile); // origFile — сырой файл, если есть
               if (ph.data === photoRef) delete ph.data; // блоб в сторе — base64 из памяти убираем
+              repoSet('photos', ph); // метаданные без base64 — теперь можно писать в Firestore
               if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
             })
             .catch(e => console.warn('Не удалось сохранить фото события в хранилище', e));
@@ -2975,7 +3395,13 @@ function addEventPhotoQuick(evId) {
       const ids = addEventPhotosToGallery(ok, ev.title);
       const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object' ? x.data : x));
       ev.photos = Array.isArray(ev.photos) ? ev.photos.concat(refs) : refs;
-      save();
+      // repoSet пишет документ целиком (не merge) — без явного md годовщина
+      // потеряла бы дату повтора, хотя мы всего лишь добавили фото.
+      ev.md = mdOf(ev.date);
+      repoSet('events', ev);
+      // repoSet выше пишет только сам документ события — метаданные фото
+      // (новая карточка или лейбл на существующем) addEventPhotosToGallery()
+      // уже сохранила сама через repoSet('photos', ...) для каждого задетого фото.
       renderCalendar();
       renderHome();
     },
@@ -2996,7 +3422,10 @@ function addDatePhotosToGallery(photos, title) {
     const existing = db.photos.find(p => p.id === photoRef);
     if (existing) {
       if (!Array.isArray(existing.labels)) existing.labels = [];
-      if (!existing.labels.includes(DATE_LABEL)) existing.labels.push(DATE_LABEL);
+      if (!existing.labels.includes(DATE_LABEL)) {
+        existing.labels.push(DATE_LABEL);
+        repoSet('photos', existing); // лейбл поменялся у уже существующего фото — своя запись
+      }
       ids.push(existing.id);
     } else {
       const ph = { id: uid(), data: photoRef, title, labels: [DATE_LABEL], pinned: false, ts: Date.now(), order: 0 };
@@ -3011,6 +3440,7 @@ function addDatePhotosToGallery(photos, title) {
               const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size, origType: origFile ? origFile.type || '' : '' };
               await photoStore.put(ph.id, blob, thumb, meta, origFile); // origFile — сырой файл, если есть
               if (ph.data === photoRef) delete ph.data;
+              repoSet('photos', ph); // метаданные без base64 — теперь можно писать в Firestore
               if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
             })
             .catch(e => console.warn('Не удалось сохранить фото свидания в хранилище', e));
@@ -3050,7 +3480,10 @@ function addDatePhotoQuick(dtId) {
       const ids = addDatePhotosToGallery(ok, title);
       const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object' ? x.data : x));
       dt.photos = Array.isArray(dt.photos) ? dt.photos.concat(refs) : refs;
-      save();
+      repoSet('dates', dt);
+      // repoSet выше пишет только сам документ свидания — метаданные фото
+      // (новая карточка или лейбл на существующем) addDatePhotosToGallery()
+      // уже сохранила сама через repoSet('photos', ...) для каждого задетого фото.
       renderCalendar();
       renderHome();
     },
@@ -3399,24 +3832,34 @@ function saveEventFromModal() {
     data.photos = ids.length ? ids : evPhotoData.map(x => (x && typeof x === 'object' ? x.data : x));
   }
   const ev = editingEventId ? db.events.find(x => x.id === editingEventId) : null;
+  let savedEv;
   if (ev) {
     if (ev.photos && !evPhotoData.length) delete ev.photos;
     Object.assign(ev, data);
+    savedEv = ev;
   } else {
     // Если редактируемое событие не найдено (например, удалено в другой вкладке) —
     // создаём новое, чтобы пользовательские данные не терялись молча.
-    db.events.push({ id: uid(), ...data });
+    savedEv = { id: uid(), ...data };
+    db.events.push(savedEv);
   }
+  // md ставим при каждом сохранении, а не только при создании: пользователь
+  // мог поправить дату у уже существующей годовщины.
+  savedEv.md = mdOf(savedEv.date);
   // Переходим на месяц события, чтобы оно сразу появилось в календаре
   const [evY, evM] = date.split('-').map(Number);
   calM = evM - 1;
   calY = evY;
   selectedDate = date;
   editingEventId = null;
-  save();
+  repoSet('events', savedEv);
+  // repoSet выше пишет только сам документ события — метаданные свежих фото
+  // (evPhotoData) addEventPhotosToGallery() уже сохранила сама через
+  // repoSet('photos', ...) для каждого задетого фото.
   $('#eventOverlay').hidden = true;
   renderCalendar();
   renderHome();
+  loadCalMonthNeighbors();
 }
 $('#evSave').addEventListener('click', saveEventFromModal);
 
@@ -3520,8 +3963,9 @@ function renderNotes() {
 function addNote() {
   const t = $('#noteText').value.trim();
   if (!t) return;
-  db.notes.unshift({ id: uid(), text: t, ts: Date.now(), pinned: false, author: getUser(), order: 0 });
-  save();
+  const note = { id: uid(), text: t, ts: Date.now(), pinned: false, author: getUser(), order: 0 };
+  db.notes.unshift(note);
+  repoSet('notes', note); // точечная запись новой заметки, не всего набора
   $('#noteText').value = '';
   renderNotes();
 }
@@ -3535,14 +3979,14 @@ function togglePinNote(id) {
   const n = db.notes.find(x => x.id === id);
   if (!n) return;
   n.pinned = !n.pinned;
-  save();
+  repoSet('notes', n);
   renderNotes();
 }
 function deleteNote(id) {
   if (!confirmDelete('Удалить заметку? Это не отменить.')) return;
   db.notes = db.notes.filter(x => x.id !== id);
   if (editingNoteId === id) editingNoteId = null;
-  save();
+  repoDelete('notes', id);
   renderNotes();
 }
 
@@ -3565,7 +4009,7 @@ function saveNoteEdit(id, text) {
     n.ts = Date.now();
   }
   editingNoteId = null;
-  save();
+  repoSet('notes', n);
   renderNotes();
 }
 $('#notesGrid').addEventListener('dblclick', e => {
@@ -3591,7 +4035,7 @@ function notesSortEnd(evt) {
       const n = db.notes.find(x => x.id === id);
       if (n) n.order = i;
     });
-  save();
+  repoBatch('notes', db.notes); // порядок меняется у всех заметок разом — батч, не поштучно
   renderNotes();
 }
 if (typeof Sortable !== 'undefined') {
@@ -3644,7 +4088,7 @@ function saveSubtaskEdit(listId, itemId, text) {
   const inp = $('#subtaskEdit-' + itemId);
   const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
   if (t) it.text = t;
-  save();
+  repoSet('lists', list); // подзадача живёт внутри документа списка — пишем список целиком
   renderLists();
 }
 // Редактирование названия списка — в отличие от подзадачи, список пересоздать
@@ -3668,7 +4112,7 @@ function saveListNameEdit(listId, text) {
   const inp = $('#listNameEdit-' + listId);
   const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
   if (t) list.name = t;
-  save();
+  repoSet('lists', list);
   renderLists();
 }
 // Выполненные подзадачи всегда внизу списка: устойчивая сортировка —
@@ -3683,7 +4127,11 @@ function renderLists() {
     wrap.innerHTML = '<div class="empty-state rem-empty">Пока нет ни одного списка 🫧<br>Создайте первый — например, «Подарки на 8 марта».</div>';
     return;
   }
-  wrap.innerHTML = db.lists
+  // Сортируем по order (как renderNotes) — сам db.lists может прийти из
+  // Firestore в произвольном порядке документов, order — единственный
+  // источник истины для позиции карточки.
+  const sorted = [...db.lists].sort((a, b) => (a.order ?? 1e9) - (b.order ?? 1e9));
+  wrap.innerHTML = sorted
     .map(list => {
       const active = list.items.filter(i => !i.done).length;
       const editingName = editingListId === list.id;
@@ -3810,9 +4258,9 @@ function listFlipAnimate(scope, before) {
 function createList(rawName) {
   const name = String(rawName || '').trim();
   if (!name) return null;
-  const list = { id: uid(), name, items: [] };
+  const list = { id: uid(), name, items: [], order: 0 }; // order:0 — тот же приём, что у addNote/addPhoto
   db.lists.unshift(list); // новый список — сверху
-  save();
+  repoSet('lists', list);
   renderLists();
   const inp = $('#listNameInput');
   if (inp) inp.value = '';
@@ -3825,7 +4273,7 @@ function addListSubtask(listId, inputId) {
   const text = (inp && inp.value ? String(inp.value) : '').trim();
   if (!text) return false;
   list.items.unshift({ id: uid(), text, done: false });
-  save();
+  repoSet('lists', list); // подзадача — часть документа списка
   if (inp) inp.value = '';
   refreshListCard(listId);
   return true;
@@ -3837,7 +4285,7 @@ function toggleSubtask(listId, itemId) {
   if (!it) return false;
   it.done = !it.done;
   list.items = sortListItems(list.items); // выполненные — вниз
-  save();
+  repoSet('lists', list);
   refreshListCard(listId);
   // мини-«поп» галочки у переключённой подзадачи (анимация в CSS)
   const ul = $('#listItems-' + listId);
@@ -3854,7 +4302,7 @@ function delSubtask(listId, itemId) {
   const list = db.lists.find(x => x.id === listId);
   if (!list) return false;
   list.items = list.items.filter(x => x.id !== itemId);
-  save();
+  repoSet('lists', list);
   refreshListCard(listId);
   return true;
 }
@@ -3864,20 +4312,24 @@ function completeList(listId) {
   if (!list) return false;
   if (!confirm('Выполнить список «' + list.name + '»? Он будет удалён вместе с подзадачами.')) return false;
   db.lists = db.lists.filter(x => x.id !== listId);
-  save();
+  repoDelete('lists', listId); // «выполнить» на деле удаляет весь список вместе с подзадачами
   renderLists();
   return true;
 }
 
 // Перетаскивание карточек списков — SortableJS (forceFallback: нативный HTML5
-// DnD не поддерживает тач). Порядок — сам массив db.lists (без отдельного
-// order-поля), как и раньше.
+// DnD не поддерживает тач). Порядок — поле order документа списка, тот же
+// приём, что у notesSortEnd (src/50-notes.js): без него Firestore не
+// гарантирует порядок документов, и перетаскивание не переживало reload /
+// второе устройство (Critical-находка ревью задач 8-9).
 function listsSortEnd(evt) {
-  db.lists = [...evt.to.children]
-    .filter(c => c.classList && c.classList.contains('list-card'))
-    .map(c => db.lists.find(l => l.id === c.dataset.id))
-    .filter(Boolean);
-  save();
+  const ids = [...evt.to.children].filter(c => c.classList && c.classList.contains('list-card')).map(c => c.dataset.id);
+  ids.forEach((id, i) => {
+    const l = db.lists.find(x => x.id === id);
+    if (l) l.order = i;
+  });
+  db.lists = ids.map(id => db.lists.find(l => l.id === id)).filter(Boolean);
+  repoBatch('lists', db.lists); // порядок меняется у всех карточек разом — батч, не поштучно
 }
 if (typeof Sortable !== 'undefined') {
   Sortable.create($('#listsWrap'), {
@@ -3909,7 +4361,7 @@ function subtaskSortEnd(listId, evt) {
     .map(li => list.items.find(it => it.id === li.dataset.item))
     .filter(Boolean);
   if (items.length === list.items.length) list.items = items;
-  save();
+  repoSet('lists', list); // порядок подзадач — часть документа списка, не отдельная сущность
 }
 function initSubtaskSortables() {
   if (typeof Sortable === 'undefined') return;
@@ -4070,18 +4522,21 @@ async function saveWishFromModal() {
     }
   }
   const existing = editingWishId ? db.wishlist.find(x => x.id === editingWishId) : null;
+  let wish;
   if (existing) {
     // Владелец/статус «исполнено» правка не трогает — только текст/ссылку/фото.
     existing.text = text;
     existing.link = $('#wishLink').value.trim() || '';
     if (photoId) existing.photoId = photoId; // новое фото выбрано — заменяем; иначе старое остаётся
     editingWishId = null;
+    wish = existing;
   } else {
-    const wish = { id: uid(), text, link: $('#wishLink').value.trim() || '', owner: getUser(), done: false, ts: Date.now() };
+    wish = { id: uid(), text, link: $('#wishLink').value.trim() || '', owner: getUser(), done: false, ts: Date.now() };
     if (photoId) wish.photoId = photoId;
     db.wishlist.unshift(wish);
   }
-  save();
+  // коллекция в базе называется wishes, массив в памяти — db.wishlist (расхождение осознанное)
+  repoSet('wishes', wish);
   $('#wishOverlay').hidden = true;
   renderWishlist();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
@@ -4093,7 +4548,7 @@ function toggleDateDone(id) {
   const d = db.dates.find(x => x.id === id);
   if (!d) return false;
   d.done = !d.done;
-  save();
+  repoSet('dates', d); // меняется само свидание, не список/хотелка — коллекция dates
   renderHome();
   renderCalendar();
   return d.done;
@@ -4120,7 +4575,7 @@ document.addEventListener('click', e => {
   if (delEv) {
     if (!confirmDelete('Удалить событие? Это не отменить.')) return;
     db.events = db.events.filter(x => x.id !== delEv.dataset.delEvent);
-    save();
+    repoDelete('events', delEv.dataset.delEvent); // это событие, не список/хотелка
     renderCalendar();
     renderHome();
     return;
@@ -4166,7 +4621,7 @@ document.addEventListener('click', e => {
       const justAnswered = d.responses[who] !== val; // true, если это не «снял ответ», а именно новый ответ
       d.responses[who] = d.responses[who] === val ? null : val;
       if (d.responses.gosha === 'yes' && d.responses.dasha === 'yes') celebrate(); // оба согласились — салют!
-      save();
+      repoSet('dates', d); // меняется свидание (responses), не список/хотелка
       renderHome();
       renderCalendar();
       // Пуш пригласившему — только на настоящий ответ, не на его снятие; без деталей, см. src/96-push.js
@@ -4185,7 +4640,7 @@ document.addEventListener('click', e => {
   if (delDate) {
     if (!confirmDelete('Удалить свидание? Это не отменить.')) return;
     db.dates = db.dates.filter(x => x.id !== delDate.dataset.delDate);
-    save();
+    repoDelete('dates', delDate.dataset.delDate); // это свидание, не список/хотелка
     renderHome();
     renderCalendar();
     return;
@@ -4308,7 +4763,7 @@ document.addEventListener('click', e => {
           w.doneBy = me;
           w.doneAt = Date.now();
         }
-        save();
+        repoSet('wishes', w);
       }
       renderWishlist();
     }
@@ -4323,7 +4778,7 @@ document.addEventListener('click', e => {
   if (wishDel) {
     if (!confirmDelete('Удалить хотелку? Это не отменить.')) return;
     db.wishlist = db.wishlist.filter(x => x.id !== wishDel.dataset.wishDel);
-    save();
+    repoDelete('wishes', wishDel.dataset.wishDel);
     renderWishlist();
     return;
   }
@@ -4535,6 +4990,7 @@ $('#photoInput').addEventListener('change', async e => {
           const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size, takenAt, origType: f.type || '' };
           await photoStore.put(ph.id, blob, thumb, meta, f); // f — оригинал (сырой файл камеры)
           delete ph.data; // блоб в сторе — из памяти убираем base64
+          repoSet('photos', ph); // метаданные (без base64 — сам файл уже в photoStore/бакете)
           if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // выгрузим в облако
         }
       } catch (err) {
@@ -4545,7 +5001,6 @@ $('#photoInput').addEventListener('change', async e => {
     }
   }
   e.target.value = '';
-  save();
   renderPhotos();
 });
 // Лейблы — {id,name,color}. Полоса чипов теперь только фильтр (клик всегда
@@ -4574,19 +5029,25 @@ function renderLabels() {
 }
 // Чистка фото без подтверждения — общая часть deletePhoto()/deleteSelectedPhotos()
 // (при массовом удалении confirm один, на всех отмеченных сразу).
-function deletePhotoSilent(id) {
+// touched (необязателен) собирает события/свидания, у которых поменялся
+// массив photos — при массовом удалении (deleteSelectedPhotos) один и тот же
+// ev/dt может задеть несколько удаляемых фото подряд; Set по ссылке схлопывает
+// повторы, чтобы на каждое такое событие ушла одна запись, а не по одной на фото.
+function deletePhotoSilent(id, touched) {
   const ph = db.photos.find(x => x.id === id);
   if (ph) {
     // фото удаляется и из событий, и из свиданий, чтобы в календаре не оставалось «мёртвых» миниатюр
     db.events.forEach(ev => {
-      if (!Array.isArray(ev.photos)) return;
+      if (!Array.isArray(ev.photos) || !ev.photos.includes(ph.id)) return;
       ev.photos = ev.photos.filter(d => d !== ph.id);
       if (!ev.photos.length) delete ev.photos;
+      if (touched) touched.events.add(ev);
     });
     db.dates.forEach(dt => {
-      if (!Array.isArray(dt.photos)) return;
+      if (!Array.isArray(dt.photos) || !dt.photos.includes(ph.id)) return;
       dt.photos = dt.photos.filter(d => d !== ph.id);
       if (!dt.photos.length) delete dt.photos;
+      if (touched) touched.dates.add(dt);
     });
     if (photoStore && ph.id) photoStore.delete(ph.id); // убираем блоб из IndexedDB
   }
@@ -4595,15 +5056,23 @@ function deletePhotoSilent(id) {
   // Удаляем из кэша только удалённое фото — остальные миниатюры остаются
   if (id) thumbCache.delete(id);
 }
+// Порядок записи важен: сначала метаданные фото и задетых событий/свиданий
+// в Firestore, и только когда это подтвердилось — schedulePhotoSync() (реально
+// стирает шифртекст из бакета). Обратный порядок оставил бы битую карточку:
+// файл в бакете уже нет, а метаданные о нём — ещё есть.
 function deletePhoto(id) {
   const ph = db.photos.find(x => x.id === id);
   if (!confirmDelete('Удалить фото' + (ph && ph.title ? ' «' + ph.title + '»' : '') + '? Это не отменить.')) return;
-  deletePhotoSilent(id);
-  save();
+  const touched = { events: new Set(), dates: new Set() };
+  deletePhotoSilent(id, touched);
   renderPhotos();
   renderCalendar();
   renderHome();
-  if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // уберём и из облака
+  touched.events.forEach(ev => repoSet('events', ev));
+  touched.dates.forEach(dt => repoSet('dates', dt));
+  repoDelete('photos', id).then(() => {
+    if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // и только теперь — из облака
+  });
 }
 // Массовое удаление отмеченных фото (панель выбора «🗑 Удалить выбранные») —
 // один confirm на все, без повторного диалога на каждое.
@@ -4611,12 +5080,16 @@ function deleteSelectedPhotos() {
   const ids = [...selectedPhotos];
   if (!ids.length) return;
   if (!confirmDelete(`Удалить ${ids.length} фото? Это не отменить.`)) return;
-  ids.forEach(deletePhotoSilent);
-  save();
+  const touched = { events: new Set(), dates: new Set() };
+  ids.forEach(id => deletePhotoSilent(id, touched));
   renderPhotos();
   renderCalendar();
   renderHome();
-  if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
+  touched.events.forEach(ev => repoSet('events', ev));
+  touched.dates.forEach(dt => repoSet('dates', dt));
+  Promise.all(ids.map(id => repoDelete('photos', id))).then(() => {
+    if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
+  });
 }
 // Массовое закрепление (панель выбора «⭐/☆ Закрепить») — тот же тоггл-приём,
 // что и у применения лейблов (toggleLabelOnPhotos): если закреплены уже ВСЕ
@@ -4629,7 +5102,7 @@ function toggleSelectedPin() {
   targets.forEach(p => {
     p.pinned = !allPinned;
   });
-  save();
+  repoBatch('photos', targets);
   renderPhotos();
 }
 // К каким событиям привязано фото — для фильтра «год → месяц → событие».
@@ -4682,6 +5155,13 @@ function renderPhotos() {
     photosRenderQueued = false;
     renderPhotosNow();
   }
+  // Догрузку страницы НЕ вешаем сюда: renderPhotos() вызывается практически
+  // на любое действие в галерее (лейбл, закрепление, переименование,
+  // удаление, реордер, просто открытие вкладки) — если досылать следующую
+  // страницу из конца рендера, любое непричастное действие вычерпывало бы
+  // всю коллекцию по странице за раз, рекурсивно, пока не кончится курсор.
+  // Дозагрузка привязана к видимости метки-сентинела в конце сетки — см.
+  // photosObserver и #photosSentinel в renderPhotosNow() ниже.
 }
 function renderPhotosNow() {
   const grid = $('#photosGrid');
@@ -4726,7 +5206,7 @@ function renderPhotosNow() {
       }
     }
   }
-  grid.innerHTML = list.length
+  const cards = list.length
     ? list
         .map(p => {
           // Кэш миниатюр может быть ещё не прогрет — рисуем каркас и заполняем src
@@ -4755,7 +5235,42 @@ function renderPhotosNow() {
         })
         .join('')
     : '<p class="cal-tip">📷 Загрузите ваши фото — они зашифруются и будут доступны с обоих устройств, если настроена синхронизация в Настройках.</p>';
+  // Невидимая метка в конце сетки — на неё наводится photosObserver ниже,
+  // чтобы знать, когда догружать следующую страницу. grid-column:1/-1 и
+  // высота 1px — иначе в CSS grid (photos-grid) это была бы лишняя пустая
+  // плитка на всю ширину колонки.
+  grid.innerHTML = cards + '<div id="photosSentinel" aria-hidden="true" style="grid-column:1/-1;height:1px"></div>';
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
+  // grid.innerHTML каждый раз пересоздаёт разметку целиком — старая метка
+  // уничтожена вместе с ней, новую нужно заново отдать тому же наблюдателю.
+  if (photosObserver) {
+    photosObserver.disconnect();
+    const sentinel = $('#photosSentinel');
+    if (sentinel) photosObserver.observe(sentinel);
+  }
+}
+// Дозагрузка страниц галереи по видимости метки #photosSentinel (конец сетки),
+// а не по событию scroll: если первая страница (60 фото) и так умещается в
+// экран — широкий монитор, планшет лёжа, редкая сетка миниатюр — скроллбар
+// не появляется, scroll не всплывает ни разу, и загрузка следующих страниц
+// намертво зависает. IntersectionObserver же срабатывает и в этом случае
+// (метка сразу видна), и при прокрутке, и при ресайзе — не нужно гадать,
+// из-за чего метка попала в поле зрения. Держим один наблюдатель на всё
+// время жизни скрипта (не пересоздаём на каждый рендер) — только переводим
+// его на новую метку после renderPhotosNow(), см. выше. photosLoadingMore
+// защищает от повторного запроса, если срабатываний несколько подряд.
+// IntersectionObserver есть не везде (песочница тестов, старые окружения) —
+// тогда наблюдатель просто не создаётся, а пагинация (loadMorePhotos)
+// тестируется напрямую.
+let photosObserver = null;
+if (typeof IntersectionObserver === 'function') {
+  photosObserver = new IntersectionObserver(entries => {
+    if (!entries.some(e => e.isIntersecting)) return;
+    if (activeView !== 'photos' || !db.photos.length || !photosCursor) return;
+    loadMorePhotos().then(added => {
+      if (added) renderPhotos();
+    });
+  });
 }
 // Витрина «📅 События»: кнопки «год → месяц → событие» появляются по мере выбора
 function eventPhotosCount(year, month, title) {
@@ -4821,12 +5336,18 @@ function renderEventBar() {
 // Лейблы: удаление (фото не трогаем), применение/снятие, создание.
 // p.labels хранит id — у служебных EVENT_LABEL/DATE_LABEL id равен имени,
 // у ручных лейблов id генерируется при создании (см. labelById в renderLabels).
+// Побочный эффект удаления лейбла — он снимается со всех фото, где стоял;
+// это отдельные сущности (коллекция photos), поэтому отдельная запись
+// (repoBatch), а не только repoDelete самого лейбла.
 function deleteLabelSilent(id) {
   if (id === EVENT_LABEL || id === DATE_LABEL) return; // служебные лейблы защищены от удаления
   db.labels = db.labels.filter(l => l.id !== id);
-  db.photos.forEach(p => {
-    if (p.labels) p.labels = p.labels.filter(l => l !== id);
+  repoDelete('labels', id);
+  const touched = db.photos.filter(p => (p.labels || []).includes(id));
+  touched.forEach(p => {
+    p.labels = p.labels.filter(x => x !== id);
   });
+  repoBatch('photos', touched);
   if (currentLabel === id) currentLabel = '';
 }
 function deleteLabel(id) {
@@ -4835,7 +5356,6 @@ function deleteLabel(id) {
   const count = db.photos.filter(p => (p.labels || []).includes(id)).length;
   if (!confirmDelete(`Удалить лейбл «${l.name}»${count ? ` (снимется с ${count} фото)` : ''}? Это не отменить.`)) return;
   deleteLabelSilent(id);
-  save();
   renderLabelManageList();
   renderPhotos();
 }
@@ -4856,14 +5376,14 @@ function toggleLabelOnPhotos(id, ids) {
     if (!Array.isArray(p.labels)) p.labels = [];
     p.labels = allHave ? p.labels.filter(l => l !== id) : p.labels.includes(id) ? p.labels : [...p.labels, id];
   });
-  save();
+  repoBatch('photos', targets);
 }
 // Убрать лейбл с конкретного фото (крестик ✕ на бейдже фото).
 function removeLabelFromPhoto(photoId, id) {
   const p = db.photos.find(x => x.id === photoId);
   if (!p || !Array.isArray(p.labels) || !p.labels.includes(id)) return;
   p.labels = p.labels.filter(l => l !== id);
-  save();
+  repoSet('photos', p);
   renderPhotos();
 }
 
@@ -4924,8 +5444,10 @@ function saveLabelNameEdit(id, text) {
   }
   const inp = $('#labelNameEdit-' + id);
   const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
-  if (t) l.name = t;
-  save();
+  if (t) {
+    l.name = t;
+    repoSet('labels', l);
+  }
   renderLabelManageList();
   renderPhotos();
 }
@@ -4939,16 +5461,17 @@ function setLabelColor(id, color) {
   if (!l) return;
   l.color = color;
   colorPickerLabelId = null;
-  save();
+  repoSet('labels', l);
   renderLabelManageList();
   renderPhotos();
 }
 $('#labelNewBtn').addEventListener('click', () => {
   const name = $('#labelNewName').value.trim();
   if (!name) return;
-  db.labels.push({ id: uid(), name, color: LABEL_COLORS[db.labels.length % LABEL_COLORS.length] });
+  const label = { id: uid(), name, color: LABEL_COLORS[db.labels.length % LABEL_COLORS.length] };
+  db.labels.push(label);
+  repoSet('labels', label);
   $('#labelNewName').value = '';
-  save();
   renderLabelManageList();
   renderPhotos();
   $('#labelNewName').focus();
@@ -4984,9 +5507,14 @@ $('#labelApplyNewBtn').addEventListener('click', () => {
   if (!name) return;
   const l = { id: uid(), name, color: LABEL_COLORS[db.labels.length % LABEL_COLORS.length] };
   db.labels.push(l);
+  repoSet('labels', l);
   applyLabelToPhotos(l.id, applyTargetIds);
+  // новый лейбл и применение его к фото — разные сущности, две записи
+  repoBatch(
+    'photos',
+    db.photos.filter(p => applyTargetIds.includes(p.id))
+  );
   $('#labelApplyNewName').value = '';
-  save();
   renderLabelApplyList();
   renderPhotos();
 });
@@ -5087,18 +5615,21 @@ function photosSortEnd(evt) {
     targets.add(evt.item.dataset.id); // …и перетаскиваемому фото
     applyLabelToPhotos(chip.dataset.label, targets);
     selectedPhotos.clear(); // действие выполнено — выделение снимаем
-    save();
+    repoBatch(
+      'photos',
+      db.photos.filter(p => targets.has(p.id))
+    );
     renderPhotos();
     return;
   }
   // обычный реордер: порядок из текущего DOM-порядка сетки, закреплённые сверху
   const domIds = [...evt.to.children].filter(c => c.classList && c.classList.contains('photo')).map(c => c.dataset.id);
   const list = domIds.map(id => db.photos.find(p => p.id === id)).filter(Boolean);
-  [...list.filter(p => p.pinned), ...list.filter(p => !p.pinned)].forEach((p, i) => {
-    const ph = db.photos.find(x => x.id === p.id);
-    if (ph) ph.order = i;
+  const reordered = [...list.filter(p => p.pinned), ...list.filter(p => !p.pinned)];
+  reordered.forEach((p, i) => {
+    p.order = i;
   });
-  save();
+  repoBatch('photos', reordered);
   renderPhotos();
 }
 if (typeof Sortable !== 'undefined') {
@@ -5138,29 +5669,23 @@ function renderSettings() {
   }
   const hint = $('#backupHint');
   if (!hint) return;
-  // Статус облачной синхронизации (модуль 95-sync.js)
-  if (typeof renderSyncStatus === 'function') renderSyncStatus(syncUiState, syncUiTs);
   renderPushSettings(); // модуль 96-push.js — асинхронно проверяет текущую PushManager-подписку
-  if (!db.backupDate) {
-    hint.innerHTML = '<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Резервная копия ещё не делалась. Нажми «Скачать копию» — так ничего не потеряется.</span>';
-  } else {
-    const days = Math.floor((Date.now() - db.backupDate) / 86400000);
-    hint.innerHTML =
-      days >= 30
-        ? `<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Последняя копия была ${days} дн. назад. Самое время обновить её.</span>`
-        : `<span style="color:#059669;font-weight:700;font-size:14px">✅ Копия сделана ${days === 0 ? 'сегодня' : days + ' дн. назад'}. Всё под защитой.</span>`;
-  }
+  // РЕВЬЮ задачи 12 (Minor, находка 4): напоминание «копия ещё не делалась»/
+  // «была N дн. назад» держалось на db.backupDate, а новый exportData() это
+  // поле больше не выставляет — подсказка врала бы даже сразу после успешной
+  // выгрузки. Кнопка «Скачать копию» остаётся, жёлтые напоминания были нужны,
+  // пока данные жили только в браузере — сейчас это Firestore, убираем блок
+  // целиком (сама db.backupDate не трогается — её уборка в отдельной задаче).
+  hint.innerHTML = '';
   // Личный кабинет: какой Google-аккаунт вошёл
   const gi = $('#gateAccountInfo');
   if (gi) gi.textContent = gateUser && gateUser.email ? gateUser.email + (getUser() === 'dasha' ? ' (Даша)' : ' (Гоша)') : '—';
 }
-// Экспорт — зашифрованный сейф: без пароля файл не прочитать.
-// Фото-блобы лежат в IndexedDB (не в localStorage), поэтому их зашифрованные
-// копии добавляем в архив отдельной секцией photos.
+/* Копия данных: обычный JSON. Раньше выгружался зашифрованный сейф, но сейфа
+   больше нет — данные живут в Firestore под защитой правил доступа. Фото
+   кладём как есть: они и так зашифрованы, расшифровывать их ради бэкапа
+   бессмысленно. */
 async function exportData() {
-  db.backupDate = Date.now();
-  await save();
-  const vault = loadVault();
   let photoSection = null;
   if (photoStore) {
     try {
@@ -5170,44 +5695,72 @@ async function exportData() {
       console.warn('Не удалось собрать фото для бэкапа', e);
     }
   }
-  const out = photoSection ? { ...vault, photos: photoSection } : vault;
+  const out = {
+    ver: 2,
+    savedAt: Date.now(),
+    events: db.events || [],
+    dates: db.dates || [],
+    notes: db.notes || [],
+    lists: db.lists || [],
+    wishlist: db.wishlist || [],
+    labels: db.labels || [],
+    photos: db.photos || [],
+    pushSubs: db.pushSubs || {}
+  };
+  if (photoSection) out.photos_blobs = photoSection;
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  // Фаза D: имя бэкапа с датой — сразу видно, когда сделана копия
   const d = new Date();
-  const y = d.getFullYear();
   const mo = String(d.getMonth() + 1).padStart(2, '0');
   const da = String(d.getDate()).padStart(2, '0');
-  a.download = `nasha-vselennaya-backup-${y}-${mo}-${da}.json`;
+  a.download = `nasha-vselennaya-backup-${d.getFullYear()}-${mo}-${da}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
-  renderSettings();
   return out;
 }
 $('#exportBtn').addEventListener('click', () => {
   exportData();
 });
+/* Восстановление из копии: заливаем обратно в Firestore. Старый формат
+   (зашифрованный сейф с полем keys) больше не поддерживается — он не
+   расшифровывается без пароля, которого в новой версии нет вовсе.
+   Возвращает: true — успех, 'format' — копия не того формата (сообщение уже
+   показано здесь), 'cancel' — человек отказался на подтверждении, null —
+   настоящая ошибка чтения/разбора файла (поймана в catch). Четыре разных
+   исхода нужны вызывающему коду в #importInput, чтобы не показывать поверх
+   уже понятного сообщения ещё и общий «не получилось прочитать файл» —
+   именно так раньше вылезали два алерта подряд (РЕВЬЮ задачи 12, находка 1). */
 async function importData(text) {
   try {
     const d = JSON.parse(text);
-    if (d && d.db && typeof d.db.d === 'string') {
-      // это зашифрованный сейф (свой же экспорт, тем же общим ключом пары) —
-      // просто восстанавливаем, отдельного пароля больше не требуется
-      store.set(VAULT_KEY, JSON.stringify(d));
-      // Фото-секция v6: зашифрованные блобы возвращаем в хранилище
-      if (d.photos && d.photos.ver === 1 && Array.isArray(d.photos.blobs) && photoStore) {
-        try {
-          await photoStore.importBlobs(d.photos.blobs);
-        } catch (e) {
-          console.warn('Не удалось восстановить фото', e);
-        }
-      }
-      return true;
+    if (!d || d.ver !== 2) {
+      alert('Это копия старого формата — восстановить её эта версия уже не умеет.');
+      return 'format';
     }
-    // старый открытый бэкап — сразу шифруем текущим ключом
-    db = migrateDB({ ...defaultDB(), ...d });
-    save();
+    // РЕВЬЮ задачи 12 (Important, находка 3): импорт целиком перезаписывает
+    // pushSubs — если партнёр переподписался между экспортом и импортом, его
+    // новая подписка тихо откатится к состоянию на момент копии. Ошибки на
+    // экране при этом не будет, поэтому предупреждаем заранее и явно.
+    if (!confirm('Копия заменит текущие данные — события, свидания, заметки, списки, хотелки, лейблы, фото и настройки уведомлений — тем, что было на момент её создания. Продолжить?')) {
+      return 'cancel';
+    }
+    await repoBatch('events', d.events || []);
+    await repoBatch('dates', d.dates || []);
+    await repoBatch('notes', d.notes || []);
+    await repoBatch('lists', d.lists || []);
+    await repoBatch('wishes', d.wishlist || []);
+    await repoBatch('labels', d.labels || []);
+    await repoBatch('photos', d.photos || []);
+    if (d.pushSubs && Object.keys(d.pushSubs).length) await repoMeta({ pushSubs: d.pushSubs });
+    if (d.photos_blobs && d.photos_blobs.ver === 1 && Array.isArray(d.photos_blobs.blobs) && photoStore) {
+      try {
+        await photoStore.importBlobs(d.photos_blobs.blobs);
+      } catch (e) {
+        console.warn('Не удалось восстановить фото', e);
+      }
+    }
+    await loadHotSet();
     return true;
   } catch (err) {
     return null;
@@ -5218,13 +5771,17 @@ $('#importInput').addEventListener('change', e => {
   if (!f) return;
   const fr = new FileReader();
   fr.onload = async () => {
-    const ok = await importData(fr.result); // ждём и сейф, и фото-блобы
-    if (!ok) {
+    const result = await importData(fr.result); // ждём и сейф, и фото-блобы
+    if (result === true) {
+      e.target.value = '';
+      location.reload();
+    } else if (result === null) {
+      // именно ошибка чтения/разбора файла — importData ничего пользователю не показала
       alert('Не получилось прочитать файл:(');
-      return;
     }
-    e.target.value = '';
-    location.reload();
+    // result === 'format' или 'cancel' — importData уже объяснила пользователю,
+    // что происходит (неверный формат копии или отказ на подтверждении),
+    // повторный алерт здесь только запутал бы
   };
   fr.readAsText(f);
 });
@@ -5508,7 +6065,7 @@ if (lbPinBtn)
     const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
     if (!p) return;
     p.pinned = !p.pinned;
-    save();
+    repoSet('photos', p);
     renderPhotos();
     lbRender();
   });
@@ -5636,23 +6193,24 @@ setInterval(() => {
 }, 3800);
 // Коллаж «Наша история» стабилен в течение дня — обновлять его не нужно.
 spawnHeart();
-/* ===== Облачная синхронизация (Firebase Realtime Database) =====
-   Принцип: localStorage — «правда» локально, Firebase — канал синхронизации.
-   Синхронизируем САМ зашифрованный сейф `universe_vault` (zero-knowledge):
-   на сервере лежит только шифртекст (AES-GCM единым мастер-ключом пары —
-   см. src/01-gate.js), Firebase ничего прочитать не может.
+/* ===== Облако фото (Yandex Object Storage) =====
+   Раньше этот файл (src/95-sync.js) синхронизировал ещё и весь зашифрованный
+   сейф целиком через Firebase Realtime Database (vaults/shared): при входе
+   более свежий блоб из облака тихо заменял данные, только что загруженные из
+   Firestore, и закреплял замену через save(). Firestore теперь сам источник
+   правды для событий/заметок/списков/etc. (каждый экран пишет туда точечно,
+   см. src/04-repo.js), поэтому вся эта блоб-синхронизация убрана целиком —
+   держать два параллельных механизма записи было небезопасно (см. историю
+   коммитов и .superpowers/sdd/2026-09-09-firestore-data-layer/progress.md).
 
-   Путь в RTDB: vaults/shared = { syncTs, vault }, vaults/secret = сам ключ
-   (см. 01-gate.js). Правила: доступ только auth.token.email из ALLOWED_EMAILS
-   (см. README, раздел про Google-гейт). Конфликты: «последняя правка
-   выигрывает» по syncTs.
-
-   Firebase-приложение (fbApp) и Google-вход инициализируются гейтом
-   (src/01-gate.js) ДО того, как этот модуль вообще нужен — initSync() здесь
-   только переиспользует уже готовую сессию, отдельного входа не делает.
-   Фаза B3 (фото): оригиналы+показ-версии+миниатюры синхронизируются через
-   Yandex Object Storage (см. YANDEX_CLOUD_CONFIG и makeCloudStorage ниже) —
-   бакет публичный на чтение (без секретных ключей на клиенте), см. README. */
+   Единственное, что осталось в этом файле, — облако ФОТО: оригиналы, показ-
+   версии и миниатюры по-прежнему синхронизируются через Yandex Object Storage
+   (см. YANDEX_CLOUD_CONFIG и makeCloudStorage ниже) — бакет публичный на
+   чтение (без секретных ключей на клиенте), см. README. Запускается из
+   initPhotoSync(), которую вызывает unlockApp() (src/10-vault.js) после входа —
+   Firebase-приложение и Google-вход к этому моменту уже готовы (гейт,
+   src/01-gate.js), здесь просто поднимается клиент облака и стартует первая
+   сверка. */
 
 let FIREBASE_CONFIG = {
   apiKey: 'AIzaSyDuAkskIpj3bsFOX6aPecFWZGJOlOzGzUk',
@@ -5680,69 +6238,9 @@ let YANDEX_CLOUD_CONFIG = {
   signFnUrl: 'https://functions.yandexcloud.net/d4empeq0dp76dkug5c9r' // Cloud Function photo-sign (не секрет)
 };
 
-const SYNC_KEY = 'universe_syncTs'; // последний известный syncTs (метаданные, не секрет)
-const SYNC_PATH = 'vaults/shared'; // общий зашифрованный сейф пары
-
-let syncFirebase = null; // firebaseApp (compat)
-let syncDb = null; // firebase.database()
-let syncReady = false; // SDK есть, config есть, анонимный вход сделан
-let syncTs = 0; // последний применённый syncTs
-let syncPushTimer = null; // debounce push после save()
-let syncApplying = false; // защита от рекурсии pull→save→push
-let lastRemoteSnapshot; // последний снимок vaults/shared от живого слушателя;
-// undefined = слушатель ещё ничего не прислал (см. pushVault)
-
-/* ===== Инициализация: вызывается из unlockApp() после входа =====
-   Google-вход и Firebase-приложение уже готовы к этому моменту (гейт,
-   src/01-gate.js) — здесь только переиспользуем их, отдельного signIn нет. */
-async function initSync() {
-  syncTs = parseInt(store.get(SYNC_KEY) || '0', 10) || 0;
-  const app = typeof ensureFbApp === 'function' ? ensureFbApp() : null;
-  if (!app || !gateUser) {
-    renderSyncStatus('off');
-    return;
-  }
-  try {
-    syncFirebase = app;
-    syncDb = firebase.database(syncFirebase);
-    // Хранилище фото: Yandex Object Storage (публичный на чтение бакет, без
-    // секретов на клиенте — см. YANDEX_CLOUD_CONFIG выше и README). Firebase
-    // используется только для крошечного зашифрованного сейфа (vaults/shared)
-    // и общего ключа (vaults/secret), не для фото.
-    syncStorage = makeCloudStorage();
-    syncReady = true;
-    renderSyncStatus('idle');
-    listenRemote(); // живые обновления с другого устройства
-    pullVault(); // при входе пробуем забрать свежие данные
-    scheduleSyncPush(); // и отдать свои, если они свежее
-    schedulePhotoSync(); // фото: выгрузить свои / скачать недостающие
-  } catch (e) {
-    console.warn('[sync] init failed', e);
-    syncReady = false;
-    renderSyncStatus('error');
-  }
-}
-
-/* ===== Push: после каждого save() (debounce 0.6с) =====
-   Было 1.5с — держали с запасом, но живой слушатель (listenRemote) и так
-   схлопывает лишние применения по syncTs, а более короткий debounce делает
-   «долетание» правки до другого устройства заметно быстрее без риска забить
-   Firebase лишними записями (быстрые правки всё равно схлопываются в одну). */
-function scheduleSyncPush() {
-  if (!syncReady || syncApplying) return;
-  clearTimeout(syncPushTimer);
-  syncPushTimer = setTimeout(pushVault, 600);
-}
-
-// Защита от затирания чужого сейфа. Облачный сейф не расшифровался текущим
-// ключом — значит, в облаке сейф другого устройства/пароля (например, созданный
-// «вторым» сейфом в свежем браузере). Автоматически его не трогаем: показываем
-// конфликт, дальше решает человек («Синхронизировать сейчас» = forcePushVault).
-let syncPushBlocked = false;
-
 // Таймаут для сетевых вызовов: не держим пользователя на «загружаем…»
 // бесконечно, если Firebase отвечает медленно (мобильный интернет). Также
-// используется гейтом (src/01-gate.js) при чтении vaults/secret.
+// используется гейтом (src/01-gate.js) при чтении vaults/secret и ключа фото.
 function withTimeout(promise, ms) {
   let timer = null;
   return Promise.race([
@@ -5753,203 +6251,6 @@ function withTimeout(promise, ms) {
   ]).finally(() => {
     if (timer) clearTimeout(timer);
   });
-}
-
-// Запись сейфа в облако (общий путь для push и принудительного восстановления).
-// syncTs обновляется ДО записи (не после): Firebase применяет собственную
-// запись клиента к локальному кэшу и будит .on('value') почти мгновенно,
-// раньше, чем резолвится промис set(). Если бы syncTs обновлялся только
-// после await, этот «эхо» собственного пуша в listenRemote() видел бы
-// rts > syncTs (старое значение) и принимал бы наше же изменение за пришедшее
-// с другого устройства — весь vault перезагружался бы и на каждое сохранение
-// (например, отметку подзадачи) вылезал бы тост «Данные обновлены с другого
-// устройства». Обновление заранее закрывает эту гонку.
-async function writeVault() {
-  const vault = loadVault();
-  if (!vault || !vault.db || typeof vault.db.d !== 'string') return;
-  renderSyncStatus('syncing');
-  const ts = Date.now();
-  syncTs = ts;
-  store.set(SYNC_KEY, String(ts));
-  await syncDb.ref(SYNC_PATH).set({ syncTs: ts, vault });
-  renderSyncStatus('ok', ts);
-}
-
-async function pushVault() {
-  if (!syncReady || syncApplying) return;
-  // Смотрим, что сейчас лежит в облаке. Если сейф другой и не расшифровывается
-  // текущим ключом — это чужой сейф: НЕ затираем его автоматически.
-  // Живой слушатель (listenRemote) и так держит последний снимок облака —
-  // раньше здесь был отдельный .once('value') перед КАЖДЫМ push, то есть
-  // каждое сохранение стоило двух походов в Firebase вместо одного. Берём
-  // кэш; за свежим снимком, если слушателя ещё нет, читаем сами.
-  try {
-    let remote = lastRemoteSnapshot;
-    if (remote === undefined) {
-      const snap = await syncDb.ref(SYNC_PATH).once('value');
-      remote = snap && snap.val ? snap.val() : null;
-    }
-    if (remote && remote.vault && remote.vault.db && typeof remote.vault.db.d === 'string' && masterKey) {
-      let ok = false;
-      try {
-        await aesDec(masterKey, remote.vault.db);
-        ok = true;
-      } catch (e) {}
-      if (!ok) {
-        syncPushBlocked = true;
-        renderSyncStatus('conflict');
-        notify('В облаке сейф с другим паролем — я его не трогаю. Чтобы открыть данные из облака: нажми чип «Гоша/Даша» (замок) и введи пароль облачного сейфа 💜', true);
-        return;
-      }
-    }
-  } catch (e) {
-    console.warn('[sync] не удалось проверить облачный сейф', e);
-    renderSyncStatus('error');
-    return;
-  }
-  syncPushBlocked = false;
-  try {
-    await writeVault();
-  } catch (e) {
-    console.warn('[sync] push failed', e);
-    renderSyncStatus('error');
-  }
-}
-
-// Явное восстановление: затирает облачный сейф сейфом этого устройства.
-// Это осознанное действие человека (кнопка «Синхронизировать сейчас» в конфликте).
-async function forcePushVault() {
-  if (!syncReady) return;
-  syncPushBlocked = false;
-  try {
-    await writeVault();
-  } catch (e) {
-    console.warn('[sync] force push failed', e);
-    renderSyncStatus('error');
-  }
-}
-
-/* ===== Pull: читаем облако, применяем, если оно свежее ===== */
-async function pullVault() {
-  if (!syncReady) return;
-  try {
-    const snap = await syncDb.ref(SYNC_PATH).once('value');
-    const remote = snap && snap.val ? snap.val() : null;
-    if (!remote || !remote.vault || !remote.vault.db || typeof remote.vault.db.d !== 'string') return;
-    const rts = remote.syncTs || 0;
-    if (rts <= syncTs) return; // облако не свежее — не трогаем локальные данные
-    const applied = await applyRemoteVault(remote.vault);
-    if (!applied) {
-      renderSyncStatus('error');
-      return;
-    }
-    syncTs = rts;
-    store.set(SYNC_KEY, String(rts));
-    renderSyncStatus('ok', rts);
-  } catch (e) {
-    console.warn('[sync] pull failed', e);
-    renderSyncStatus('error');
-  }
-}
-
-/* ===== Живой слушатель: изменения с другого устройства приходят сами ===== */
-let syncLiveOn = false;
-function listenRemote() {
-  if (syncLiveOn || !syncReady || !syncDb) return;
-  syncLiveOn = true;
-  syncDb.ref(SYNC_PATH).on('value', snap => {
-    const remote = snap && snap.val ? snap.val() : null;
-    lastRemoteSnapshot = remote; // держим свежим для pushVault (не перечитывать заново)
-    if (syncApplying) return;
-    if (!remote || !remote.vault || !remote.vault.db || typeof remote.vault.db.d !== 'string') return;
-    const rts = remote.syncTs || 0;
-    if (rts <= syncTs) return; // свой же push
-    renderSyncStatus('syncing');
-    applyRemoteVault(remote.vault)
-      .then(ok => {
-        if (!ok) {
-          renderSyncStatus('error');
-          return;
-        }
-        syncTs = rts;
-        store.set(SYNC_KEY, String(rts));
-        renderSyncStatus('ok', rts);
-        notify('Данные обновлены с другого устройства 💜');
-      })
-      .catch(e => {
-        console.warn('[sync] live apply failed', e);
-        renderSyncStatus('error');
-      });
-  });
-}
-
-/* ===== Применить облачный сейф: расшифровать → db → перерисовать =====
-   AES-GCM — аутентифицированное шифрование: чужой/повреждённый блоб не
-   расшифруется (упадёт), локальные данные не пострадают. */
-async function applyRemoteVault(remoteVault) {
-  if (!masterKey) return false;
-  let raw;
-  try {
-    raw = await aesDec(masterKey, remoteVault.db);
-  } catch (e) {
-    console.warn('[sync] облачный сейф не расшифровать (не тот ключ/повреждён?)', e);
-    return false;
-  }
-  let nd;
-  try {
-    nd = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(raw)) });
-  } catch (e) {
-    console.warn('[sync] облачные данные повреждены', e);
-    return false;
-  }
-  syncApplying = true;
-  try {
-    db = nd;
-    store.set(VAULT_KEY, JSON.stringify(remoteVault));
-    if (photoStore) {
-      await photoStore.migratePhotos(db);
-      await photoStore.refreshSizes();
-      warmThumbCache();
-    }
-    await save(); // закрепить миграции локально (push не запустится: syncApplying)
-    renderHome();
-    renderCalendar();
-    renderNotes();
-    renderLists();
-    renderWishlist();
-    renderPhotos();
-    renderMemory();
-    renderSettings();
-    schedulePhotoSync(); // пришли новые/удалённые фото — сверимся с облаком
-    return true;
-  } catch (e) {
-    console.warn('[sync] применить облачные данные не удалось', e);
-    return false;
-  } finally {
-    syncApplying = false;
-  }
-}
-
-/* ===== Остановка: при lock() ===== */
-function stopSync() {
-  clearTimeout(syncPushTimer);
-  clearTimeout(photoSyncTimer);
-  if (syncLiveOn && syncDb) {
-    try {
-      syncDb.ref(SYNC_PATH).off('value');
-    } catch (e) {}
-    syncLiveOn = false;
-  }
-  // Google-сессию НЕ трогаем — это приватный «замок», не выход из аккаунта
-  // (см. lock() в src/10-vault.js и gateSignOut в src/01-gate.js).
-  syncReady = false;
-  syncFirebase = null;
-  syncDb = null;
-  syncStorage = null;
-  syncPushBlocked = false;
-  photoSyncing = false;
-  lastRemoteSnapshot = undefined; // следующий initSync() начнёт с чистого кэша
-  renderSyncStatus('off');
 }
 
 /* ===== Фото в облаке: оригиналы + показ-версии + миниатюры в Yandex Object
@@ -5963,17 +6264,33 @@ function stopSync() {
    Cloud Function photo-sign (см. комментарий над makeCloudStorage).
 
    Модель — полная сверка (reconciliation): после каждой операции с фото
-   (добавление, удаление, применение облачного сейфа) с задержкой сравниваем три
-   списка: локальный photoStore, облако Storage и db.photos. Недостающее выгружаем
-   и скачиваем, лишнее (удалённые фото) чистим и в облаке, и в локальном сторе.
-   Так работают и бэкфилл старых фото, и удаление с другого устройства.
-   Загрузка/скачивание нескольких фото идёт параллельно (см. mapLimit) —
-   иначе первый вход на новом устройстве с большой галереей тянул бы фото
-   одно за другим. */
+   (добавление, удаление) с задержкой сравниваем три списка: локальный
+   photoStore, облако Storage и db.photos. Недостающее выгружаем и скачиваем,
+   лишнее (удалённые фото) чистим и в облаке, и в локальном сторе. Так работают
+   и бэкфилл старых фото, и удаление с другого устройства. Загрузка/скачивание
+   нескольких фото идёт параллельно (см. mapLimit) — иначе первый вход на новом
+   устройстве с большой галереей тянул бы фото одно за другим. */
 const PHOTO_PARTS = ['orig', 'full', 'thumb'];
 let syncStorage = null; // Yandex Object Storage (S3)
 let photoSyncTimer = null; // debounce после операций с фото
 let photoSyncing = false; // защита от параллельных сверок
+
+/* ===== Запуск: вызывается из unlockApp() после входа =====
+   Google-вход и Firebase-приложение (fbApp, см. src/01-gate.js) уже готовы к
+   этому моменту — здесь только поднимаем клиент Yandex Object Storage и
+   запускаем первую сверку фото. */
+function initPhotoSync() {
+  if (!gateUser) return;
+  syncStorage = makeCloudStorage();
+  schedulePhotoSync();
+}
+
+/* ===== Остановка: при lock() ===== */
+function stopPhotoSync() {
+  clearTimeout(photoSyncTimer);
+  syncStorage = null;
+  photoSyncing = false;
+}
 
 /* ===== Адаптер для Yandex Object Storage =====
    Чтение (GetObject/ListBucket) — анонимно и напрямую в бакет: политика
@@ -6006,7 +6323,8 @@ function makeCloudStorage() {
     if (!cfg.signFnUrl) throw new Error('YANDEX_CLOUD_CONFIG.signFnUrl не задан — запись фото невозможна');
     // photo-sign проверяет Firebase ID-токен перед выдачей подписи (иначе
     // подписать мог бы кто угодно, кто откроет devtools — URL функции не
-    // секрет). Токен берём у уже выполненного Google-входа (src/01-gate.js).
+    // секрет). Токен берём у уже выполненного Google-входа (src/01-gate.js) —
+    // fbApp, единственное Firebase-приложение на весь сайт (гейт + фото).
     // Заголовок называется X-Firebase-Token, а не Authorization: Yandex
     // Cloud перехватывает Authorization на уровне своей платформы (пытается
     // прочитать его как СВОЙ IAM-токен) ещё до кода функции — с этим именем
@@ -6014,10 +6332,10 @@ function makeCloudStorage() {
     // раньше 403-м, даже не заглянув внутрь (проверено 12.08.2026).
     let authHeaders = {};
     try {
-      const user = syncFirebase && firebase.auth(syncFirebase).currentUser;
+      const user = fbApp && firebase.auth(fbApp).currentUser;
       if (user) authHeaders = { 'X-Firebase-Token': await user.getIdToken() };
     } catch (e) {
-      console.warn('[sync] не удалось получить ID-токен для photo-sign', e);
+      console.warn('[photo-sync] не удалось получить ID-токен для photo-sign', e);
     }
     const signRes = await fetch(cfg.signFnUrl + '?method=' + method + '&part=' + encodeURIComponent(part) + '&id=' + encodeURIComponent(id), { headers: authHeaders });
     if (!signRes.ok) throw new Error('sign-fn ' + signRes.status);
@@ -6109,13 +6427,12 @@ function photoRef(part, id) {
 // Запуск сверки фото (debounce 1.2 с — было 2.5, снижено вместе с
 // оптимизацией самой сверки: listIds() больше не читает блобы, а probe не
 // перепроверяет уже свои фото, так что каждый прогон стал заметно дешевле):
-// после добавления/удаления фото и при применении облачного сейфа. Без
-// Storage или до разблокировки — просто ждём.
+// после добавления/удаления фото. Без Storage или до разблокировки — просто ждём.
 function schedulePhotoSync() {
   if (!syncStorage || !photoStore || !masterKey || photoSyncing) return;
   clearTimeout(photoSyncTimer);
   photoSyncTimer = setTimeout(() => {
-    syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
+    syncPhotos().catch(e => console.warn('[photo-sync] сверка фото', e));
   }, 1200);
 }
 
@@ -6127,7 +6444,7 @@ async function listCloudPhotos() {
       const res = await syncStorage.ref('photos/' + part).listAll();
       for (const it of res.items || []) (out[it.name] = out[it.name] || {})[part] = true;
     } catch (e) {
-      console.warn('[sync] не удалось прочитать облако photos/' + part, e);
+      console.warn('[photo-sync] не удалось прочитать облако photos/' + part, e);
     }
   }
   return out;
@@ -6156,7 +6473,7 @@ async function uploadCloudPhoto(id, cloud, local) {
     await Promise.all(jobs);
     return { ok: true };
   } catch (e) {
-    console.warn('[sync] не удалось выгрузить фото ' + id, e);
+    console.warn('[photo-sync] не удалось выгрузить фото ' + id, e);
     return { ok: false, err: e };
   }
 }
@@ -6209,7 +6526,7 @@ async function downloadCloudPhoto(id, cloud, local) {
     } catch (e) {}
     return { ok: true };
   } catch (e) {
-    console.warn('[sync] не удалось скачать фото ' + id, e);
+    console.warn('[photo-sync] не удалось скачать фото ' + id, e);
     return { ok: false, err: e };
   }
 }
@@ -6259,7 +6576,7 @@ async function probeCloudKeys(cloud) {
       // Любая другая ошибка (сеть, JSON) — временная, помечаем unknown.
       const emsg = String((e && e.message) || e);
       if (e && (e.name === 'OperationError' || /decrypt/i.test(emsg))) {
-        console.warn('[sync] облачное фото не расшифровывается текущим ключом', id, part);
+        console.warn('[photo-sync] облачное фото не расшифровывается текущим ключом', id, part);
         foreign.set(id, part);
       } else {
         unknown.set(id, e);
@@ -6305,7 +6622,7 @@ async function syncPhotos() {
     const probe = Object.keys(toProbe).length ? await probeCloudKeys(toProbe) : { foreign: new Map(), unknown: new Map() };
     const isSkipped = id => probe.foreign.has(id) || probe.unknown.has(id);
     if (probe.foreign.size) {
-      console.warn('[sync] в облаке фото с другим ключом (' + probe.foreign.size + ' шт) — их не трогаю, свои фото синхронизирую');
+      console.warn('[photo-sync] в облаке фото с другим ключом (' + probe.foreign.size + ' шт) — их не трогаю, свои фото синхронизирую');
       notify('В облаке есть фото с другим паролем — я их не трогаю, но свои фото выгружаю 💜', true);
     }
     if (probe.unknown.size) stats.retry = true; // сеть/формат — повторим позже
@@ -6338,14 +6655,15 @@ async function syncPhotos() {
       if (isSkipped(id)) return false;
       return PHOTO_PARTS.some(part => cloud[id] && cloud[id][part] && !hasPart(id, part));
     });
-    // Гонка с другим устройством: запись о фото (в сейфе) обычно долетает
-    // быстрее, чем сам файл (у сейфа debounce короче + файл ещё грузится
-    // presign+PUT). Если id есть в db.photos, но НИ локально, НИ в облаке
-    // пока ничего нет — это не «нечего скачивать», а «другое устройство ещё
-    // грузит», и без специальной обработки sync тихо завершался бы успешно,
-    // ничего не скачав, и не повторялся бы — фото так и оставалось «битым»,
-    // пока кто-то не нажмёт «Синхронизировать сейчас» вручную. Планируем
-    // быстрый повтор (см. finally), а не 20-секундный, как при настоящих сбоях.
+    // Гонка с другим устройством: запись о фото (в базе) обычно долетает
+    // быстрее, чем сам файл (сама запись — маленький документ Firestore, а
+    // файл ещё грузится presign+PUT). Если id есть в db.photos, но НИ
+    // локально, НИ в облаке пока ничего нет — это не «нечего скачивать», а
+    // «другое устройство ещё грузит», и без специальной обработки sync тихо
+    // завершался бы успешно, ничего не скачав, и не повторялся бы — фото так
+    // и оставалось «битым», пока кто-то не нажмёт «Синхронизировать сейчас»
+    // вручную. Планируем быстрый повтор (см. finally), а не 20-секундный, как
+    // при настоящих сбоях.
     const pendingElsewhere = [...want].some(id => {
       const l = localMap.get(id);
       const hasAnyLocal = !!(l && (l.hasFull || l.hasThumb || l.hasOrig));
@@ -6379,7 +6697,7 @@ async function syncPhotos() {
       notify('Часть фото не синхронизировалась — проверь интернет, повторю через минуту 💜', true);
     }
   } catch (e) {
-    console.warn('[sync] сверка фото не удалась', e);
+    console.warn('[photo-sync] сверка фото не удалась', e);
   } finally {
     photoSyncing = false;
     // Докачали блобы из облака — прогреваем кэш миниатюр и перерисовываем вьюхи,
@@ -6390,133 +6708,18 @@ async function syncPhotos() {
     if (stats.retrySoon) {
       clearTimeout(photoSyncTimer);
       photoSyncTimer = setTimeout(() => {
-        syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
+        syncPhotos().catch(e => console.warn('[photo-sync] сверка фото', e));
       }, 3000);
     } else if (stats.retry) {
       // Были временные сбои (сеть, чужой формат и т.п.) — попробуем ещё раз через 20 секунд.
       clearTimeout(photoSyncTimer);
       photoSyncTimer = setTimeout(() => {
-        syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
+        syncPhotos().catch(e => console.warn('[photo-sync] сверка фото', e));
       }, 20000);
     }
   }
 }
 
-/* ===== UI в настройках: статус + кнопка ===== */
-const SYNC_STATUS_TEXT = {
-  off: 'Синхронизация недоступна — нет связи с Google/Firebase. Проверь интернет.',
-  idle: 'Облако подключено — ждём изменений…',
-  syncing: 'Синхронизируем…',
-  ok: 'Синхронизировано ✅',
-  conflict:
-    '⚠️ В облаке сейф с другим паролем — он не затёрт. Если нужны облачные данные: нажми чип «Гоша/Даша» (замок) и введи пароль облачного сейфа — он усыновится, фото докачаются. «Синхронизировать сейчас» перезапишет облако этим устройством.',
-  error: 'Ошибка синхронизации — проверь интернет и попробуй ещё раз 💜'
-};
-let syncUiState = 'off';
-let syncUiTs = 0;
-function renderSyncStatus(state, ts) {
-  syncUiState = state;
-  syncUiTs = ts || 0;
-  const el = $('#syncStatus');
-  if (!el) return;
-  const text = SYNC_STATUS_TEXT[state] || SYNC_STATUS_TEXT.off;
-  el.textContent = text;
-  el.style.color = state === 'ok' ? '#059669' : state === 'error' ? '#dc2626' : state === 'conflict' ? '#b45309' : 'var(--muted)';
-  const btn = $('#syncNowBtn');
-  if (btn) btn.disabled = state === 'syncing';
-}
-async function syncNow() {
-  if (!syncReady) {
-    initSync();
-    return;
-  }
-  if (syncPushBlocked) {
-    await forcePushVault();
-    return;
-  }
-  await pullVault();
-  await pushVault();
-  schedulePhotoSync(); // фото-сверка тоже по требованию
-}
-const syncNowBtnEl = $('#syncNowBtn');
-if (syncNowBtnEl) syncNowBtnEl.addEventListener('click', syncNow);
-
-/* ===== Диагностика облака (кнопка в настройках) =====
-   Показывает, что сейчас в локальном фото-сторе, что в облаке и расшифровываются
-   ли облачные фото текущим ключом. Помогает найти, где именно рвётся синхронизация. */
-async function getCloudSyncTs() {
-  if (!syncDb) return '—';
-  try {
-    const snap = await syncDb.ref(SYNC_PATH).once('value');
-    const v = snap && snap.val ? snap.val() : null;
-    return v ? v.syncTs || 0 : 0;
-  } catch (e) {
-    return 'ошибка: ' + String((e && e.message) || e);
-  }
-}
-async function runCloudDiagnostics() {
-  const out = $('#cloudDiagOut');
-  if (!out) return;
-  out.hidden = false;
-  const lines = [];
-  const add = s => lines.push(s);
-  try {
-    add('syncReady: ' + syncReady);
-    add('syncStorage: ' + (syncStorage ? 'Yandex Object Storage' : 'нет'));
-    add('masterKey: ' + (masterKey ? 'есть' : 'НЕТ'));
-    add('photos в db: ' + (db.photos || []).length);
-    add('syncTs: локально=' + syncTs + ', в облаке=' + (await getCloudSyncTs()));
-    try {
-      const localList = await photoStore.listIds();
-      add('локальный store: ' + localList.length + ' фото');
-      for (const l of localList) add('  ' + l.id + ' full=' + l.hasFull + ' thumb=' + l.hasThumb + ' orig=' + l.hasOrig);
-    } catch (e) {
-      add('ошибка listIds: ' + String((e && e.message) || e));
-    }
-    let cloud = {};
-    try {
-      cloud = await listCloudPhotos();
-    } catch (e) {
-      add('ошибка listCloudPhotos: ' + String((e && e.message) || e));
-    }
-    add('облако: ' + Object.keys(cloud).length + ' фото');
-    for (const id of Object.keys(cloud)) add('  ' + id + ': ' + (PHOTO_PARTS.filter(p => cloud[id][p]).join(',') || '?'));
-    if (Object.keys(cloud).length) {
-      add('— расшифровка облачных фото текущим ключом —');
-      for (const id of Object.keys(cloud)) {
-        const part = ['thumb', 'full', 'orig'].find(p => cloud[id] && cloud[id][p]);
-        if (!part) {
-          add('  ' + id + ': нет частей');
-          continue;
-        }
-        try {
-          const data = await photoRef(part, id).getBlob();
-          const txt = typeof data === 'string' ? data : await data.text();
-          const parsed = JSON.parse(txt);
-          const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
-          if (!enc) {
-            add('  ' + id + ' (' + part + '): НЕЗНАКОМЫЙ ФОРМАТ');
-            continue;
-          }
-          const u8 = await aesDec(masterKey, enc);
-          const head = Array.from(u8.subarray(0, 4))
-            .map(b => String.fromCharCode(b))
-            .join('');
-          add('  ' + id + ' (' + part + '): расшифровано ✅ ' + u8.length + ' б «' + head.replace(/[^ -~]/g, '?') + '»');
-        } catch (e) {
-          const msg = String((e && e.name) || '') + ': ' + String((e && e.message) || e);
-          const isKey = /OperationError|decrypt/i.test(msg);
-          add('  ' + id + ' (' + part + '): ' + (isKey ? 'ДРУГОЙ КЛЮЧ ❌' : 'ОШИБКА ⚠') + ' — ' + msg.slice(0, 140));
-        }
-      }
-    }
-  } catch (e) {
-    add('неожиданная ошибка: ' + String((e && e.message) || e));
-  }
-  out.textContent = lines.join(String.fromCharCode(10));
-}
-const cloudDiagBtnEl = $('#cloudDiagBtn');
-if (cloudDiagBtnEl) cloudDiagBtnEl.addEventListener('click', runCloudDiagnostics);
 /* ===== Старт приложения =====
    boot() из src/01-gate.js вызывается здесь — последним в сборке: он (через
    ensureFbApp) читает FIREBASE_CONFIG (let из этого модуля), который ещё в
@@ -6524,22 +6727,23 @@ if (cloudDiagBtnEl) cloudDiagBtnEl.addEventListener('click', runCloudDiagnostics
    а он уже сам ведёт к unlockApp(). */
 boot();
 /* ===== Push-уведомления о свиданиях (Фаза 3) =====
-   Архитектура: подписка PushManager каждого пользователя лежит ВНУТРИ
-   зашифрованного сейфа (db.pushSubs.gosha/dasha, см. 00-core.js) — оба
-   партнёра и так расшифровывают его одним мастер-ключом, поэтому это не
-   новая утечка, и подписка синхронизируется тем же каналом, что и всё
-   остальное. Отправка — БЕЗ серверных триггеров на запись в базу (RTDB тут
-   только канал синхронизации сейфа, не полноценный бэкенд): клиент, который
-   только что создал приглашение или ответил на него, уже знает подписку
-   получателя локально (расшифрована) и сам дёргает Cloud Function
-   `send-push` (functions/send-push/) — та же схема авторизации
-   (X-Firebase-Token), что и у photo-sign в 95-sync.js.
+   Архитектура: подписка PushManager каждого пользователя лежит в общем на
+   двоих документе `meta/settings` (поле pushSubs.gosha/dasha, см.
+   src/04-repo.js — repoMeta пишет туда точечно по пути поля, а не
+   перезаписывает документ целиком, иначе устройство одного партнёра затёрло
+   бы подписку другого). Живая подписка на этот документ (startLiveUpdates)
+   держит db.pushSubs свежим на обоих устройствах. Отправка — БЕЗ серверных
+   триггеров на запись в базу: клиент, который только что создал приглашение
+   или ответил на него, уже знает подписку получателя локально (из db.pushSubs)
+   и сам дёргает Cloud Function `send-push` (functions/send-push/), авторизуясь
+   ID-токеном приложения гейта (fbApp, см. src/01-gate.js) — та же схема
+   (X-Firebase-Token), что и у photo-sign в 95-photos-cloud.js.
 
    iOS: push работает только если сайт добавлен на экран «Домой» — обычная
    вкладка Safari такое не разрешает (ограничение Apple, не этого кода).
 
    PUSH_CONFIG.vapidPublicKey/sendFnUrl — не секреты (как и signFnUrl в
-   95-sync.js), настоящий секрет (приватный VAPID-ключ) живёт только в
+   95-photos-cloud.js), настоящий секрет (приватный VAPID-ключ) живёт только в
    переменных окружения функции. См. README, раздел B4. */
 let PUSH_CONFIG = {
   vapidPublicKey: 'BHAuFiHPe13m3MBOygG_hRrrdecn6c0GJIvWGT1QKTUkm2kB9d9EMI8j-2I8Q3s-GbES6o8DK586wFAZFC22Z0U',
@@ -6616,8 +6820,12 @@ async function enablePushNotifications() {
     alert('Не получилось подписаться на уведомления.');
     return false;
   }
-  db.pushSubs[getUser()] = sub.toJSON();
-  await save();
+  const subJson = sub.toJSON();
+  db.pushSubs = db.pushSubs || {};
+  db.pushSubs[getUser()] = subJson;
+  // Точечно: документ настроек общий на двоих, запись целиком затёрла бы
+  // подписку партнёра, и уведомления перестали бы к нему приходить — молча.
+  await repoMeta({ ['pushSubs.' + getUser()]: subJson });
   renderPushSettings();
   return true;
 }
@@ -6630,7 +6838,9 @@ async function disablePushNotifications() {
     } catch (e) {}
   }
   if (db.pushSubs) delete db.pushSubs[getUser()];
-  await save();
+  // Точечное удаление поля, а не запись документа целиком — та же причина,
+  // что и выше: перезаписали бы подписку партнёра.
+  await repoMeta({ ['pushSubs.' + getUser()]: firebase.firestore.FieldValue.delete() });
   renderPushSettings();
 }
 
@@ -6668,7 +6878,9 @@ async function notifyPartner(title, body) {
     if (!sub) return;
     let authHeaders = {};
     try {
-      const user = syncFirebase && firebase.auth(syncFirebase).currentUser;
+      // Токен берём из приложения гейта (fbApp) — единственного
+      // Firebase-приложения на весь сайт (гейт + облако фото).
+      const user = fbApp && firebase.auth(fbApp).currentUser;
       if (user) authHeaders = { 'X-Firebase-Token': await user.getIdToken() };
     } catch (e) {}
     // Без токена нечем авторизоваться перед send-push — тихо не отправляем
@@ -6684,7 +6896,7 @@ async function notifyPartner(title, body) {
   }
 }
 
-/* ===== Диагностика уведомлений (по образцу runCloudDiagnostics в 95-sync.js) =====
+/* ===== Диагностика уведомлений =====
    notifyPartner() выше нарочно тихо проглатывает ошибки (это не критичный
    путь) — но это же делает его непригодным для отладки живой проблемы «пуш
    не пришёл». Эта функция шлёт РЕАЛЬНЫЙ тестовый пуш самому себе (не
@@ -6712,13 +6924,17 @@ async function runPushDiagnostics() {
     }
     const me = getUser();
     const partner = me === 'gosha' ? 'dasha' : 'gosha';
-    add('своя подписка в сейфе (db.pushSubs.' + me + '): ' + !!(db.pushSubs && db.pushSubs[me]));
-    add('подписка партнёра в сейфе (db.pushSubs.' + partner + '): ' + !!(db.pushSubs && db.pushSubs[partner]));
+    add('своя подписка в кэше (db.pushSubs.' + me + '): ' + !!(db.pushSubs && db.pushSubs[me]));
+    add('подписка партнёра в кэше (db.pushSubs.' + partner + '): ' + !!(db.pushSubs && db.pushSubs[partner]));
     add('PUSH_CONFIG.sendFnUrl: ' + (PUSH_CONFIG.sendFnUrl || 'НЕ ЗАДАН'));
-    add('syncReady: ' + (typeof syncReady !== 'undefined' ? syncReady : '?'));
+    // fbApp — то же приложение, из которого notifyPartner() берёт ID-токен
+    // (см. выше); если оно не поднялось, токена не будет и пуш не уйдёт.
+    add('fbApp: ' + (typeof fbApp !== 'undefined' && fbApp ? 'есть' : 'НЕТ'));
     let token = null;
     try {
-      const user = syncFirebase && firebase.auth(syncFirebase).currentUser;
+      // Тот же источник токена, что и в notifyPartner() — иначе диагностика
+      // проверяла бы не тот путь, которым реально уходит пуш.
+      const user = fbApp && firebase.auth(fbApp).currentUser;
       token = user ? await user.getIdToken() : null;
     } catch (e) {
       add('ошибка getIdToken: ' + String((e && e.message) || e));

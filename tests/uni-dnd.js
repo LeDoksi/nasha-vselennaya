@@ -553,6 +553,65 @@ assert(!!listCard('l1').querySelector('[data-list-drag]'), 'у карточки 
 
 sandbox.listsSortEnd({ to: { children: [listCard('l2'), listCard('l3'), listCard('l1')] } });
 assert(JSON.stringify(sandbox.db.lists.map(l => l.id)) === '["l2","l3","l1"]', 'listsSortEnd: db.lists переставлен по DOM-порядку из evt.to.children');
+// Critical (ревью задач 8-9): в отличие от db.lists (только память вкладки),
+// order — то, что реально переживает reload / второе устройство. Без него
+// перетаскивание рвалось при первой же загрузке из Firestore (см. tests/uni-repo.js
+// для проверки самой записи в Firestore и восстановления после reload).
+assert(
+  sandbox.db.lists.find(l => l.id === 'l2').order === 0 && sandbox.db.lists.find(l => l.id === 'l3').order === 1 && sandbox.db.lists.find(l => l.id === 'l1').order === 2,
+  'listsSortEnd: order пересчитан по итоговому DOM-порядку (l2=0,l3=1,l1=2)'
+);
+
+// renderLists сортирует по order (как renderNotes), а не по позиции в
+// db.lists — иначе живое обновление из Firestore (docsToArray без orderBy,
+// см. src/04-repo.js) рисовало бы список случайно даже после верной записи order.
+sandbox.db.lists = [
+  { id: 'x1', name: 'X1', items: [], order: 2 },
+  { id: 'x2', name: 'X2', items: [], order: 0 },
+  { id: 'x3', name: 'X3', items: [], order: 1 }
+];
+sandbox.renderLists();
+const xWrap = sandbox.document.querySelector('#listsWrap');
+assert(
+  JSON.stringify(xWrap.children.filter(c => c.classList.contains('list-card')).map(c => c.dataset.id)) === '["x2","x3","x1"]',
+  'renderLists: карточки отрисованы по order, а не по позиции в массиве db.lists'
+);
+
+// Повторное ревью задач 8-9 (Critical): backfill order в migrateDB раньше
+// нумеровал списки по позиции во входном массиве — тот же класс бага, что
+// был с лейблами фото. Firestore .get() без orderBy не гарантирует порядок
+// документов между вызовами, так что один и тот же набор списков, поданный
+// в разном порядке, должен получать один и тот же order.
+const backfillIds = list => {
+  const migrated = sandbox.migrateDB({
+    events: [],
+    notes: [],
+    shopping: [],
+    todos: [],
+    photos: [],
+    dates: [],
+    wishlist: [],
+    labels: [],
+    lists: list
+  });
+  return migrated.lists.map(l => ({ id: l.id, order: l.order }));
+};
+const fromCAB = backfillIds([
+  { id: 'c', name: 'C', items: [] },
+  { id: 'a', name: 'A', items: [] },
+  { id: 'b', name: 'B', items: [] }
+]);
+const fromABC = backfillIds([
+  { id: 'a', name: 'A', items: [] },
+  { id: 'b', name: 'B', items: [] },
+  { id: 'c', name: 'C', items: [] }
+]);
+// Сравниваем по id, отсортированному одинаково для обоих результатов —
+// JSON.stringify объекта чувствителен к порядку добавления ключей, а нас
+// интересует только соответствие id → order, а не порядок в исходном массиве.
+const orderById = arr => Object.fromEntries([...arr].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)).map(x => [x.id, x.order]));
+assert(JSON.stringify(orderById(fromCAB)) === JSON.stringify(orderById(fromABC)), 'migrateDB: backfill order одинаков для одного набора списков, поданного в разном порядке ([c,a,b] и [a,b,c])');
+assert(orderById(fromCAB).a === 0 && orderById(fromCAB).b === 1 && orderById(fromCAB).c === 2, 'migrateDB: backfill order назначается по id, а не по позиции во входном массиве');
 
 // 3) Подзадачи внутри списка — новая фича (раньше ручного порядка не было).
 //    Порядок = позиция в list.items, без отдельного order-поля (тот же

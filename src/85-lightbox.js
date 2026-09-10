@@ -229,7 +229,7 @@ if (lbPinBtn)
     const p = src && Array.isArray(db.photos) ? db.photos.find(x => x.id === src) : null;
     if (!p) return;
     p.pinned = !p.pinned;
-    save();
+    repoSet('photos', p);
     renderPhotos();
     lbRender();
   });

@@ -18,29 +18,23 @@ function renderSettings() {
   }
   const hint = $('#backupHint');
   if (!hint) return;
-  // Статус облачной синхронизации (модуль 95-sync.js)
-  if (typeof renderSyncStatus === 'function') renderSyncStatus(syncUiState, syncUiTs);
   renderPushSettings(); // модуль 96-push.js — асинхронно проверяет текущую PushManager-подписку
-  if (!db.backupDate) {
-    hint.innerHTML = '<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Резервная копия ещё не делалась. Нажми «Скачать копию» — так ничего не потеряется.</span>';
-  } else {
-    const days = Math.floor((Date.now() - db.backupDate) / 86400000);
-    hint.innerHTML =
-      days >= 30
-        ? `<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Последняя копия была ${days} дн. назад. Самое время обновить её.</span>`
-        : `<span style="color:#059669;font-weight:700;font-size:14px">✅ Копия сделана ${days === 0 ? 'сегодня' : days + ' дн. назад'}. Всё под защитой.</span>`;
-  }
+  // РЕВЬЮ задачи 12 (Minor, находка 4): напоминание «копия ещё не делалась»/
+  // «была N дн. назад» держалось на db.backupDate, а новый exportData() это
+  // поле больше не выставляет — подсказка врала бы даже сразу после успешной
+  // выгрузки. Кнопка «Скачать копию» остаётся, жёлтые напоминания были нужны,
+  // пока данные жили только в браузере — сейчас это Firestore, убираем блок
+  // целиком (сама db.backupDate не трогается — её уборка в отдельной задаче).
+  hint.innerHTML = '';
   // Личный кабинет: какой Google-аккаунт вошёл
   const gi = $('#gateAccountInfo');
   if (gi) gi.textContent = gateUser && gateUser.email ? gateUser.email + (getUser() === 'dasha' ? ' (Даша)' : ' (Гоша)') : '—';
 }
-// Экспорт — зашифрованный сейф: без пароля файл не прочитать.
-// Фото-блобы лежат в IndexedDB (не в localStorage), поэтому их зашифрованные
-// копии добавляем в архив отдельной секцией photos.
+/* Копия данных: обычный JSON. Раньше выгружался зашифрованный сейф, но сейфа
+   больше нет — данные живут в Firestore под защитой правил доступа. Фото
+   кладём как есть: они и так зашифрованы, расшифровывать их ради бэкапа
+   бессмысленно. */
 async function exportData() {
-  db.backupDate = Date.now();
-  await save();
-  const vault = loadVault();
   let photoSection = null;
   if (photoStore) {
     try {
@@ -50,44 +44,72 @@ async function exportData() {
       console.warn('Не удалось собрать фото для бэкапа', e);
     }
   }
-  const out = photoSection ? { ...vault, photos: photoSection } : vault;
+  const out = {
+    ver: 2,
+    savedAt: Date.now(),
+    events: db.events || [],
+    dates: db.dates || [],
+    notes: db.notes || [],
+    lists: db.lists || [],
+    wishlist: db.wishlist || [],
+    labels: db.labels || [],
+    photos: db.photos || [],
+    pushSubs: db.pushSubs || {}
+  };
+  if (photoSection) out.photos_blobs = photoSection;
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  // Фаза D: имя бэкапа с датой — сразу видно, когда сделана копия
   const d = new Date();
-  const y = d.getFullYear();
   const mo = String(d.getMonth() + 1).padStart(2, '0');
   const da = String(d.getDate()).padStart(2, '0');
-  a.download = `nasha-vselennaya-backup-${y}-${mo}-${da}.json`;
+  a.download = `nasha-vselennaya-backup-${d.getFullYear()}-${mo}-${da}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
-  renderSettings();
   return out;
 }
 $('#exportBtn').addEventListener('click', () => {
   exportData();
 });
+/* Восстановление из копии: заливаем обратно в Firestore. Старый формат
+   (зашифрованный сейф с полем keys) больше не поддерживается — он не
+   расшифровывается без пароля, которого в новой версии нет вовсе.
+   Возвращает: true — успех, 'format' — копия не того формата (сообщение уже
+   показано здесь), 'cancel' — человек отказался на подтверждении, null —
+   настоящая ошибка чтения/разбора файла (поймана в catch). Четыре разных
+   исхода нужны вызывающему коду в #importInput, чтобы не показывать поверх
+   уже понятного сообщения ещё и общий «не получилось прочитать файл» —
+   именно так раньше вылезали два алерта подряд (РЕВЬЮ задачи 12, находка 1). */
 async function importData(text) {
   try {
     const d = JSON.parse(text);
-    if (d && d.db && typeof d.db.d === 'string') {
-      // это зашифрованный сейф (свой же экспорт, тем же общим ключом пары) —
-      // просто восстанавливаем, отдельного пароля больше не требуется
-      store.set(VAULT_KEY, JSON.stringify(d));
-      // Фото-секция v6: зашифрованные блобы возвращаем в хранилище
-      if (d.photos && d.photos.ver === 1 && Array.isArray(d.photos.blobs) && photoStore) {
-        try {
-          await photoStore.importBlobs(d.photos.blobs);
-        } catch (e) {
-          console.warn('Не удалось восстановить фото', e);
-        }
-      }
-      return true;
+    if (!d || d.ver !== 2) {
+      alert('Это копия старого формата — восстановить её эта версия уже не умеет.');
+      return 'format';
     }
-    // старый открытый бэкап — сразу шифруем текущим ключом
-    db = migrateDB({ ...defaultDB(), ...d });
-    save();
+    // РЕВЬЮ задачи 12 (Important, находка 3): импорт целиком перезаписывает
+    // pushSubs — если партнёр переподписался между экспортом и импортом, его
+    // новая подписка тихо откатится к состоянию на момент копии. Ошибки на
+    // экране при этом не будет, поэтому предупреждаем заранее и явно.
+    if (!confirm('Копия заменит текущие данные — события, свидания, заметки, списки, хотелки, лейблы, фото и настройки уведомлений — тем, что было на момент её создания. Продолжить?')) {
+      return 'cancel';
+    }
+    await repoBatch('events', d.events || []);
+    await repoBatch('dates', d.dates || []);
+    await repoBatch('notes', d.notes || []);
+    await repoBatch('lists', d.lists || []);
+    await repoBatch('wishes', d.wishlist || []);
+    await repoBatch('labels', d.labels || []);
+    await repoBatch('photos', d.photos || []);
+    if (d.pushSubs && Object.keys(d.pushSubs).length) await repoMeta({ pushSubs: d.pushSubs });
+    if (d.photos_blobs && d.photos_blobs.ver === 1 && Array.isArray(d.photos_blobs.blobs) && photoStore) {
+      try {
+        await photoStore.importBlobs(d.photos_blobs.blobs);
+      } catch (e) {
+        console.warn('Не удалось восстановить фото', e);
+      }
+    }
+    await loadHotSet();
     return true;
   } catch (err) {
     return null;
@@ -98,13 +120,17 @@ $('#importInput').addEventListener('change', e => {
   if (!f) return;
   const fr = new FileReader();
   fr.onload = async () => {
-    const ok = await importData(fr.result); // ждём и сейф, и фото-блобы
-    if (!ok) {
+    const result = await importData(fr.result); // ждём и сейф, и фото-блобы
+    if (result === true) {
+      e.target.value = '';
+      location.reload();
+    } else if (result === null) {
+      // именно ошибка чтения/разбора файла — importData ничего пользователю не показала
       alert('Не получилось прочитать файл:(');
-      return;
     }
-    e.target.value = '';
-    location.reload();
+    // result === 'format' или 'cancel' — importData уже объяснила пользователю,
+    // что происходит (неверный формат копии или отказ на подтверждении),
+    // повторный алерт здесь только запутал бы
   };
   fr.readAsText(f);
 });

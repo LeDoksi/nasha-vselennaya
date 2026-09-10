@@ -12,7 +12,7 @@
        причём на десктопе окно Google даже не открывается. Ловушка в том, что
        анонимный вход (был до 09.2026) ходил только XHR — поэтому дыру в CSP
        не было видно, пока не появился настоящий Google-вход. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-src https://nasha-vselennaya.firebaseapp.com https://accounts.google.com https://apis.google.com; connect-src 'self' https://*.firebasedatabase.app wss://*.firebasedatabase.app https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.storage.yandexcloud.net https://functions.yandexcloud.net">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-src https://nasha-vselennaya.firebaseapp.com https://accounts.google.com https://apis.google.com; connect-src 'self' https://*.firebasedatabase.app wss://*.firebasedatabase.app https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.storage.yandexcloud.net https://functions.yandexcloud.net https://firestore.googleapis.com https://www.googleapis.com">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
@@ -235,15 +235,6 @@
         </div>
         <pre id="pushDiagOut" hidden style="margin-top:10px;font-size:12px;line-height:1.5;white-space:pre-wrap;background:var(--bg2,#151522);border:1px solid var(--border);border-radius:var(--radius);padding:10px;max-height:260px;overflow:auto;color:var(--muted)"></pre>
       </div>
-      <div class="settings-card">
-        <h3>🌐 Синхронизация</h3>
-        <p id="syncStatus" style="font-size:13px;color:var(--muted)">Синхронизация отключена — работает только на этом устройстве.</p>
-        <div class="settings-btns">
-          <button class="btn" id="syncNowBtn">🔄 Синхронизировать сейчас</button>
-          <button class="btn" id="cloudDiagBtn" style="margin-top:8px">🔍 Диагностика облака</button>
-        </div>
-        <pre id="cloudDiagOut" hidden style="margin-top:10px;font-size:12px;line-height:1.5;white-space:pre-wrap;background:var(--bg2,#151522);border:1px solid var(--border);border-radius:var(--radius);padding:10px;max-height:260px;overflow:auto;color:var(--muted)"></pre>
-      </div>
     </section>
   </main>
 
@@ -425,6 +416,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
   <script src="vendor/sortable.min.js"></script>
   <script src="app.min.js"></script>
 </body>

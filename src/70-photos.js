@@ -86,6 +86,7 @@ $('#photoInput').addEventListener('change', async e => {
           const meta = { type: blob.type || 'image/jpeg', thumbType, title: f.name, size: blob.size, takenAt, origType: f.type || '' };
           await photoStore.put(ph.id, blob, thumb, meta, f); // f — оригинал (сырой файл камеры)
           delete ph.data; // блоб в сторе — из памяти убираем base64
+          repoSet('photos', ph); // метаданные (без base64 — сам файл уже в photoStore/бакете)
           if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // выгрузим в облако
         }
       } catch (err) {
@@ -96,7 +97,6 @@ $('#photoInput').addEventListener('change', async e => {
     }
   }
   e.target.value = '';
-  save();
   renderPhotos();
 });
 // Лейблы — {id,name,color}. Полоса чипов теперь только фильтр (клик всегда
@@ -125,19 +125,25 @@ function renderLabels() {
 }
 // Чистка фото без подтверждения — общая часть deletePhoto()/deleteSelectedPhotos()
 // (при массовом удалении confirm один, на всех отмеченных сразу).
-function deletePhotoSilent(id) {
+// touched (необязателен) собирает события/свидания, у которых поменялся
+// массив photos — при массовом удалении (deleteSelectedPhotos) один и тот же
+// ev/dt может задеть несколько удаляемых фото подряд; Set по ссылке схлопывает
+// повторы, чтобы на каждое такое событие ушла одна запись, а не по одной на фото.
+function deletePhotoSilent(id, touched) {
   const ph = db.photos.find(x => x.id === id);
   if (ph) {
     // фото удаляется и из событий, и из свиданий, чтобы в календаре не оставалось «мёртвых» миниатюр
     db.events.forEach(ev => {
-      if (!Array.isArray(ev.photos)) return;
+      if (!Array.isArray(ev.photos) || !ev.photos.includes(ph.id)) return;
       ev.photos = ev.photos.filter(d => d !== ph.id);
       if (!ev.photos.length) delete ev.photos;
+      if (touched) touched.events.add(ev);
     });
     db.dates.forEach(dt => {
-      if (!Array.isArray(dt.photos)) return;
+      if (!Array.isArray(dt.photos) || !dt.photos.includes(ph.id)) return;
       dt.photos = dt.photos.filter(d => d !== ph.id);
       if (!dt.photos.length) delete dt.photos;
+      if (touched) touched.dates.add(dt);
     });
     if (photoStore && ph.id) photoStore.delete(ph.id); // убираем блоб из IndexedDB
   }
@@ -146,15 +152,23 @@ function deletePhotoSilent(id) {
   // Удаляем из кэша только удалённое фото — остальные миниатюры остаются
   if (id) thumbCache.delete(id);
 }
+// Порядок записи важен: сначала метаданные фото и задетых событий/свиданий
+// в Firestore, и только когда это подтвердилось — schedulePhotoSync() (реально
+// стирает шифртекст из бакета). Обратный порядок оставил бы битую карточку:
+// файл в бакете уже нет, а метаданные о нём — ещё есть.
 function deletePhoto(id) {
   const ph = db.photos.find(x => x.id === id);
   if (!confirmDelete('Удалить фото' + (ph && ph.title ? ' «' + ph.title + '»' : '') + '? Это не отменить.')) return;
-  deletePhotoSilent(id);
-  save();
+  const touched = { events: new Set(), dates: new Set() };
+  deletePhotoSilent(id, touched);
   renderPhotos();
   renderCalendar();
   renderHome();
-  if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // уберём и из облака
+  touched.events.forEach(ev => repoSet('events', ev));
+  touched.dates.forEach(dt => repoSet('dates', dt));
+  repoDelete('photos', id).then(() => {
+    if (typeof schedulePhotoSync === 'function') schedulePhotoSync(); // и только теперь — из облака
+  });
 }
 // Массовое удаление отмеченных фото (панель выбора «🗑 Удалить выбранные») —
 // один confirm на все, без повторного диалога на каждое.
@@ -162,12 +176,16 @@ function deleteSelectedPhotos() {
   const ids = [...selectedPhotos];
   if (!ids.length) return;
   if (!confirmDelete(`Удалить ${ids.length} фото? Это не отменить.`)) return;
-  ids.forEach(deletePhotoSilent);
-  save();
+  const touched = { events: new Set(), dates: new Set() };
+  ids.forEach(id => deletePhotoSilent(id, touched));
   renderPhotos();
   renderCalendar();
   renderHome();
-  if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
+  touched.events.forEach(ev => repoSet('events', ev));
+  touched.dates.forEach(dt => repoSet('dates', dt));
+  Promise.all(ids.map(id => repoDelete('photos', id))).then(() => {
+    if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
+  });
 }
 // Массовое закрепление (панель выбора «⭐/☆ Закрепить») — тот же тоггл-приём,
 // что и у применения лейблов (toggleLabelOnPhotos): если закреплены уже ВСЕ
@@ -180,7 +198,7 @@ function toggleSelectedPin() {
   targets.forEach(p => {
     p.pinned = !allPinned;
   });
-  save();
+  repoBatch('photos', targets);
   renderPhotos();
 }
 // К каким событиям привязано фото — для фильтра «год → месяц → событие».
@@ -233,6 +251,13 @@ function renderPhotos() {
     photosRenderQueued = false;
     renderPhotosNow();
   }
+  // Догрузку страницы НЕ вешаем сюда: renderPhotos() вызывается практически
+  // на любое действие в галерее (лейбл, закрепление, переименование,
+  // удаление, реордер, просто открытие вкладки) — если досылать следующую
+  // страницу из конца рендера, любое непричастное действие вычерпывало бы
+  // всю коллекцию по странице за раз, рекурсивно, пока не кончится курсор.
+  // Дозагрузка привязана к видимости метки-сентинела в конце сетки — см.
+  // photosObserver и #photosSentinel в renderPhotosNow() ниже.
 }
 function renderPhotosNow() {
   const grid = $('#photosGrid');
@@ -277,7 +302,7 @@ function renderPhotosNow() {
       }
     }
   }
-  grid.innerHTML = list.length
+  const cards = list.length
     ? list
         .map(p => {
           // Кэш миниатюр может быть ещё не прогрет — рисуем каркас и заполняем src
@@ -306,7 +331,42 @@ function renderPhotosNow() {
         })
         .join('')
     : '<p class="cal-tip">📷 Загрузите ваши фото — они зашифруются и будут доступны с обоих устройств, если настроена синхронизация в Настройках.</p>';
+  // Невидимая метка в конце сетки — на неё наводится photosObserver ниже,
+  // чтобы знать, когда догружать следующую страницу. grid-column:1/-1 и
+  // высота 1px — иначе в CSS grid (photos-grid) это была бы лишняя пустая
+  // плитка на всю ширину колонки.
+  grid.innerHTML = cards + '<div id="photosSentinel" aria-hidden="true" style="grid-column:1/-1;height:1px"></div>';
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
+  // grid.innerHTML каждый раз пересоздаёт разметку целиком — старая метка
+  // уничтожена вместе с ней, новую нужно заново отдать тому же наблюдателю.
+  if (photosObserver) {
+    photosObserver.disconnect();
+    const sentinel = $('#photosSentinel');
+    if (sentinel) photosObserver.observe(sentinel);
+  }
+}
+// Дозагрузка страниц галереи по видимости метки #photosSentinel (конец сетки),
+// а не по событию scroll: если первая страница (60 фото) и так умещается в
+// экран — широкий монитор, планшет лёжа, редкая сетка миниатюр — скроллбар
+// не появляется, scroll не всплывает ни разу, и загрузка следующих страниц
+// намертво зависает. IntersectionObserver же срабатывает и в этом случае
+// (метка сразу видна), и при прокрутке, и при ресайзе — не нужно гадать,
+// из-за чего метка попала в поле зрения. Держим один наблюдатель на всё
+// время жизни скрипта (не пересоздаём на каждый рендер) — только переводим
+// его на новую метку после renderPhotosNow(), см. выше. photosLoadingMore
+// защищает от повторного запроса, если срабатываний несколько подряд.
+// IntersectionObserver есть не везде (песочница тестов, старые окружения) —
+// тогда наблюдатель просто не создаётся, а пагинация (loadMorePhotos)
+// тестируется напрямую.
+let photosObserver = null;
+if (typeof IntersectionObserver === 'function') {
+  photosObserver = new IntersectionObserver(entries => {
+    if (!entries.some(e => e.isIntersecting)) return;
+    if (activeView !== 'photos' || !db.photos.length || !photosCursor) return;
+    loadMorePhotos().then(added => {
+      if (added) renderPhotos();
+    });
+  });
 }
 // Витрина «📅 События»: кнопки «год → месяц → событие» появляются по мере выбора
 function eventPhotosCount(year, month, title) {
@@ -372,12 +432,18 @@ function renderEventBar() {
 // Лейблы: удаление (фото не трогаем), применение/снятие, создание.
 // p.labels хранит id — у служебных EVENT_LABEL/DATE_LABEL id равен имени,
 // у ручных лейблов id генерируется при создании (см. labelById в renderLabels).
+// Побочный эффект удаления лейбла — он снимается со всех фото, где стоял;
+// это отдельные сущности (коллекция photos), поэтому отдельная запись
+// (repoBatch), а не только repoDelete самого лейбла.
 function deleteLabelSilent(id) {
   if (id === EVENT_LABEL || id === DATE_LABEL) return; // служебные лейблы защищены от удаления
   db.labels = db.labels.filter(l => l.id !== id);
-  db.photos.forEach(p => {
-    if (p.labels) p.labels = p.labels.filter(l => l !== id);
+  repoDelete('labels', id);
+  const touched = db.photos.filter(p => (p.labels || []).includes(id));
+  touched.forEach(p => {
+    p.labels = p.labels.filter(x => x !== id);
   });
+  repoBatch('photos', touched);
   if (currentLabel === id) currentLabel = '';
 }
 function deleteLabel(id) {
@@ -386,7 +452,6 @@ function deleteLabel(id) {
   const count = db.photos.filter(p => (p.labels || []).includes(id)).length;
   if (!confirmDelete(`Удалить лейбл «${l.name}»${count ? ` (снимется с ${count} фото)` : ''}? Это не отменить.`)) return;
   deleteLabelSilent(id);
-  save();
   renderLabelManageList();
   renderPhotos();
 }
@@ -407,14 +472,14 @@ function toggleLabelOnPhotos(id, ids) {
     if (!Array.isArray(p.labels)) p.labels = [];
     p.labels = allHave ? p.labels.filter(l => l !== id) : p.labels.includes(id) ? p.labels : [...p.labels, id];
   });
-  save();
+  repoBatch('photos', targets);
 }
 // Убрать лейбл с конкретного фото (крестик ✕ на бейдже фото).
 function removeLabelFromPhoto(photoId, id) {
   const p = db.photos.find(x => x.id === photoId);
   if (!p || !Array.isArray(p.labels) || !p.labels.includes(id)) return;
   p.labels = p.labels.filter(l => l !== id);
-  save();
+  repoSet('photos', p);
   renderPhotos();
 }
 
@@ -475,8 +540,10 @@ function saveLabelNameEdit(id, text) {
   }
   const inp = $('#labelNameEdit-' + id);
   const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
-  if (t) l.name = t;
-  save();
+  if (t) {
+    l.name = t;
+    repoSet('labels', l);
+  }
   renderLabelManageList();
   renderPhotos();
 }
@@ -490,16 +557,17 @@ function setLabelColor(id, color) {
   if (!l) return;
   l.color = color;
   colorPickerLabelId = null;
-  save();
+  repoSet('labels', l);
   renderLabelManageList();
   renderPhotos();
 }
 $('#labelNewBtn').addEventListener('click', () => {
   const name = $('#labelNewName').value.trim();
   if (!name) return;
-  db.labels.push({ id: uid(), name, color: LABEL_COLORS[db.labels.length % LABEL_COLORS.length] });
+  const label = { id: uid(), name, color: LABEL_COLORS[db.labels.length % LABEL_COLORS.length] };
+  db.labels.push(label);
+  repoSet('labels', label);
   $('#labelNewName').value = '';
-  save();
   renderLabelManageList();
   renderPhotos();
   $('#labelNewName').focus();
@@ -535,9 +603,14 @@ $('#labelApplyNewBtn').addEventListener('click', () => {
   if (!name) return;
   const l = { id: uid(), name, color: LABEL_COLORS[db.labels.length % LABEL_COLORS.length] };
   db.labels.push(l);
+  repoSet('labels', l);
   applyLabelToPhotos(l.id, applyTargetIds);
+  // новый лейбл и применение его к фото — разные сущности, две записи
+  repoBatch(
+    'photos',
+    db.photos.filter(p => applyTargetIds.includes(p.id))
+  );
   $('#labelApplyNewName').value = '';
-  save();
   renderLabelApplyList();
   renderPhotos();
 });
@@ -638,18 +711,21 @@ function photosSortEnd(evt) {
     targets.add(evt.item.dataset.id); // …и перетаскиваемому фото
     applyLabelToPhotos(chip.dataset.label, targets);
     selectedPhotos.clear(); // действие выполнено — выделение снимаем
-    save();
+    repoBatch(
+      'photos',
+      db.photos.filter(p => targets.has(p.id))
+    );
     renderPhotos();
     return;
   }
   // обычный реордер: порядок из текущего DOM-порядка сетки, закреплённые сверху
   const domIds = [...evt.to.children].filter(c => c.classList && c.classList.contains('photo')).map(c => c.dataset.id);
   const list = domIds.map(id => db.photos.find(p => p.id === id)).filter(Boolean);
-  [...list.filter(p => p.pinned), ...list.filter(p => !p.pinned)].forEach((p, i) => {
-    const ph = db.photos.find(x => x.id === p.id);
-    if (ph) ph.order = i;
+  const reordered = [...list.filter(p => p.pinned), ...list.filter(p => !p.pinned)];
+  reordered.forEach((p, i) => {
+    p.order = i;
   });
-  save();
+  repoBatch('photos', reordered);
   renderPhotos();
 }
 if (typeof Sortable !== 'undefined') {

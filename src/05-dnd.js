@@ -45,17 +45,27 @@ function chipDragPointerDown(e) {
   const chip = chipDragTarget(e.target);
   if (!chip) return;
   chipDrag.state = {
-    chip, label: chip.dataset.label, started: false,
-    px: e.clientX || 0, py: e.clientY || 0, x: e.clientX || 0, y: e.clientY || 0,
-    grabDX: 0, grabDY: 0, ghost: null, hoverPhoto: null
+    chip,
+    label: chip.dataset.label,
+    started: false,
+    px: e.clientX || 0,
+    py: e.clientY || 0,
+    x: e.clientX || 0,
+    y: e.clientY || 0,
+    grabDX: 0,
+    grabDY: 0,
+    ghost: null,
+    hoverPhoto: null
   };
 }
 
 function chipDragPointerMove(e) {
   const st = chipDrag.state;
   if (!st) return;
-  const x = e.clientX || 0, y = e.clientY || 0;
-  st.x = x; st.y = y;
+  const x = e.clientX || 0,
+    y = e.clientY || 0;
+  st.x = x;
+  st.y = y;
   if (!st.started) {
     if (Math.abs(x - st.px) < CHIP_DRAG_THRESHOLD && Math.abs(y - st.py) < CHIP_DRAG_THRESHOLD) return;
     chipDragBegin(st, e);
@@ -79,7 +89,9 @@ function chipDragPointerMove(e) {
 function chipDragPhotoAt(x, y, fallbackEl) {
   let el = null;
   if (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function') {
-    try { el = document.elementFromPoint(x, y); } catch (err) {}
+    try {
+      el = document.elementFromPoint(x, y);
+    } catch (err) {}
   }
   if (!el) el = fallbackEl;
   return el && el.closest ? el.closest('.photo') : null;
@@ -88,10 +100,13 @@ function chipDragPhotoAt(x, y, fallbackEl) {
 function chipDragBegin(st, e) {
   st.started = true;
   if (e && e.pointerId !== undefined && st.chip.setPointerCapture) {
-    try { st.chip.setPointerCapture(e.pointerId); } catch (err) {}
+    try {
+      st.chip.setPointerCapture(e.pointerId);
+    } catch (err) {}
   }
   const r = st.chip.getBoundingClientRect ? st.chip.getBoundingClientRect() : { left: st.x, top: st.y, width: 0 };
-  st.grabDX = st.x - r.left; st.grabDY = st.y - r.top;
+  st.grabDX = st.x - r.left;
+  st.grabDY = st.y - r.top;
   if (st.chip.cloneNode) {
     const ghost = st.chip.cloneNode(true);
     ghost.classList.add('drag-ghost');
@@ -112,9 +127,14 @@ function chipDragBegin(st, e) {
   if (document.body && document.body.classList) document.body.classList.add('uni-dragging');
 }
 
-function chipDragPointerUp(e) { chipDragEnd(chipDrag.state, e, true); }
-function chipDragPointerCancel() { chipDragEnd(chipDrag.state, null, false); }
-function chipDragCancelSafe() { // потеря фокуса окна
+function chipDragPointerUp(e) {
+  chipDragEnd(chipDrag.state, e, true);
+}
+function chipDragPointerCancel() {
+  chipDragEnd(chipDrag.state, null, false);
+}
+function chipDragCancelSafe() {
+  // потеря фокуса окна
   const st = chipDrag.state;
   if (!st) return;
   if (st.started) chipDragEnd(st, null, false);
@@ -132,16 +152,22 @@ function chipDragEnd(st, e, ok) {
   if (st.ghost && st.ghost.remove) st.ghost.remove();
   if (document.body && document.body.classList) document.body.classList.remove('uni-dragging');
   if (!started) return; // обычный клик по чипу — фильтр переключит обычный делегат клика
-  if (!ok) { chipDragSuppressClick(); return; } // Esc/cancel/blur — без применения лейбла
-  const photo = e && (e.clientX !== undefined || e.clientY !== undefined)
-    ? chipDragPhotoAt(e.clientX || st.x, e.clientY || st.y, e.target)
-    : st.hoverPhoto;
+  if (!ok) {
+    chipDragSuppressClick();
+    return;
+  } // Esc/cancel/blur — без применения лейбла
+  const photo = e && (e.clientX !== undefined || e.clientY !== undefined) ? chipDragPhotoAt(e.clientX || st.x, e.clientY || st.y, e.target) : st.hoverPhoto;
   if (photo && photo.dataset && photo.dataset.id) {
     const targets = new Set(selectedPhotos); // всем отмеченным…
-    targets.add(photo.dataset.id);           // …и фото под курсором
+    targets.add(photo.dataset.id); // …и фото под курсором
     applyLabelToPhotos(st.label, targets);
     selectedPhotos.clear();
-    save(); renderPhotos();
+    // лейбл меняется сразу у нескольких фото (под курсором + отмеченные) — батч
+    repoBatch(
+      'photos',
+      db.photos.filter(p => targets.has(p.id))
+    );
+    renderPhotos();
   }
   chipDragSuppressClick();
 }
