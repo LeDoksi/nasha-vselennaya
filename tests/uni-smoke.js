@@ -1141,14 +1141,19 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert((await w('(s)=>s.tryUnwrapKey("gosha","wrong-pass",' + JSON.stringify(legacyVaultTest) + ')')) === null, 'tryUnwrapKey отклоняет неверный пароль на старом сейфе');
   assert((await w('(s)=>s.tryUnwrapKey("dasha","starPass1",' + JSON.stringify(legacyVaultTest) + ')')) === null, 'tryUnwrapKey: у Даши в этом старом сейфе обёртки нет');
 
-  // --- Экспорт — зашифрованный сейф без открытого текста ---
+  // --- Экспорт больше не сейф: сейфа не существует с задачи 12, копия — это
+  // обычный JSON (полная проверка круговым рейсом через живой Firestore — в
+  // tests/uni-repo.js; здесь fsReady выключен, поэтому смотрим только то, что
+  // не зависит от Firestore: форму дампа и то, что шифровать больше нечем). ---
   const exp = await w('(s)=>s.exportData()');
   const expJson = JSON.stringify(exp);
-  assert(expJson.includes('"db"') && expJson.includes('"i"') && expJson.includes('"d"'), 'экспорт — это сейф (шифртекст)');
-  assert(!expJson.includes('Поездка') && !expJson.includes('кафе'), 'в экспорте нет открытого текста');
-  assert((await w('(s)=>s.importData(' + JSON.stringify(expJson) + ')')) === true, 'импорт распознаёт сейф');
+  assert(exp.ver === 2, 'экспорт — обычный JSON версии 2, без сейфа');
+  assert(expJson.includes('Поездка'), 'в копии данные открытым текстом — шифровать их больше нечем (пароля от сейфа не существует)');
+  assert((await w('(s)=>s.importData(' + JSON.stringify(expJson) + ')')) === true, 'импорт распознаёт актуальный формат копии (ver:2)');
 
-  // --- Импорт старого открытого бэкапа — сразу шифруется ---
+  // --- Копия старого формата (без ver:2 — бывший сейф или старый открытый
+  // бэкап) больше не перешифровывается молча заново, а явно отклоняется:
+  // пароля для повторного шифрования в схеме без сейфа просто нет. ---
   const legacyBackup = JSON.stringify({
     events: [{ id: 'x1', title: 'Тайное', date: '2026-05-01', emoji: '💜', repeat: true }],
     notes: [],
@@ -1158,10 +1163,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
     dates: [],
     wishlist: []
   });
-  w('(s)=>s.importData(' + JSON.stringify(legacyBackup) + ')');
-  await w('(s)=>s.save()'); // дожидаемся очереди шифрования
-  assert(w('(s)=>s.db.events.some(e=>e.title==="Тайное")'), 'старый бэкап импортирован в db');
-  assert(!JSON.stringify(w('(s)=>s.loadVault()')).includes('Тайное'), 'импортированное сразу зашифровано');
+  assert((await w('(s)=>s.importData(' + JSON.stringify(legacyBackup) + ')')) === null, 'копия без ver:2 отклонена, а не тихо зашифрована заново');
 
   // --- Конфетти не падает ---
   w('(s)=>s.celebrate()');

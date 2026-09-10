@@ -189,6 +189,7 @@ function __TEST__(s){
   s.monthKey = monthKey; s.monthRange = monthRange;
   s.loadHotSet = loadHotSet; s.loadMonth = loadMonth; s.loadMorePhotos = loadMorePhotos;
   s.repoSet = repoSet; s.repoDelete = repoDelete; s.repoBatch = repoBatch; s.repoMeta = repoMeta;
+  s.exportData = exportData; s.importData = importData;
   s.startLiveUpdates = startLiveUpdates; s.stopLiveUpdates = stopLiveUpdates;
   s.migrateFromVaultIfNeeded = migrateFromVaultIfNeeded; s.defaultDB = defaultDB;
   s.gateSignIn = gateSignIn; s.isLocked = isLocked;
@@ -373,6 +374,19 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   }
   assert(repoMetaError && repoMetaError.code === 'permission-denied', 'repoMeta пробрасывает не-not-found ошибку, а не глушит её');
   assert(mock._store['couples/main/meta/settings'].pushSubs.gosha.endpoint === 'g3', 'после проброшенной ошибки документ не тронут лишней записью');
+
+  // РЕВЬЮ задачи 11 (Important): путь отписки от пушей (FieldValue.delete()
+  // внутри repoMeta, см. disablePushNotifications в src/96-push.js) вообще не
+  // был покрыт тестами — самая коварная зона рефактора: отправка пушей глушит
+  // все ошибки, поэтому поломка тут не даёт ни одной ошибки на экране, партнёр
+  // просто молча перестаёт получать приглашения. Кладём подписки ОБОИХ, один
+  // отписывается точечным удалением по вложенному пути — его подписка должна
+  // исчезнуть, а подписка партнёра остаться нетронутой.
+  mock._store['couples/main/meta/settings'] = { pushSubs: { gosha: { endpoint: 'g-uns' }, dasha: { endpoint: 'd-uns' } } };
+  await sandbox.repoMeta({ 'pushSubs.gosha': firebase.firestore.FieldValue.delete() });
+  const subsAfterUnsub = mock._store['couples/main/meta/settings'].pushSubs;
+  assert(subsAfterUnsub.gosha === undefined, 'repoMeta точечно удалил подписку отписавшегося (pushSubs.gosha)');
+  assert(subsAfterUnsub.dasha && subsAfterUnsub.dasha.endpoint === 'd-uns', 'подписка партнёра уцелела после чужой отписки');
 
   // РЕВЬЮ (Important, находка 1): repoBatch режет запись по 400 операций —
   // границу лимита Firestore (500 на батч) тесты выше не проверяли вообще
@@ -733,6 +747,18 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{ s.renderPhotos(); return 1; }');
   await new Promise(r => setTimeout(r, 10));
   assert(registry['#photosGrid'].innerHTML.includes('photosSentinel'), 'renderPhotos без IntersectionObserver всё равно дорисовывает метку в конец сетки');
+
+  // Копия: выгрузили — почистили базу — загрузили обратно, данные вернулись
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  w('(s)=>{s.db = {...s.defaultDB(), notes:[{id:"b1",text:"Для бэкапа",author:"gosha",pinned:false,order:0,ts:1}]}; return 1;}');
+  const dump = await w('(s)=>s.exportData()');
+  assert(dump.ver === 2 && Array.isArray(dump.notes), 'копия — обычный JSON версии 2');
+  assert(dump.notes[0].text === 'Для бэкапа', 'данные в копии открытым текстом');
+  assert(JSON.stringify(dump).indexOf('"keys"') === -1, 'в копии больше нет сейфа');
+
+  w('(s)=>{s.db = s.defaultDB(); return 1;}');
+  assert((await w('(s)=>s.importData(' + JSON.stringify(JSON.stringify(dump)) + ')')) === true, 'импорт распознал копию');
+  assert(mock._store['couples/main/notes/b1'].text === 'Для бэкапа', 'импорт вернул данные в базу');
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
