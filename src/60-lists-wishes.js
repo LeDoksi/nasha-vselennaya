@@ -75,7 +75,11 @@ function renderLists() {
     wrap.innerHTML = '<div class="empty-state rem-empty">Пока нет ни одного списка 🫧<br>Создайте первый — например, «Подарки на 8 марта».</div>';
     return;
   }
-  wrap.innerHTML = db.lists
+  // Сортируем по order (как renderNotes) — сам db.lists может прийти из
+  // Firestore в произвольном порядке документов, order — единственный
+  // источник истины для позиции карточки.
+  const sorted = [...db.lists].sort((a, b) => (a.order ?? 1e9) - (b.order ?? 1e9));
+  wrap.innerHTML = sorted
     .map(list => {
       const active = list.items.filter(i => !i.done).length;
       const editingName = editingListId === list.id;
@@ -202,7 +206,7 @@ function listFlipAnimate(scope, before) {
 function createList(rawName) {
   const name = String(rawName || '').trim();
   if (!name) return null;
-  const list = { id: uid(), name, items: [] };
+  const list = { id: uid(), name, items: [], order: 0 }; // order:0 — тот же приём, что у addNote/addPhoto
   db.lists.unshift(list); // новый список — сверху
   repoSet('lists', list);
   renderLists();
@@ -262,19 +266,18 @@ function completeList(listId) {
 }
 
 // Перетаскивание карточек списков — SortableJS (forceFallback: нативный HTML5
-// DnD не поддерживает тач). Порядок — сам массив db.lists (без отдельного
-// order-поля), как и раньше.
+// DnD не поддерживает тач). Порядок — поле order документа списка, тот же
+// приём, что у notesSortEnd (src/50-notes.js): без него Firestore не
+// гарантирует порядок документов, и перетаскивание не переживало reload /
+// второе устройство (Critical-находка ревью задач 8-9).
 function listsSortEnd(evt) {
-  db.lists = [...evt.to.children]
-    .filter(c => c.classList && c.classList.contains('list-card'))
-    .map(c => db.lists.find(l => l.id === c.dataset.id))
-    .filter(Boolean);
-  // Записи в Firestore здесь нет: порядок списков — только позиция в массиве
-  // db.lists, у документа списка нет order-поля (см. комментарий выше). Сами
-  // документы от перестановки не меняются, писать нечего; без отдельного поля
-  // порядок карточек всё равно не переживёт перезагрузку.
-  // ponytail: персистентность порядка списков требует отдельного order-поля
-  // и миграции — вне рамок задачи 9, до этого правки drag-порядка живут только в сессии.
+  const ids = [...evt.to.children].filter(c => c.classList && c.classList.contains('list-card')).map(c => c.dataset.id);
+  ids.forEach((id, i) => {
+    const l = db.lists.find(x => x.id === id);
+    if (l) l.order = i;
+  });
+  db.lists = ids.map(id => db.lists.find(l => l.id === id)).filter(Boolean);
+  repoBatch('lists', db.lists); // порядок меняется у всех карточек разом — батч, не поштучно
 }
 if (typeof Sortable !== 'undefined') {
   Sortable.create($('#listsWrap'), {

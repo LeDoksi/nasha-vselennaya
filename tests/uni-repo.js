@@ -192,6 +192,7 @@ function __TEST__(s){
   s.startLiveUpdates = startLiveUpdates; s.stopLiveUpdates = stopLiveUpdates;
   s.migrateFromVaultIfNeeded = migrateFromVaultIfNeeded; s.defaultDB = defaultDB;
   s.gateSignIn = gateSignIn; s.isLocked = isLocked;
+  s.listsSortEnd = listsSortEnd;
   // Сеттер нужен только тесту миграции ниже: он подставляет db напрямую,
   // как если бы сейф уже был расшифрован гейтом.
   Object.defineProperty(s, 'db', { get: () => db, set: v => { db = v; }, configurable: true });
@@ -586,6 +587,40 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
     plainDb.photos.some(p => p.title === 'Годовщина'),
     'saveEventFromModal с фото сохранил метаданные фото в сейф (Critical, ревью задачи 7)'
   );
+
+  // Critical (ревью задач 8-9): порядок карточек списков должен пережить
+  // reload / второе устройство — listsSortEnd обязан писать order через
+  // repoBatch, а не только переставлять db.lists в памяти. Симулируем
+  // перетаскивание (listsSortEnd с рукотворным evt, как в tests/uni-dnd.js),
+  // затем «второе устройство» — свежий loadHotSet(), который читает
+  // Firestore без orderBy (как и notes) и полагается только на order.
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  w(`(s)=>{s.db = {
+    ...s.defaultDB(),
+    lists: [
+      { id: 'ls1', name: 'Первый', items: [], order: 0 },
+      { id: 'ls2', name: 'Второй', items: [], order: 1 },
+      { id: 'ls3', name: 'Третий', items: [], order: 2 }
+    ]
+  }; return 1;}`);
+  // Первая запись — чтобы было что переставлять репозиторию (миграция/начальное состояние).
+  await w('(s)=>s.repoBatch("lists", s.db.lists)');
+  w(`(s)=>{
+    const card = id => ({ classList: { contains: c => c === 'list-card' }, dataset: { id } });
+    s.listsSortEnd({ to: { children: [card('ls2'), card('ls3'), card('ls1')] } });
+    return 1;
+  }`);
+  await new Promise(r => setTimeout(r, 10)); // repoBatch внутри listsSortEnd не await'ится вызывающим кодом
+
+  assert(mock._store['couples/main/lists/ls2'].order === 0, 'listsSortEnd записал новый order ls2=0 в Firestore');
+  assert(mock._store['couples/main/lists/ls3'].order === 1, 'listsSortEnd записал новый order ls3=1 в Firestore');
+  assert(mock._store['couples/main/lists/ls1'].order === 2, 'listsSortEnd записал новый order ls1=2 в Firestore');
+
+  // «Второе устройство» / reload: новый loadHotSet() поверх пустого db.
+  w('(s)=>{ s.db = s.defaultDB(); return 1; }');
+  await w('(s)=>s.loadHotSet()');
+  const idsAfterReload = w('(s)=>JSON.stringify([...s.db.lists].sort((a,b)=>(a.order??1e9)-(b.order??1e9)).map(l=>l.id))');
+  assert(idsAfterReload === '["ls2","ls3","ls1"]', 'порядок списков после перетаскивания пережил reload/второе устройство (сортировка по order)');
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
