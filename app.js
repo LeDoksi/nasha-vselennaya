@@ -474,11 +474,10 @@ async function unlockWithKey(key) {
   await photoStore.migratePhotos(db);
   await photoStore.refreshSizes();
   warmThumbCache();
-  try {
-    await save();
-  } catch (e) {
-    console.warn('Не удалось закрепить миграцию', e);
-  }
+  // Раньше здесь закреплялся save() — переписывал зашифрованный сейф текущим
+  // db, чтобы следующий вход мог его перечитать. Источник правды теперь
+  // Firestore (loadHotSet() выше), локальная запись сейфа убрана целиком
+  // (см. src/10-vault.js) — закреплять миграцию некуда и незачем.
   unlockApp();
 }
 
@@ -589,9 +588,10 @@ const gateSignOutBtnEl = $('#gateSignOutBtn');
 if (gateSignOutBtnEl) gateSignOutBtnEl.addEventListener('click', gateSignOut);
 
 /* ===== Старт приложения =====
-   Вызов boot() стоит в конце 95-sync.js (последний модуль сборки) — как и
-   раньше initAuth(), он читает FIREBASE_CONFIG (let из 95-sync.js), который
-   ещё в «мёртвой зоне» во время выполнения этого файла. */
+   Вызов boot() стоит в конце 95-photos-cloud.js (последний модуль сборки) —
+   как и раньше initAuth(), он читает FIREBASE_CONFIG (let из
+   95-photos-cloud.js), который ещё в «мёртвой зоне» во время выполнения
+   этого файла. */
 async function boot() {
   document.body.classList.add('auth');
   showAuth('gate');
@@ -1884,44 +1884,19 @@ function legacyDB() {
     return defaultDB();
   }
 }
+// Читает старый зашифрованный сейф (universe_vault) — только на чтение.
+// Раньше сюда же писал save() на каждое изменение (и его закреплял push
+// блоб-синхронизации), но с переходом на Firestore как источник правды
+// (каждый экран пишет точечно через репозиторий, см. src/04-repo.js) запись
+// сюда убрана целиком — незачем. Само чтение остаётся: разовый перенос
+// данных пары (src/06-migrate.js, вызывается из unlockWithKey в
+// src/01-gate.js) читает отсюда старый сейф ровно один раз.
 function loadVault() {
   try {
     return JSON.parse(localStorage.getItem(VAULT_KEY));
   } catch (e) {
     return null;
   }
-}
-// Сохранение всегда идёт через шифрование; очередь снимков не даёт
-// гонке записать более старый снимок поверх свежего. Формат сейфа — просто
-// { db: {i,d} }: один общий мастер-ключ на пару (см. src/01-gate.js), без
-// пер-пользовательских обёрток паролем, как было раньше.
-let saveChain = Promise.resolve();
-function save() {
-  if (!masterKey) return Promise.resolve();
-  const snap = JSON.stringify(db);
-  // Ключ берём СЕЙЧАС (не читаем masterKey заново внутри .then): очередь может
-  // выполниться позже, когда lock() уже обнулит masterKey — раньше это роняло
-  // aesEnc с «2nd argument is not of type CryptoKey» при частых lock/unlock.
-  const keyAtCall = masterKey;
-  // Цепочка никогда не «падает»: один сбой шифрования отравил бы saveChain, и каждый
-  // следующий save() без await давал бы unhandledrejection с ложным тостом при входе.
-  saveChain = saveChain.then(async () => {
-    if (!keyAtCall) return;
-    try {
-      const blob = await aesEnc(keyAtCall, enc.encode(snap));
-      try {
-        localStorage.setItem(VAULT_KEY, JSON.stringify({ db: blob }));
-      } catch (e) {
-        notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true);
-      }
-      // Облачная синхронизация: после каждого успешного сохранения — push (debounce)
-      if (typeof scheduleSyncPush === 'function') scheduleSyncPush();
-    } catch (e) {
-      console.warn('Не удалось сохранить сейф', e);
-      notify('Не удалось сохранить — попробуй ещё раз 💜', true);
-    }
-  });
-  return saveChain;
 }
 
 /* ===== Разовая миграция со старого (парольного) сейфа =====
@@ -1953,8 +1928,11 @@ function unlockApp() {
   lastActivity = Date.now();
   startAutoLock();
   maybeShowDateInvitePopup(); // неотвеченные приглашения на свидание — сразу видно, не только листая вниз
-  // Облачная синхронизация: после входа пробуем забрать/отдать данные
-  if (typeof initSync === 'function') initSync();
+  // Облако фото (Yandex Object Storage, см. src/95-photos-cloud.js): после
+  // входа выгружаем свои фото / скачиваем недостающие. Данные (события,
+  // заметки и т.п.) синхронизировать не нужно — они читаются/пишутся прямо
+  // в Firestore каждым экраном, отдельного шага при входе не требуют.
+  if (typeof initPhotoSync === 'function') initPhotoSync();
 }
 // Приватный «замок» по бездействию (см. AUTO_LOCK_MS ниже): прячет данные на
 // этом устройстве, но НЕ разлогинивает из Google — сессия жива, возврат
@@ -1978,9 +1956,9 @@ function lock() {
   const resumeHint = $('#gateResumeHint');
   if (resumeHint) resumeHint.hidden = false;
   showGateErr('');
-  // Облачная синхронизация: при блокировке отключаем слушатели (но НЕ
-  // Google-сессию — см. stopSync в src/95-sync.js)
-  if (typeof stopSync === 'function') stopSync();
+  // Облако фото: при блокировке отключаем таймер сверки (но НЕ Google-сессию —
+  // см. stopPhotoSync в src/95-photos-cloud.js)
+  if (typeof stopPhotoSync === 'function') stopPhotoSync();
 }
 // Публичный API: сам app.js её не вызывает (UI смотрит на authLocked
 // напрямую), но тесты дёргают через s.isLocked — держим как явную точку
@@ -5691,8 +5669,6 @@ function renderSettings() {
   }
   const hint = $('#backupHint');
   if (!hint) return;
-  // Статус облачной синхронизации (модуль 95-sync.js)
-  if (typeof renderSyncStatus === 'function') renderSyncStatus(syncUiState, syncUiTs);
   renderPushSettings(); // модуль 96-push.js — асинхронно проверяет текущую PushManager-подписку
   // РЕВЬЮ задачи 12 (Minor, находка 4): напоминание «копия ещё не делалась»/
   // «была N дн. назад» держалось на db.backupDate, а новый exportData() это
@@ -6217,23 +6193,24 @@ setInterval(() => {
 }, 3800);
 // Коллаж «Наша история» стабилен в течение дня — обновлять его не нужно.
 spawnHeart();
-/* ===== Облачная синхронизация (Firebase Realtime Database) =====
-   Принцип: localStorage — «правда» локально, Firebase — канал синхронизации.
-   Синхронизируем САМ зашифрованный сейф `universe_vault` (zero-knowledge):
-   на сервере лежит только шифртекст (AES-GCM единым мастер-ключом пары —
-   см. src/01-gate.js), Firebase ничего прочитать не может.
+/* ===== Облако фото (Yandex Object Storage) =====
+   Раньше этот файл (src/95-sync.js) синхронизировал ещё и весь зашифрованный
+   сейф целиком через Firebase Realtime Database (vaults/shared): при входе
+   более свежий блоб из облака тихо заменял данные, только что загруженные из
+   Firestore, и закреплял замену через save(). Firestore теперь сам источник
+   правды для событий/заметок/списков/etc. (каждый экран пишет туда точечно,
+   см. src/04-repo.js), поэтому вся эта блоб-синхронизация убрана целиком —
+   держать два параллельных механизма записи было небезопасно (см. историю
+   коммитов и .superpowers/sdd/2026-09-09-firestore-data-layer/progress.md).
 
-   Путь в RTDB: vaults/shared = { syncTs, vault }, vaults/secret = сам ключ
-   (см. 01-gate.js). Правила: доступ только auth.token.email из ALLOWED_EMAILS
-   (см. README, раздел про Google-гейт). Конфликты: «последняя правка
-   выигрывает» по syncTs.
-
-   Firebase-приложение (fbApp) и Google-вход инициализируются гейтом
-   (src/01-gate.js) ДО того, как этот модуль вообще нужен — initSync() здесь
-   только переиспользует уже готовую сессию, отдельного входа не делает.
-   Фаза B3 (фото): оригиналы+показ-версии+миниатюры синхронизируются через
-   Yandex Object Storage (см. YANDEX_CLOUD_CONFIG и makeCloudStorage ниже) —
-   бакет публичный на чтение (без секретных ключей на клиенте), см. README. */
+   Единственное, что осталось в этом файле, — облако ФОТО: оригиналы, показ-
+   версии и миниатюры по-прежнему синхронизируются через Yandex Object Storage
+   (см. YANDEX_CLOUD_CONFIG и makeCloudStorage ниже) — бакет публичный на
+   чтение (без секретных ключей на клиенте), см. README. Запускается из
+   initPhotoSync(), которую вызывает unlockApp() (src/10-vault.js) после входа —
+   Firebase-приложение и Google-вход к этому моменту уже готовы (гейт,
+   src/01-gate.js), здесь просто поднимается клиент облака и стартует первая
+   сверка. */
 
 let FIREBASE_CONFIG = {
   apiKey: 'AIzaSyDuAkskIpj3bsFOX6aPecFWZGJOlOzGzUk',
@@ -6261,69 +6238,9 @@ let YANDEX_CLOUD_CONFIG = {
   signFnUrl: 'https://functions.yandexcloud.net/d4empeq0dp76dkug5c9r' // Cloud Function photo-sign (не секрет)
 };
 
-const SYNC_KEY = 'universe_syncTs'; // последний известный syncTs (метаданные, не секрет)
-const SYNC_PATH = 'vaults/shared'; // общий зашифрованный сейф пары
-
-let syncFirebase = null; // firebaseApp (compat)
-let syncDb = null; // firebase.database()
-let syncReady = false; // SDK есть, config есть, анонимный вход сделан
-let syncTs = 0; // последний применённый syncTs
-let syncPushTimer = null; // debounce push после save()
-let syncApplying = false; // защита от рекурсии pull→save→push
-let lastRemoteSnapshot; // последний снимок vaults/shared от живого слушателя;
-// undefined = слушатель ещё ничего не прислал (см. pushVault)
-
-/* ===== Инициализация: вызывается из unlockApp() после входа =====
-   Google-вход и Firebase-приложение уже готовы к этому моменту (гейт,
-   src/01-gate.js) — здесь только переиспользуем их, отдельного signIn нет. */
-async function initSync() {
-  syncTs = parseInt(store.get(SYNC_KEY) || '0', 10) || 0;
-  const app = typeof ensureFbApp === 'function' ? ensureFbApp() : null;
-  if (!app || !gateUser) {
-    renderSyncStatus('off');
-    return;
-  }
-  try {
-    syncFirebase = app;
-    syncDb = firebase.database(syncFirebase);
-    // Хранилище фото: Yandex Object Storage (публичный на чтение бакет, без
-    // секретов на клиенте — см. YANDEX_CLOUD_CONFIG выше и README). Firebase
-    // используется только для крошечного зашифрованного сейфа (vaults/shared)
-    // и общего ключа (vaults/secret), не для фото.
-    syncStorage = makeCloudStorage();
-    syncReady = true;
-    renderSyncStatus('idle');
-    listenRemote(); // живые обновления с другого устройства
-    pullVault(); // при входе пробуем забрать свежие данные
-    scheduleSyncPush(); // и отдать свои, если они свежее
-    schedulePhotoSync(); // фото: выгрузить свои / скачать недостающие
-  } catch (e) {
-    console.warn('[sync] init failed', e);
-    syncReady = false;
-    renderSyncStatus('error');
-  }
-}
-
-/* ===== Push: после каждого save() (debounce 0.6с) =====
-   Было 1.5с — держали с запасом, но живой слушатель (listenRemote) и так
-   схлопывает лишние применения по syncTs, а более короткий debounce делает
-   «долетание» правки до другого устройства заметно быстрее без риска забить
-   Firebase лишними записями (быстрые правки всё равно схлопываются в одну). */
-function scheduleSyncPush() {
-  if (!syncReady || syncApplying) return;
-  clearTimeout(syncPushTimer);
-  syncPushTimer = setTimeout(pushVault, 600);
-}
-
-// Защита от затирания чужого сейфа. Облачный сейф не расшифровался текущим
-// ключом — значит, в облаке сейф другого устройства/пароля (например, созданный
-// «вторым» сейфом в свежем браузере). Автоматически его не трогаем: показываем
-// конфликт, дальше решает человек («Синхронизировать сейчас» = forcePushVault).
-let syncPushBlocked = false;
-
 // Таймаут для сетевых вызовов: не держим пользователя на «загружаем…»
 // бесконечно, если Firebase отвечает медленно (мобильный интернет). Также
-// используется гейтом (src/01-gate.js) при чтении vaults/secret.
+// используется гейтом (src/01-gate.js) при чтении vaults/secret и ключа фото.
 function withTimeout(promise, ms) {
   let timer = null;
   return Promise.race([
@@ -6334,203 +6251,6 @@ function withTimeout(promise, ms) {
   ]).finally(() => {
     if (timer) clearTimeout(timer);
   });
-}
-
-// Запись сейфа в облако (общий путь для push и принудительного восстановления).
-// syncTs обновляется ДО записи (не после): Firebase применяет собственную
-// запись клиента к локальному кэшу и будит .on('value') почти мгновенно,
-// раньше, чем резолвится промис set(). Если бы syncTs обновлялся только
-// после await, этот «эхо» собственного пуша в listenRemote() видел бы
-// rts > syncTs (старое значение) и принимал бы наше же изменение за пришедшее
-// с другого устройства — весь vault перезагружался бы и на каждое сохранение
-// (например, отметку подзадачи) вылезал бы тост «Данные обновлены с другого
-// устройства». Обновление заранее закрывает эту гонку.
-async function writeVault() {
-  const vault = loadVault();
-  if (!vault || !vault.db || typeof vault.db.d !== 'string') return;
-  renderSyncStatus('syncing');
-  const ts = Date.now();
-  syncTs = ts;
-  store.set(SYNC_KEY, String(ts));
-  await syncDb.ref(SYNC_PATH).set({ syncTs: ts, vault });
-  renderSyncStatus('ok', ts);
-}
-
-async function pushVault() {
-  if (!syncReady || syncApplying) return;
-  // Смотрим, что сейчас лежит в облаке. Если сейф другой и не расшифровывается
-  // текущим ключом — это чужой сейф: НЕ затираем его автоматически.
-  // Живой слушатель (listenRemote) и так держит последний снимок облака —
-  // раньше здесь был отдельный .once('value') перед КАЖДЫМ push, то есть
-  // каждое сохранение стоило двух походов в Firebase вместо одного. Берём
-  // кэш; за свежим снимком, если слушателя ещё нет, читаем сами.
-  try {
-    let remote = lastRemoteSnapshot;
-    if (remote === undefined) {
-      const snap = await syncDb.ref(SYNC_PATH).once('value');
-      remote = snap && snap.val ? snap.val() : null;
-    }
-    if (remote && remote.vault && remote.vault.db && typeof remote.vault.db.d === 'string' && masterKey) {
-      let ok = false;
-      try {
-        await aesDec(masterKey, remote.vault.db);
-        ok = true;
-      } catch (e) {}
-      if (!ok) {
-        syncPushBlocked = true;
-        renderSyncStatus('conflict');
-        notify('В облаке сейф с другим паролем — я его не трогаю. Чтобы открыть данные из облака: нажми чип «Гоша/Даша» (замок) и введи пароль облачного сейфа 💜', true);
-        return;
-      }
-    }
-  } catch (e) {
-    console.warn('[sync] не удалось проверить облачный сейф', e);
-    renderSyncStatus('error');
-    return;
-  }
-  syncPushBlocked = false;
-  try {
-    await writeVault();
-  } catch (e) {
-    console.warn('[sync] push failed', e);
-    renderSyncStatus('error');
-  }
-}
-
-// Явное восстановление: затирает облачный сейф сейфом этого устройства.
-// Это осознанное действие человека (кнопка «Синхронизировать сейчас» в конфликте).
-async function forcePushVault() {
-  if (!syncReady) return;
-  syncPushBlocked = false;
-  try {
-    await writeVault();
-  } catch (e) {
-    console.warn('[sync] force push failed', e);
-    renderSyncStatus('error');
-  }
-}
-
-/* ===== Pull: читаем облако, применяем, если оно свежее ===== */
-async function pullVault() {
-  if (!syncReady) return;
-  try {
-    const snap = await syncDb.ref(SYNC_PATH).once('value');
-    const remote = snap && snap.val ? snap.val() : null;
-    if (!remote || !remote.vault || !remote.vault.db || typeof remote.vault.db.d !== 'string') return;
-    const rts = remote.syncTs || 0;
-    if (rts <= syncTs) return; // облако не свежее — не трогаем локальные данные
-    const applied = await applyRemoteVault(remote.vault);
-    if (!applied) {
-      renderSyncStatus('error');
-      return;
-    }
-    syncTs = rts;
-    store.set(SYNC_KEY, String(rts));
-    renderSyncStatus('ok', rts);
-  } catch (e) {
-    console.warn('[sync] pull failed', e);
-    renderSyncStatus('error');
-  }
-}
-
-/* ===== Живой слушатель: изменения с другого устройства приходят сами ===== */
-let syncLiveOn = false;
-function listenRemote() {
-  if (syncLiveOn || !syncReady || !syncDb) return;
-  syncLiveOn = true;
-  syncDb.ref(SYNC_PATH).on('value', snap => {
-    const remote = snap && snap.val ? snap.val() : null;
-    lastRemoteSnapshot = remote; // держим свежим для pushVault (не перечитывать заново)
-    if (syncApplying) return;
-    if (!remote || !remote.vault || !remote.vault.db || typeof remote.vault.db.d !== 'string') return;
-    const rts = remote.syncTs || 0;
-    if (rts <= syncTs) return; // свой же push
-    renderSyncStatus('syncing');
-    applyRemoteVault(remote.vault)
-      .then(ok => {
-        if (!ok) {
-          renderSyncStatus('error');
-          return;
-        }
-        syncTs = rts;
-        store.set(SYNC_KEY, String(rts));
-        renderSyncStatus('ok', rts);
-        notify('Данные обновлены с другого устройства 💜');
-      })
-      .catch(e => {
-        console.warn('[sync] live apply failed', e);
-        renderSyncStatus('error');
-      });
-  });
-}
-
-/* ===== Применить облачный сейф: расшифровать → db → перерисовать =====
-   AES-GCM — аутентифицированное шифрование: чужой/повреждённый блоб не
-   расшифруется (упадёт), локальные данные не пострадают. */
-async function applyRemoteVault(remoteVault) {
-  if (!masterKey) return false;
-  let raw;
-  try {
-    raw = await aesDec(masterKey, remoteVault.db);
-  } catch (e) {
-    console.warn('[sync] облачный сейф не расшифровать (не тот ключ/повреждён?)', e);
-    return false;
-  }
-  let nd;
-  try {
-    nd = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(raw)) });
-  } catch (e) {
-    console.warn('[sync] облачные данные повреждены', e);
-    return false;
-  }
-  syncApplying = true;
-  try {
-    db = nd;
-    store.set(VAULT_KEY, JSON.stringify(remoteVault));
-    if (photoStore) {
-      await photoStore.migratePhotos(db);
-      await photoStore.refreshSizes();
-      warmThumbCache();
-    }
-    await save(); // закрепить миграции локально (push не запустится: syncApplying)
-    renderHome();
-    renderCalendar();
-    renderNotes();
-    renderLists();
-    renderWishlist();
-    renderPhotos();
-    renderMemory();
-    renderSettings();
-    schedulePhotoSync(); // пришли новые/удалённые фото — сверимся с облаком
-    return true;
-  } catch (e) {
-    console.warn('[sync] применить облачные данные не удалось', e);
-    return false;
-  } finally {
-    syncApplying = false;
-  }
-}
-
-/* ===== Остановка: при lock() ===== */
-function stopSync() {
-  clearTimeout(syncPushTimer);
-  clearTimeout(photoSyncTimer);
-  if (syncLiveOn && syncDb) {
-    try {
-      syncDb.ref(SYNC_PATH).off('value');
-    } catch (e) {}
-    syncLiveOn = false;
-  }
-  // Google-сессию НЕ трогаем — это приватный «замок», не выход из аккаунта
-  // (см. lock() в src/10-vault.js и gateSignOut в src/01-gate.js).
-  syncReady = false;
-  syncFirebase = null;
-  syncDb = null;
-  syncStorage = null;
-  syncPushBlocked = false;
-  photoSyncing = false;
-  lastRemoteSnapshot = undefined; // следующий initSync() начнёт с чистого кэша
-  renderSyncStatus('off');
 }
 
 /* ===== Фото в облаке: оригиналы + показ-версии + миниатюры в Yandex Object
@@ -6544,17 +6264,33 @@ function stopSync() {
    Cloud Function photo-sign (см. комментарий над makeCloudStorage).
 
    Модель — полная сверка (reconciliation): после каждой операции с фото
-   (добавление, удаление, применение облачного сейфа) с задержкой сравниваем три
-   списка: локальный photoStore, облако Storage и db.photos. Недостающее выгружаем
-   и скачиваем, лишнее (удалённые фото) чистим и в облаке, и в локальном сторе.
-   Так работают и бэкфилл старых фото, и удаление с другого устройства.
-   Загрузка/скачивание нескольких фото идёт параллельно (см. mapLimit) —
-   иначе первый вход на новом устройстве с большой галереей тянул бы фото
-   одно за другим. */
+   (добавление, удаление) с задержкой сравниваем три списка: локальный
+   photoStore, облако Storage и db.photos. Недостающее выгружаем и скачиваем,
+   лишнее (удалённые фото) чистим и в облаке, и в локальном сторе. Так работают
+   и бэкфилл старых фото, и удаление с другого устройства. Загрузка/скачивание
+   нескольких фото идёт параллельно (см. mapLimit) — иначе первый вход на новом
+   устройстве с большой галереей тянул бы фото одно за другим. */
 const PHOTO_PARTS = ['orig', 'full', 'thumb'];
 let syncStorage = null; // Yandex Object Storage (S3)
 let photoSyncTimer = null; // debounce после операций с фото
 let photoSyncing = false; // защита от параллельных сверок
+
+/* ===== Запуск: вызывается из unlockApp() после входа =====
+   Google-вход и Firebase-приложение (fbApp, см. src/01-gate.js) уже готовы к
+   этому моменту — здесь только поднимаем клиент Yandex Object Storage и
+   запускаем первую сверку фото. */
+function initPhotoSync() {
+  if (!gateUser) return;
+  syncStorage = makeCloudStorage();
+  schedulePhotoSync();
+}
+
+/* ===== Остановка: при lock() ===== */
+function stopPhotoSync() {
+  clearTimeout(photoSyncTimer);
+  syncStorage = null;
+  photoSyncing = false;
+}
 
 /* ===== Адаптер для Yandex Object Storage =====
    Чтение (GetObject/ListBucket) — анонимно и напрямую в бакет: политика
@@ -6587,7 +6323,8 @@ function makeCloudStorage() {
     if (!cfg.signFnUrl) throw new Error('YANDEX_CLOUD_CONFIG.signFnUrl не задан — запись фото невозможна');
     // photo-sign проверяет Firebase ID-токен перед выдачей подписи (иначе
     // подписать мог бы кто угодно, кто откроет devtools — URL функции не
-    // секрет). Токен берём у уже выполненного Google-входа (src/01-gate.js).
+    // секрет). Токен берём у уже выполненного Google-входа (src/01-gate.js) —
+    // fbApp, единственное Firebase-приложение на весь сайт (гейт + фото).
     // Заголовок называется X-Firebase-Token, а не Authorization: Yandex
     // Cloud перехватывает Authorization на уровне своей платформы (пытается
     // прочитать его как СВОЙ IAM-токен) ещё до кода функции — с этим именем
@@ -6595,10 +6332,10 @@ function makeCloudStorage() {
     // раньше 403-м, даже не заглянув внутрь (проверено 12.08.2026).
     let authHeaders = {};
     try {
-      const user = syncFirebase && firebase.auth(syncFirebase).currentUser;
+      const user = fbApp && firebase.auth(fbApp).currentUser;
       if (user) authHeaders = { 'X-Firebase-Token': await user.getIdToken() };
     } catch (e) {
-      console.warn('[sync] не удалось получить ID-токен для photo-sign', e);
+      console.warn('[photo-sync] не удалось получить ID-токен для photo-sign', e);
     }
     const signRes = await fetch(cfg.signFnUrl + '?method=' + method + '&part=' + encodeURIComponent(part) + '&id=' + encodeURIComponent(id), { headers: authHeaders });
     if (!signRes.ok) throw new Error('sign-fn ' + signRes.status);
@@ -6690,13 +6427,12 @@ function photoRef(part, id) {
 // Запуск сверки фото (debounce 1.2 с — было 2.5, снижено вместе с
 // оптимизацией самой сверки: listIds() больше не читает блобы, а probe не
 // перепроверяет уже свои фото, так что каждый прогон стал заметно дешевле):
-// после добавления/удаления фото и при применении облачного сейфа. Без
-// Storage или до разблокировки — просто ждём.
+// после добавления/удаления фото. Без Storage или до разблокировки — просто ждём.
 function schedulePhotoSync() {
   if (!syncStorage || !photoStore || !masterKey || photoSyncing) return;
   clearTimeout(photoSyncTimer);
   photoSyncTimer = setTimeout(() => {
-    syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
+    syncPhotos().catch(e => console.warn('[photo-sync] сверка фото', e));
   }, 1200);
 }
 
@@ -6708,7 +6444,7 @@ async function listCloudPhotos() {
       const res = await syncStorage.ref('photos/' + part).listAll();
       for (const it of res.items || []) (out[it.name] = out[it.name] || {})[part] = true;
     } catch (e) {
-      console.warn('[sync] не удалось прочитать облако photos/' + part, e);
+      console.warn('[photo-sync] не удалось прочитать облако photos/' + part, e);
     }
   }
   return out;
@@ -6737,7 +6473,7 @@ async function uploadCloudPhoto(id, cloud, local) {
     await Promise.all(jobs);
     return { ok: true };
   } catch (e) {
-    console.warn('[sync] не удалось выгрузить фото ' + id, e);
+    console.warn('[photo-sync] не удалось выгрузить фото ' + id, e);
     return { ok: false, err: e };
   }
 }
@@ -6790,7 +6526,7 @@ async function downloadCloudPhoto(id, cloud, local) {
     } catch (e) {}
     return { ok: true };
   } catch (e) {
-    console.warn('[sync] не удалось скачать фото ' + id, e);
+    console.warn('[photo-sync] не удалось скачать фото ' + id, e);
     return { ok: false, err: e };
   }
 }
@@ -6840,7 +6576,7 @@ async function probeCloudKeys(cloud) {
       // Любая другая ошибка (сеть, JSON) — временная, помечаем unknown.
       const emsg = String((e && e.message) || e);
       if (e && (e.name === 'OperationError' || /decrypt/i.test(emsg))) {
-        console.warn('[sync] облачное фото не расшифровывается текущим ключом', id, part);
+        console.warn('[photo-sync] облачное фото не расшифровывается текущим ключом', id, part);
         foreign.set(id, part);
       } else {
         unknown.set(id, e);
@@ -6886,7 +6622,7 @@ async function syncPhotos() {
     const probe = Object.keys(toProbe).length ? await probeCloudKeys(toProbe) : { foreign: new Map(), unknown: new Map() };
     const isSkipped = id => probe.foreign.has(id) || probe.unknown.has(id);
     if (probe.foreign.size) {
-      console.warn('[sync] в облаке фото с другим ключом (' + probe.foreign.size + ' шт) — их не трогаю, свои фото синхронизирую');
+      console.warn('[photo-sync] в облаке фото с другим ключом (' + probe.foreign.size + ' шт) — их не трогаю, свои фото синхронизирую');
       notify('В облаке есть фото с другим паролем — я их не трогаю, но свои фото выгружаю 💜', true);
     }
     if (probe.unknown.size) stats.retry = true; // сеть/формат — повторим позже
@@ -6919,14 +6655,15 @@ async function syncPhotos() {
       if (isSkipped(id)) return false;
       return PHOTO_PARTS.some(part => cloud[id] && cloud[id][part] && !hasPart(id, part));
     });
-    // Гонка с другим устройством: запись о фото (в сейфе) обычно долетает
-    // быстрее, чем сам файл (у сейфа debounce короче + файл ещё грузится
-    // presign+PUT). Если id есть в db.photos, но НИ локально, НИ в облаке
-    // пока ничего нет — это не «нечего скачивать», а «другое устройство ещё
-    // грузит», и без специальной обработки sync тихо завершался бы успешно,
-    // ничего не скачав, и не повторялся бы — фото так и оставалось «битым»,
-    // пока кто-то не нажмёт «Синхронизировать сейчас» вручную. Планируем
-    // быстрый повтор (см. finally), а не 20-секундный, как при настоящих сбоях.
+    // Гонка с другим устройством: запись о фото (в базе) обычно долетает
+    // быстрее, чем сам файл (сама запись — маленький документ Firestore, а
+    // файл ещё грузится presign+PUT). Если id есть в db.photos, но НИ
+    // локально, НИ в облаке пока ничего нет — это не «нечего скачивать», а
+    // «другое устройство ещё грузит», и без специальной обработки sync тихо
+    // завершался бы успешно, ничего не скачав, и не повторялся бы — фото так
+    // и оставалось «битым», пока кто-то не нажмёт «Синхронизировать сейчас»
+    // вручную. Планируем быстрый повтор (см. finally), а не 20-секундный, как
+    // при настоящих сбоях.
     const pendingElsewhere = [...want].some(id => {
       const l = localMap.get(id);
       const hasAnyLocal = !!(l && (l.hasFull || l.hasThumb || l.hasOrig));
@@ -6960,7 +6697,7 @@ async function syncPhotos() {
       notify('Часть фото не синхронизировалась — проверь интернет, повторю через минуту 💜', true);
     }
   } catch (e) {
-    console.warn('[sync] сверка фото не удалась', e);
+    console.warn('[photo-sync] сверка фото не удалась', e);
   } finally {
     photoSyncing = false;
     // Докачали блобы из облака — прогреваем кэш миниатюр и перерисовываем вьюхи,
@@ -6971,133 +6708,18 @@ async function syncPhotos() {
     if (stats.retrySoon) {
       clearTimeout(photoSyncTimer);
       photoSyncTimer = setTimeout(() => {
-        syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
+        syncPhotos().catch(e => console.warn('[photo-sync] сверка фото', e));
       }, 3000);
     } else if (stats.retry) {
       // Были временные сбои (сеть, чужой формат и т.п.) — попробуем ещё раз через 20 секунд.
       clearTimeout(photoSyncTimer);
       photoSyncTimer = setTimeout(() => {
-        syncPhotos().catch(e => console.warn('[sync] сверка фото', e));
+        syncPhotos().catch(e => console.warn('[photo-sync] сверка фото', e));
       }, 20000);
     }
   }
 }
 
-/* ===== UI в настройках: статус + кнопка ===== */
-const SYNC_STATUS_TEXT = {
-  off: 'Синхронизация недоступна — нет связи с Google/Firebase. Проверь интернет.',
-  idle: 'Облако подключено — ждём изменений…',
-  syncing: 'Синхронизируем…',
-  ok: 'Синхронизировано ✅',
-  conflict:
-    '⚠️ В облаке сейф с другим паролем — он не затёрт. Если нужны облачные данные: нажми чип «Гоша/Даша» (замок) и введи пароль облачного сейфа — он усыновится, фото докачаются. «Синхронизировать сейчас» перезапишет облако этим устройством.',
-  error: 'Ошибка синхронизации — проверь интернет и попробуй ещё раз 💜'
-};
-let syncUiState = 'off';
-let syncUiTs = 0;
-function renderSyncStatus(state, ts) {
-  syncUiState = state;
-  syncUiTs = ts || 0;
-  const el = $('#syncStatus');
-  if (!el) return;
-  const text = SYNC_STATUS_TEXT[state] || SYNC_STATUS_TEXT.off;
-  el.textContent = text;
-  el.style.color = state === 'ok' ? '#059669' : state === 'error' ? '#dc2626' : state === 'conflict' ? '#b45309' : 'var(--muted)';
-  const btn = $('#syncNowBtn');
-  if (btn) btn.disabled = state === 'syncing';
-}
-async function syncNow() {
-  if (!syncReady) {
-    initSync();
-    return;
-  }
-  if (syncPushBlocked) {
-    await forcePushVault();
-    return;
-  }
-  await pullVault();
-  await pushVault();
-  schedulePhotoSync(); // фото-сверка тоже по требованию
-}
-const syncNowBtnEl = $('#syncNowBtn');
-if (syncNowBtnEl) syncNowBtnEl.addEventListener('click', syncNow);
-
-/* ===== Диагностика облака (кнопка в настройках) =====
-   Показывает, что сейчас в локальном фото-сторе, что в облаке и расшифровываются
-   ли облачные фото текущим ключом. Помогает найти, где именно рвётся синхронизация. */
-async function getCloudSyncTs() {
-  if (!syncDb) return '—';
-  try {
-    const snap = await syncDb.ref(SYNC_PATH).once('value');
-    const v = snap && snap.val ? snap.val() : null;
-    return v ? v.syncTs || 0 : 0;
-  } catch (e) {
-    return 'ошибка: ' + String((e && e.message) || e);
-  }
-}
-async function runCloudDiagnostics() {
-  const out = $('#cloudDiagOut');
-  if (!out) return;
-  out.hidden = false;
-  const lines = [];
-  const add = s => lines.push(s);
-  try {
-    add('syncReady: ' + syncReady);
-    add('syncStorage: ' + (syncStorage ? 'Yandex Object Storage' : 'нет'));
-    add('masterKey: ' + (masterKey ? 'есть' : 'НЕТ'));
-    add('photos в db: ' + (db.photos || []).length);
-    add('syncTs: локально=' + syncTs + ', в облаке=' + (await getCloudSyncTs()));
-    try {
-      const localList = await photoStore.listIds();
-      add('локальный store: ' + localList.length + ' фото');
-      for (const l of localList) add('  ' + l.id + ' full=' + l.hasFull + ' thumb=' + l.hasThumb + ' orig=' + l.hasOrig);
-    } catch (e) {
-      add('ошибка listIds: ' + String((e && e.message) || e));
-    }
-    let cloud = {};
-    try {
-      cloud = await listCloudPhotos();
-    } catch (e) {
-      add('ошибка listCloudPhotos: ' + String((e && e.message) || e));
-    }
-    add('облако: ' + Object.keys(cloud).length + ' фото');
-    for (const id of Object.keys(cloud)) add('  ' + id + ': ' + (PHOTO_PARTS.filter(p => cloud[id][p]).join(',') || '?'));
-    if (Object.keys(cloud).length) {
-      add('— расшифровка облачных фото текущим ключом —');
-      for (const id of Object.keys(cloud)) {
-        const part = ['thumb', 'full', 'orig'].find(p => cloud[id] && cloud[id][p]);
-        if (!part) {
-          add('  ' + id + ': нет частей');
-          continue;
-        }
-        try {
-          const data = await photoRef(part, id).getBlob();
-          const txt = typeof data === 'string' ? data : await data.text();
-          const parsed = JSON.parse(txt);
-          const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
-          if (!enc) {
-            add('  ' + id + ' (' + part + '): НЕЗНАКОМЫЙ ФОРМАТ');
-            continue;
-          }
-          const u8 = await aesDec(masterKey, enc);
-          const head = Array.from(u8.subarray(0, 4))
-            .map(b => String.fromCharCode(b))
-            .join('');
-          add('  ' + id + ' (' + part + '): расшифровано ✅ ' + u8.length + ' б «' + head.replace(/[^ -~]/g, '?') + '»');
-        } catch (e) {
-          const msg = String((e && e.name) || '') + ': ' + String((e && e.message) || e);
-          const isKey = /OperationError|decrypt/i.test(msg);
-          add('  ' + id + ' (' + part + '): ' + (isKey ? 'ДРУГОЙ КЛЮЧ ❌' : 'ОШИБКА ⚠') + ' — ' + msg.slice(0, 140));
-        }
-      }
-    }
-  } catch (e) {
-    add('неожиданная ошибка: ' + String((e && e.message) || e));
-  }
-  out.textContent = lines.join(String.fromCharCode(10));
-}
-const cloudDiagBtnEl = $('#cloudDiagBtn');
-if (cloudDiagBtnEl) cloudDiagBtnEl.addEventListener('click', runCloudDiagnostics);
 /* ===== Старт приложения =====
    boot() из src/01-gate.js вызывается здесь — последним в сборке: он (через
    ensureFbApp) читает FIREBASE_CONFIG (let из этого модуля), который ещё в
@@ -7115,13 +6737,13 @@ boot();
    или ответил на него, уже знает подписку получателя локально (из db.pushSubs)
    и сам дёргает Cloud Function `send-push` (functions/send-push/), авторизуясь
    ID-токеном приложения гейта (fbApp, см. src/01-gate.js) — та же схема
-   (X-Firebase-Token), что и у photo-sign в 95-sync.js.
+   (X-Firebase-Token), что и у photo-sign в 95-photos-cloud.js.
 
    iOS: push работает только если сайт добавлен на экран «Домой» — обычная
    вкладка Safari такое не разрешает (ограничение Apple, не этого кода).
 
    PUSH_CONFIG.vapidPublicKey/sendFnUrl — не секреты (как и signFnUrl в
-   95-sync.js), настоящий секрет (приватный VAPID-ключ) живёт только в
+   95-photos-cloud.js), настоящий секрет (приватный VAPID-ключ) живёт только в
    переменных окружения функции. См. README, раздел B4. */
 let PUSH_CONFIG = {
   vapidPublicKey: 'BHAuFiHPe13m3MBOygG_hRrrdecn6c0GJIvWGT1QKTUkm2kB9d9EMI8j-2I8Q3s-GbES6o8DK586wFAZFC22Z0U',
@@ -7256,8 +6878,8 @@ async function notifyPartner(title, body) {
     if (!sub) return;
     let authHeaders = {};
     try {
-      // Токен берём из приложения гейта (fbApp), а не из syncFirebase —
-      // тот принадлежит старой блоб-синхронизации, которая скоро исчезнет.
+      // Токен берём из приложения гейта (fbApp) — единственного
+      // Firebase-приложения на весь сайт (гейт + облако фото).
       const user = fbApp && firebase.auth(fbApp).currentUser;
       if (user) authHeaders = { 'X-Firebase-Token': await user.getIdToken() };
     } catch (e) {}
@@ -7274,7 +6896,7 @@ async function notifyPartner(title, body) {
   }
 }
 
-/* ===== Диагностика уведомлений (по образцу runCloudDiagnostics в 95-sync.js) =====
+/* ===== Диагностика уведомлений =====
    notifyPartner() выше нарочно тихо проглатывает ошибки (это не критичный
    путь) — но это же делает его непригодным для отладки живой проблемы «пуш
    не пришёл». Эта функция шлёт РЕАЛЬНЫЙ тестовый пуш самому себе (не
@@ -7305,7 +6927,9 @@ async function runPushDiagnostics() {
     add('своя подписка в кэше (db.pushSubs.' + me + '): ' + !!(db.pushSubs && db.pushSubs[me]));
     add('подписка партнёра в кэше (db.pushSubs.' + partner + '): ' + !!(db.pushSubs && db.pushSubs[partner]));
     add('PUSH_CONFIG.sendFnUrl: ' + (PUSH_CONFIG.sendFnUrl || 'НЕ ЗАДАН'));
-    add('syncReady: ' + (typeof syncReady !== 'undefined' ? syncReady : '?'));
+    // fbApp — то же приложение, из которого notifyPartner() берёт ID-токен
+    // (см. выше); если оно не поднялось, токена не будет и пуш не уйдёт.
+    add('fbApp: ' + (typeof fbApp !== 'undefined' && fbApp ? 'есть' : 'НЕТ'));
     let token = null;
     try {
       // Тот же источник токена, что и в notifyPartner() — иначе диагностика

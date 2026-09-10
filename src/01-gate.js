@@ -182,11 +182,10 @@ async function unlockWithKey(key) {
   await photoStore.migratePhotos(db);
   await photoStore.refreshSizes();
   warmThumbCache();
-  try {
-    await save();
-  } catch (e) {
-    console.warn('Не удалось закрепить миграцию', e);
-  }
+  // Раньше здесь закреплялся save() — переписывал зашифрованный сейф текущим
+  // db, чтобы следующий вход мог его перечитать. Источник правды теперь
+  // Firestore (loadHotSet() выше), локальная запись сейфа убрана целиком
+  // (см. src/10-vault.js) — закреплять миграцию некуда и незачем.
   unlockApp();
 }
 
@@ -297,9 +296,10 @@ const gateSignOutBtnEl = $('#gateSignOutBtn');
 if (gateSignOutBtnEl) gateSignOutBtnEl.addEventListener('click', gateSignOut);
 
 /* ===== Старт приложения =====
-   Вызов boot() стоит в конце 95-sync.js (последний модуль сборки) — как и
-   раньше initAuth(), он читает FIREBASE_CONFIG (let из 95-sync.js), который
-   ещё в «мёртвой зоне» во время выполнения этого файла. */
+   Вызов boot() стоит в конце 95-photos-cloud.js (последний модуль сборки) —
+   как и раньше initAuth(), он читает FIREBASE_CONFIG (let из
+   95-photos-cloud.js), который ещё в «мёртвой зоне» во время выполнения
+   этого файла. */
 async function boot() {
   document.body.classList.add('auth');
   showAuth('gate');

@@ -143,7 +143,7 @@ const sandbox = {
 
 // Мок Firebase: Firestore — из tests/fs-mock.js (тот же, что в uni-repo.js),
 // Auth намеренно НЕ отдаёт пользователя (onAuthStateChanged сразу зовёт cb(null)).
-// Если бы мок сразу авто-логинил, boot() в конце сборки (95-sync.js) запустил бы
+// Если бы мок сразу авто-логинил, boot() в конце сборки (95-photos-cloud.js) запустил бы
 // СВОЙ unlockWithKey конкурентно с тем, что ниже вызывает тест явно, — гонка за
 // общие masterKey/db. Здесь это не нужно: тест сам решает, когда и под кем входить.
 function authObj() {
@@ -259,7 +259,7 @@ function __TEST__(s){
   s.unlockWithKey = unlockWithKey; s.ensureMasterKey = ensureMasterKey; s.tryUnwrapKey = tryUnwrapKey;
   s.publishMigratedKey = publishMigratedKey; s.migrateLegacyVault = migrateLegacyVault;
   s.pbkdf2Key = pbkdf2Key; s.aesEnc = aesEnc; s.randBytes = randBytes; s.b64 = b64;
-  s.lock = lock; s.isLocked = isLocked; s.loadVault = loadVault; s.legacyDB = legacyDB; s.save = save;
+  s.lock = lock; s.isLocked = isLocked; s.loadVault = loadVault; s.legacyDB = legacyDB;
   // Firestore: initFirestore зовём явно (в реальном коде это делает
   // tryEnterWithUser() перед ensureMasterKey — здесь гейт не вызывается, тест
   // входит через ensureMasterKey/unlockWithKey напрямую). fsReady — с сеттером
@@ -270,9 +270,7 @@ function __TEST__(s){
   Object.defineProperty(s, 'fsReady', { get: () => fsReady, set: v => { fsReady = v; }, configurable: true });
   Object.defineProperty(s, 'gateUser', { get: () => gateUser, set: v => { gateUser = v; }, configurable: true });
   s.exportData = exportData; s.importData = importData; s.showAuth = showAuth; s.unlockApp = unlockApp;
-  s.initSync = initSync; s.scheduleSyncPush = scheduleSyncPush; s.stopSync = stopSync; s.syncNow = syncNow;
-  Object.defineProperty(s, 'syncReady', { get: () => syncReady, set: v => { syncReady = v; }, configurable: true });
-  Object.defineProperty(s, 'syncTs', { get: () => syncTs, set: v => { syncTs = v; }, configurable: true });
+  s.initPhotoSync = initPhotoSync; s.stopPhotoSync = stopPhotoSync;
   Object.defineProperty(s, 'photoStore', { get: () => photoStore, configurable: true });
   s.migratePhotosToStore = migratePhotosToStore; s.dataUrlToBlob = dataUrlToBlob;
   s.photoUrl = photoUrl; s.photoSrc = photoSrc; s.warmThumbCache = warmThumbCache; s.clearPhotoStore = clearPhotoStore;
@@ -1281,12 +1279,24 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   const sizes = await w('(s)=>s.photoStore.refreshSizes()');
   assert(sizes.count >= 1 && sizes.bytes >= 0, 'refreshSizes возвращает количество и объём');
   // блокировка очищает хранилище и кэш
-  await w('(s)=>s.save()'); // фиксируем фото в сейфе
   w('(s)=>s.lock()');
   assert(w('(s)=>s.getThumbUrl("psOld")') === null, 'lock очищает кэш миниатюр');
   await w('(s)=>s.ensureMasterKey("dasha").then(k=>s.unlockWithKey(k))');
   assert(w('(s)=>s.isLocked()') === false, 'повторный вход после lock() работает');
-  assert(w('(s)=>s.db.photos.some(p=>p.id==="psOld")'), 'после входа фото на месте');
+  // УДАЛЕНО: 'после входа фото на месте' (db.photos.some(id==="psOld")).
+  // Держалось на save() — он переписывал зашифрованный сейф текущим db на
+  // каждый чих, и psOld (добавлен здесь напрямую в db.photos, в обход
+  // репозитория) переживал lock()+relogin только благодаря этому снимку.
+  // Локальная запись сейфа убрана целиком вместе с блоб-синхронизацией (см.
+  // src/10-vault.js, src/01-gate.js) — источник правды теперь Firestore, а
+  // fsReady здесь намеренно выключен (см. комментарий выше про relock-циклы),
+  // так что относить это же фото ещё и туда было бы отдельным (и лишним для
+  // этого блока) тестом. Персистентность db.photos через Firestore подробно
+  // покрыта в tests/uni-repo.js; выгрузка/скачивание самого файла — в
+  // tests/uni-photo-sync.js. Эквивалента здесь нет: это не изменившийся
+  // способ добычи старого поведения, а поведение, которого у прямых
+  // db.photos.push() (тестовое сокращение, не то, что делает реальный код —
+  // см. src/70-photos.js) в новой архитектуре больше нет.
 
   // --- Сброс очищает сейф ---
   w('(s)=>{s.localStorage.removeItem("universe_vault"); s.localStorage.removeItem("universe");}');
@@ -1496,11 +1506,11 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(registry['#lightbox'].hidden === true, 'светбокс закрывается');
   assert(w('(s)=>s.lightboxList.length') === 0, 'при закрытии список фото очищается');
 
-  // --- Синхронизация: без Firebase config (или SDK) приложение не ломается ---
-  w('(s)=>{s.lock(); s.initSync(); s.scheduleSyncPush(); s.stopSync(); return 1;}');
-  assert(w('(s)=>s.syncReady') === false, 'syncReady=false без Firebase config');
-  assert(w('(s)=>s.isLocked()') === true, 'блокировка работает вместе с sync-модулем');
-  assert(registry['#syncStatus'] && registry['#syncStatus'].textContent.length > 5, 'статус синхронизации показывает подсказку');
+  // --- Блокировка не ломается вместе с модулем облака фото (src/95-photos-cloud.js) ---
+  // Раньше здесь проверялась ещё и блоб-синхронизация (syncReady, текст
+  // #syncStatus) — убрана вместе с ней целиком, см. src/95-photos-cloud.js.
+  w('(s)=>{s.lock(); s.initPhotoSync(); s.stopPhotoSync(); return 1;}');
+  assert(w('(s)=>s.isLocked()') === true, 'блокировка работает вместе с модулем облака фото');
 
   console.log('OK: ' + results.length + ' checks passed\n' + results.join('\n'));
 })().catch(e => {

@@ -9,13 +9,13 @@
    или ответил на него, уже знает подписку получателя локально (из db.pushSubs)
    и сам дёргает Cloud Function `send-push` (functions/send-push/), авторизуясь
    ID-токеном приложения гейта (fbApp, см. src/01-gate.js) — та же схема
-   (X-Firebase-Token), что и у photo-sign в 95-sync.js.
+   (X-Firebase-Token), что и у photo-sign в 95-photos-cloud.js.
 
    iOS: push работает только если сайт добавлен на экран «Домой» — обычная
    вкладка Safari такое не разрешает (ограничение Apple, не этого кода).
 
    PUSH_CONFIG.vapidPublicKey/sendFnUrl — не секреты (как и signFnUrl в
-   95-sync.js), настоящий секрет (приватный VAPID-ключ) живёт только в
+   95-photos-cloud.js), настоящий секрет (приватный VAPID-ключ) живёт только в
    переменных окружения функции. См. README, раздел B4. */
 let PUSH_CONFIG = {
   vapidPublicKey: 'BHAuFiHPe13m3MBOygG_hRrrdecn6c0GJIvWGT1QKTUkm2kB9d9EMI8j-2I8Q3s-GbES6o8DK586wFAZFC22Z0U',
@@ -150,8 +150,8 @@ async function notifyPartner(title, body) {
     if (!sub) return;
     let authHeaders = {};
     try {
-      // Токен берём из приложения гейта (fbApp), а не из syncFirebase —
-      // тот принадлежит старой блоб-синхронизации, которая скоро исчезнет.
+      // Токен берём из приложения гейта (fbApp) — единственного
+      // Firebase-приложения на весь сайт (гейт + облако фото).
       const user = fbApp && firebase.auth(fbApp).currentUser;
       if (user) authHeaders = { 'X-Firebase-Token': await user.getIdToken() };
     } catch (e) {}
@@ -168,7 +168,7 @@ async function notifyPartner(title, body) {
   }
 }
 
-/* ===== Диагностика уведомлений (по образцу runCloudDiagnostics в 95-sync.js) =====
+/* ===== Диагностика уведомлений =====
    notifyPartner() выше нарочно тихо проглатывает ошибки (это не критичный
    путь) — но это же делает его непригодным для отладки живой проблемы «пуш
    не пришёл». Эта функция шлёт РЕАЛЬНЫЙ тестовый пуш самому себе (не
@@ -199,7 +199,9 @@ async function runPushDiagnostics() {
     add('своя подписка в кэше (db.pushSubs.' + me + '): ' + !!(db.pushSubs && db.pushSubs[me]));
     add('подписка партнёра в кэше (db.pushSubs.' + partner + '): ' + !!(db.pushSubs && db.pushSubs[partner]));
     add('PUSH_CONFIG.sendFnUrl: ' + (PUSH_CONFIG.sendFnUrl || 'НЕ ЗАДАН'));
-    add('syncReady: ' + (typeof syncReady !== 'undefined' ? syncReady : '?'));
+    // fbApp — то же приложение, из которого notifyPartner() берёт ID-токен
+    // (см. выше); если оно не поднялось, токена не будет и пуш не уйдёт.
+    add('fbApp: ' + (typeof fbApp !== 'undefined' && fbApp ? 'есть' : 'НЕТ'));
     let token = null;
     try {
       // Тот же источник токена, что и в notifyPartner() — иначе диагностика

@@ -1,7 +1,7 @@
 /* Юнит-тест синхронизации фото: мок Firebase RTDB (вход/сейф) + мок fetch для
    Yandex Object Storage (чтение — анонимно напрямую в бакет; запись — через
    мок Cloud Function photo-sign, которая отдаёт «подписанную» ссылку — см.
-   src/95-sync.js и functions/photo-sign/).
+   src/95-photos-cloud.js и functions/photo-sign/).
    Проверяет: выгрузку оригинала/показ-версии/миниатюры в облако, скачивание
    на «другом устройстве», докачку фото партнёра, бэкфилл старых фото без
    оригинала, очистку удалённых фото из облака и локального стора,
@@ -269,15 +269,14 @@ function __TEST__(s){
   Object.defineProperty(s, 'db', { get: () => db, set: v => { db = v; }, configurable: true });
   Object.defineProperty(s, 'masterKey', { get: () => masterKey, configurable: true });
   Object.defineProperty(s, 'photoStore', { get: () => photoStore, configurable: true });
-  Object.defineProperty(s, 'syncReady', { get: () => syncReady, set: v => { syncReady = v; }, configurable: true });
   Object.defineProperty(s, 'syncStorage', { get: () => syncStorage, set: v => { syncStorage = v; }, configurable: true });
   Object.defineProperty(s, 'photoSyncing', { get: () => photoSyncing, set: v => { photoSyncing = v; }, configurable: true });
   Object.defineProperty(s, 'FIREBASE_CONFIG', { get: () => FIREBASE_CONFIG, set: v => { FIREBASE_CONFIG = v; }, configurable: true });
   Object.defineProperty(s, 'YANDEX_CLOUD_CONFIG', { get: () => YANDEX_CLOUD_CONFIG, set: v => { YANDEX_CLOUD_CONFIG = v; }, configurable: true });
   s.ensureMasterKey = ensureMasterKey; s.unlockWithKey = unlockWithKey; s.setUser = setUser;
-  s.lock = lock; s.save = save; s.loadVault = loadVault;
+  s.lock = lock; s.loadVault = loadVault;
   Object.defineProperty(s, 'gateUser', { get: () => gateUser, set: v => { gateUser = v; }, configurable: true });
-  s.initSync = initSync; s.stopSync = stopSync;
+  s.initPhotoSync = initPhotoSync; s.stopPhotoSync = stopPhotoSync;
   s.syncPhotos = syncPhotos; s.schedulePhotoSync = schedulePhotoSync; s.listCloudPhotos = listCloudPhotos;
   s.probeCloudKeys = probeCloudKeys;
 }
@@ -331,8 +330,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w(`(s)=>{s.YANDEX_CLOUD_CONFIG = { bucket: "nasha-vselennaya", region: "ru-central1", signFnUrl: "${SIGN_FN_URL}" }; return 1;}`);
   w('(s)=>{s.setUser("gosha"); s.gateUser = {email:"shakov.georgy@gmail.com"}; return 1;}');
   await w('(s)=>s.ensureMasterKey("gosha").then(k=>s.unlockWithKey(k))');
-  await w('(s)=>s.initSync()');
-  assert(w('(s)=>s.syncReady') === true, 'syncReady=true с mock-firebase');
+  await w('(s)=>s.initPhotoSync()');
   assert(w('(s)=>s.syncStorage') !== null, 'syncStorage инициализирован (Yandex Object Storage)');
   assert(JSON.stringify(await w('(s)=>s.listCloudPhotos()')) === '{}', 'пустой бакет = пустой список');
 
@@ -412,10 +410,10 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(!mockBucket['/photos/orig/pA'] && !mockBucket['/photos/full/pA'] && !mockBucket['/photos/thumb/pA'], 'удалённое фото убрано из облака');
   assert((await w('(s)=>s.photoStore.getMeta("pA")')) === null, 'удалённое фото убрано из локального стора');
 
-  // 7. stopSync отключает и фото-синхронизацию
-  w('(s)=>{s.stopSync(); return 1;}');
-  assert(w('(s)=>s.syncStorage') === null, 'stopSync отключает syncStorage');
-  await w('(s)=>s.initSync()'); // снова включаем для оставшихся сценариев
+  // 7. stopPhotoSync отключает фото-синхронизацию
+  w('(s)=>{s.stopPhotoSync(); return 1;}');
+  assert(w('(s)=>s.syncStorage') === null, 'stopPhotoSync отключает syncStorage');
+  await w('(s)=>s.initPhotoSync()'); // снова включаем для оставшихся сценариев
 
   // 8. Критично: в облаке лежат фото, зашифрованные ДРУГИМ ключом (свежий браузер
   // создал свой сейф, а в облаке — фото старого). Локальный «want» пуст. syncPhotos

@@ -21,7 +21,7 @@
 ├── run-tests.cmd   ← двойной клик: запуск проверок
 ├── README.md
 ├── PROJECT-MEMORY.md  ← памятка для разработки: схема данных, механики, история, тесты
-├── src/            ← модули (00-core, 01-gate, 05-dnd, 05-photostore, 10-vault, …, 95-sync, 96-push)
+├── src/            ← модули (00-core, 01-gate, 05-dnd, 05-photostore, 10-vault, …, 95-photos-cloud, 96-push)
 ├── vendor/         ← SortableJS (drag&drop списков/фото/заметок), подключён отдельным <script>
 ├── functions/      ← Cloud Functions: photo-sign (подпись загрузки фото), send-push (push-уведомления)
 ├── tools/          ← разовые dev-скрипты (split.js — нарезка app.js обратно на src/)
@@ -139,7 +139,7 @@ Firebase ID-токена независимо — даже если кто-то 
    разрешённый email (B3/B4), так что анонимный вход больше ничем не полезен.
 6. **Project settings ⚙ → Общие → Ваши приложения → Добавить приложение (Web, `</>`)**
    → скопируй объект `firebaseConfig`.
-7. В `src/95-sync.js` вставь значение:
+7. В `src/95-photos-cloud.js` вставь значение:
    ```js
    let FIREBASE_CONFIG = { apiKey: '…', authDomain: '…', databaseURL: '…', projectId: '…', … };
    ```
@@ -157,7 +157,7 @@ Firebase ID-токена независимо — даже если кто-то 
 
 1. Зайди в [консоль Yandex Cloud](https://console.yandex.cloud) → **Object Storage**
    → **Создать бакет**: имя, например `nasha-vselennaya` (должно совпадать с
-   `YANDEX_CLOUD_CONFIG.bucket` в `src/95-sync.js`), доступ — «Приватный»
+   `YANDEX_CLOUD_CONFIG.bucket` в `src/95-photos-cloud.js`), доступ — «Приватный»
    (точнее настроим ниже), класс хранилища — «Стандартный».
 2. Настрой **CORS** (бакет → **Настройки → CORS** либо **Безопасность → CORS**,
    в зависимости от версии консоли), разреши `GET`, `PUT`, `DELETE` с origin
@@ -197,7 +197,7 @@ Firebase ID-токена независимо — даже если кто-то 
 5. Версионирование (Настройки → Версионирование) — необязательно, но полезно
    как страховка от случайного/злонамеренного удаления; стоит места в бакете,
    поэтому можно пропустить (мы пропустили).
-6. В `src/95-sync.js` проверь/поставь имя бакета:
+6. В `src/95-photos-cloud.js` проверь/поставь имя бакета:
    ```js
    let YANDEX_CLOUD_CONFIG = { bucket: 'nasha-vselennaya', region: 'ru-central1', signFnUrl: '' };
    ```
@@ -227,7 +227,7 @@ Firebase ID-токена независимо — даже если кто-то 
 > валидного Yandex IAM-токена, там отклоняется 403-м раньше, чем успевает
 > сработать проверка внутри функции. Если когда-нибудь меняешь имя заголовка
 > в коде — меняй в обоих местах: `functions/photo-sign/index.js` и
-> `src/95-sync.js` (`presignedFetch`), и в CORS-заголовке
+> `src/95-photos-cloud.js` (`presignedFetch`), и в CORS-заголовке
 > `Access-Control-Allow-Headers` внутри функции.
 
 1. **Сервисный аккаунт и статический ключ.** Если ещё нет сервисного аккаунта
@@ -265,7 +265,7 @@ Firebase ID-токена независимо — даже если кто-то 
    есть IAM-токен, то есть сайт не сможет.
 5. Скопируй **публичный URL функции** (вида
    `https://functions.yandexcloud.net/<идентификатор>`) и вставь в
-   `src/95-sync.js`:
+   `src/95-photos-cloud.js`:
    ```js
    let YANDEX_CLOUD_CONFIG = { bucket: 'nasha-vselennaya', region: 'ru-central1',
      signFnUrl: 'https://functions.yandexcloud.net/твой-идентификатор' };

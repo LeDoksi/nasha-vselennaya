@@ -18,8 +18,6 @@ function renderSettings() {
   }
   const hint = $('#backupHint');
   if (!hint) return;
-  // Статус облачной синхронизации (модуль 95-sync.js)
-  if (typeof renderSyncStatus === 'function') renderSyncStatus(syncUiState, syncUiTs);
   renderPushSettings(); // модуль 96-push.js — асинхронно проверяет текущую PushManager-подписку
   // РЕВЬЮ задачи 12 (Minor, находка 4): напоминание «копия ещё не делалась»/
   // «была N дн. назад» держалось на db.backupDate, а новый exportData() это
