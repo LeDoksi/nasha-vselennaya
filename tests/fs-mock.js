@@ -9,6 +9,7 @@ function makeFsMock() {
   const listeners = []; // активные onSnapshot
   let idCounter = 0;
   let commitCount = 0; // сколько раз реально вызвали batch().commit() — тест проверяет, что нарезка по 400 действительно происходит
+  let colGetCount = 0; // сколько раз реально выполнили запрос коллекции (colRef.get()) — тест на гонку loadMorePhotos проверяет, что параллельные вызовы не читают одну и ту же страницу дважды
   let forcedUpdateError = null; // { path, code } — одноразовая подмена ошибки update(), чтобы проверить проброс НЕ-not-found ошибок из repoMeta
 
   const clone = v => JSON.parse(JSON.stringify(v));
@@ -98,6 +99,7 @@ function makeFsMock() {
         return api;
       },
       async get() {
+        colGetCount++;
         return { docs: run() };
       },
       onSnapshot(cb) {
@@ -168,6 +170,9 @@ function makeFsMock() {
     _listeners: listeners,
     get _commitCount() {
       return commitCount;
+    },
+    get _colGetCount() {
+      return colGetCount;
     },
     _failNextUpdate(path, code) {
       forcedUpdateError = { path, code };

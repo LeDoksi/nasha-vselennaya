@@ -273,6 +273,13 @@ let fsReady = false; // Firestore подключён и готов (см. src/03
 // 40-calendar.js, поэтому объявлено здесь, а не в 04-repo.js — TDZ.
 let loadedMonths = new Set();
 let photosCursor = null; // курсор пагинации галереи
+// Идёт ли сейчас запрос следующей страницы галереи — без этого флага два
+// параллельных вызова loadMorePhotos() (например, быстрый скролл или гонка
+// между слушателем и ручным вызовом) читали бы Firestore одним и тем же
+// photosCursor одновременно, задваивая чтение одной и той же страницы.
+// Читается в src/04-repo.js (loadMorePhotos) — объявлено здесь, а не там,
+// по тому же правилу, что и photosCursor выше (TDZ).
+let photosLoadingMore = false;
 let fsUnsubs = []; // активные подписки Firestore (см. src/04-repo.js)
 
 function getUser() {

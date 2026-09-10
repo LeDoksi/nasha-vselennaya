@@ -273,6 +273,13 @@ let fsReady = false; // Firestore подключён и готов (см. src/03
 // 40-calendar.js, поэтому объявлено здесь, а не в 04-repo.js — TDZ.
 let loadedMonths = new Set();
 let photosCursor = null; // курсор пагинации галереи
+// Идёт ли сейчас запрос следующей страницы галереи — без этого флага два
+// параллельных вызова loadMorePhotos() (например, быстрый скролл или гонка
+// между слушателем и ручным вызовом) читали бы Firestore одним и тем же
+// photosCursor одновременно, задваивая чтение одной и той же страницы.
+// Читается в src/04-repo.js (loadMorePhotos) — объявлено здесь, а не там,
+// по тому же правилу, что и photosCursor выше (TDZ).
+let photosLoadingMore = false;
 let fsUnsubs = []; // активные подписки Firestore (см. src/04-repo.js)
 
 function getUser() {
@@ -762,13 +769,22 @@ async function loadMonth(year, month) {
 }
 
 // Следующая страница галереи. Возвращает, сколько фото добавилось (0 — конец).
+// photosLoadingMore — защита от гонки: пока идёт запрос, второй параллельный
+// вызов (см. слушатель скролла в src/70-photos.js) выходит сразу же, не
+// повторяя чтение того же photosCursor — иначе он держал бы старое значение
+// курсора до завершения первого запроса и прочитал бы ту же страницу второй раз.
 async function loadMorePhotos() {
-  if (!fsReady || !photosCursor) return 0;
-  const snap = await fsCol('photos').orderBy('order', 'asc').startAfter(photosCursor).limit(PHOTO_PAGE).get();
-  const rows = docsToArray(snap);
-  db.photos = mergeById(db.photos, rows);
-  photosCursor = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
-  return rows.length;
+  if (!fsReady || !photosCursor || photosLoadingMore) return 0;
+  photosLoadingMore = true;
+  try {
+    const snap = await fsCol('photos').orderBy('order', 'asc').startAfter(photosCursor).limit(PHOTO_PAGE).get();
+    const rows = docsToArray(snap);
+    db.photos = mergeById(db.photos, rows);
+    photosCursor = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
+    return rows.length;
+  } finally {
+    photosLoadingMore = false;
+  }
 }
 
 /* ===== Запись =====
@@ -5161,12 +5177,12 @@ function renderPhotos() {
     photosRenderQueued = false;
     renderPhotosNow();
   }
-  // Догружаем следующую страницу заранее, чтобы прокрутка не упиралась в конец.
-  if (db.photos.length && photosCursor) {
-    loadMorePhotos().then(added => {
-      if (added) renderPhotos();
-    });
-  }
+  // Догрузку страницы НЕ вешаем сюда: renderPhotos() вызывается практически
+  // на любое действие в галерее (лейбл, закрепление, переименование,
+  // удаление, реордер, просто открытие вкладки) — если досылать следующую
+  // страницу из конца рендера, любое непричастное действие вычерпывало бы
+  // всю коллекцию по странице за раз, рекурсивно, пока не кончится курсор.
+  // Дозагрузка привязана к прокрутке галереи — см. слушатель scroll ниже.
 }
 function renderPhotosNow() {
   const grid = $('#photosGrid');
@@ -5241,6 +5257,20 @@ function renderPhotosNow() {
         .join('')
     : '<p class="cal-tip">📷 Загрузите ваши фото — они зашифруются и будут доступны с обоих устройств, если настроена синхронизация в Настройках.</p>';
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
+}
+// Дозагрузка страниц галереи по прокрутке (не по рендеру — см. комментарий в
+// renderPhotos() выше). Слушатель вешается один раз при загрузке скрипта, а
+// не на каждую перерисовку. window нет в песочнице тестов — там блок просто
+// не выполняется, сама пагинация (loadMorePhotos) тестируется напрямую.
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('scroll', () => {
+    if (activeView !== 'photos' || !db.photos.length || !photosCursor) return;
+    const nearEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 600;
+    if (!nearEnd) return;
+    loadMorePhotos().then(added => {
+      if (added) renderPhotos();
+    });
+  });
 }
 // Витрина «📅 События»: кнопки «год → месяц → событие» появляются по мере выбора
 function eventPhotosCount(year, month, title) {

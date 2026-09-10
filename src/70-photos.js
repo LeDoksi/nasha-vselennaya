@@ -251,12 +251,12 @@ function renderPhotos() {
     photosRenderQueued = false;
     renderPhotosNow();
   }
-  // Догружаем следующую страницу заранее, чтобы прокрутка не упиралась в конец.
-  if (db.photos.length && photosCursor) {
-    loadMorePhotos().then(added => {
-      if (added) renderPhotos();
-    });
-  }
+  // Догрузку страницы НЕ вешаем сюда: renderPhotos() вызывается практически
+  // на любое действие в галерее (лейбл, закрепление, переименование,
+  // удаление, реордер, просто открытие вкладки) — если досылать следующую
+  // страницу из конца рендера, любое непричастное действие вычерпывало бы
+  // всю коллекцию по странице за раз, рекурсивно, пока не кончится курсор.
+  // Дозагрузка привязана к прокрутке галереи — см. слушатель scroll ниже.
 }
 function renderPhotosNow() {
   const grid = $('#photosGrid');
@@ -331,6 +331,20 @@ function renderPhotosNow() {
         .join('')
     : '<p class="cal-tip">📷 Загрузите ваши фото — они зашифруются и будут доступны с обоих устройств, если настроена синхронизация в Настройках.</p>';
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
+}
+// Дозагрузка страниц галереи по прокрутке (не по рендеру — см. комментарий в
+// renderPhotos() выше). Слушатель вешается один раз при загрузке скрипта, а
+// не на каждую перерисовку. window нет в песочнице тестов — там блок просто
+// не выполняется, сама пагинация (loadMorePhotos) тестируется напрямую.
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('scroll', () => {
+    if (activeView !== 'photos' || !db.photos.length || !photosCursor) return;
+    const nearEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 600;
+    if (!nearEnd) return;
+    loadMorePhotos().then(added => {
+      if (added) renderPhotos();
+    });
+  });
 }
 // Витрина «📅 События»: кнопки «год → месяц → событие» появляются по мере выбора
 function eventPhotosCount(year, month, title) {

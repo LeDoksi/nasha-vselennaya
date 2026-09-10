@@ -198,6 +198,16 @@ function __TEST__(s){
   Object.defineProperty(s, 'db', { get: () => db, set: v => { db = v; }, configurable: true });
   s.saveEventFromModal = saveEventFromModal;
   Object.defineProperty(s, 'evPhotoData', { get: () => evPhotoData, set: v => { evPhotoData = v; }, configurable: true });
+  // РЕВЬЮ задачи 10 (Critical): deleteLabelSilent/deletePhoto/addEventPhotosToGallery
+  // (ветка «лейбл на существующем фото») нужны напрямую — uni-smoke гоняет их
+  // с выключенным fsReady, где repo* — no-op, и физически не может заметить
+  // потерю записи.
+  s.deleteLabelSilent = deleteLabelSilent;
+  s.deletePhoto = deletePhoto;
+  s.addEventPhotosToGallery = addEventPhotosToGallery;
+  // РЕВЬЮ задачи 10 (Important): гонка в loadMorePhotos — тест ниже дёргает
+  // её параллельно и смотрит на число реальных чтений мока.
+  Object.defineProperty(s, 'photosLoadingMore', { get: () => photosLoadingMore, configurable: true });
 }
 `;
 
@@ -640,6 +650,73 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   const idsShuffleTwo = w('(s)=>JSON.stringify(s.db.lists.map(l=>l.id))');
   assert(idsShuffleTwo === idsShuffleOne, 'loadHotSet: тот же набор списков в другом порядке из Firestore даёт тот же результат');
   assert(mock._store['couples/main/lists/a1'].order === undefined, 'loadHotSet не дозаписывает order в Firestore при чтении');
+
+  // РЕВЬЮ задачи 10 (Critical, находка 1): три «классических случая» потери
+  // persist-записи, которые uni-smoke физически не может заметить — там
+  // fsReady выключен, и repoSet/repoDelete/repoBatch там no-op по определению.
+  // Проверяем здесь, где мок Firestore реально пишет и читает документы.
+
+  // 1) deleteLabelSilent снимает лейбл со всех фото, где он стоял, — это
+  // отдельные сущности (коллекция photos), поэтому нужна СВОЯ запись
+  // (repoBatch), а не только repoDelete самого лейбла.
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  mock._store['couples/main/labels/lblDel'] = { name: 'Удаляемый', color: '#000' };
+  mock._store['couples/main/photos/phLbl1'] = { labels: ['lblDel'], pinned: false, order: 0 };
+  mock._store['couples/main/photos/phLbl2'] = { labels: ['lblDel', 'other'], pinned: false, order: 1 };
+  w(`(s)=>{s.db = {
+    ...s.defaultDB(),
+    labels: [{ id: 'lblDel', name: 'Удаляемый', color: '#000' }],
+    photos: [
+      { id: 'phLbl1', labels: ['lblDel'], pinned: false, order: 0 },
+      { id: 'phLbl2', labels: ['lblDel', 'other'], pinned: false, order: 1 }
+    ]
+  }; return 1;}`);
+  w('(s)=>{ s.deleteLabelSilent("lblDel"); return 1; }');
+  await new Promise(r => setTimeout(r, 10)); // repoDelete/repoBatch внутри не await'ятся вызывающим кодом
+  assert(mock._store['couples/main/labels/lblDel'] === undefined, 'deleteLabelSilent удалил сам лейбл из Firestore (repoDelete)');
+  assert(!(mock._store['couples/main/photos/phLbl1'].labels || []).includes('lblDel'), 'deleteLabelSilent снял лейбл с первого фото в Firestore (repoBatch)');
+  assert(mock._store['couples/main/photos/phLbl2'].labels.includes('other'), 'у второго фото посторонний лейбл уцелел');
+  assert(!mock._store['couples/main/photos/phLbl2'].labels.includes('lblDel'), 'deleteLabelSilent снял лейбл со второго фото в Firestore (repoBatch)');
+
+  // 2) deletePhoto обязан удалить сам документ фото в Firestore — иначе
+  // после reload/на втором устройстве удалённое фото вернётся обратно.
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  mock._store['couples/main/photos/phDel'] = { title: 'Удали меня', pinned: false, order: 0 };
+  w(`(s)=>{s.db = {
+    ...s.defaultDB(),
+    photos: [{ id: 'phDel', title: 'Удали меня', pinned: false, order: 0 }]
+  }; return 1;}`);
+  w('(s)=>{ s.deletePhoto("phDel"); return 1; }'); // confirm() в песочнице всегда возвращает true
+  await new Promise(r => setTimeout(r, 10));
+  assert(mock._store['couples/main/photos/phDel'] === undefined, 'deletePhoto удалил документ фото в Firestore (repoDelete)');
+
+  // 3) addEventPhotosToGallery, ветка «лейбл на уже существующем фото» —
+  // мутирует existing.labels в памяти, но обязан сам записать это через
+  // repoSet, иначе лейбл «📅 События» пропадёт после reload.
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  mock._store['couples/main/photos/phEv'] = { title: 'Уже было', labels: [], pinned: false, order: 0 };
+  w(`(s)=>{s.db = {
+    ...s.defaultDB(),
+    photos: [{ id: 'phEv', title: 'Уже было', labels: [], pinned: false, order: 0 }]
+  }; return 1;}`);
+  w('(s)=>{ s.addEventPhotosToGallery(["phEv"], "Событие"); return 1; }');
+  await new Promise(r => setTimeout(r, 10));
+  assert((mock._store['couples/main/photos/phEv'].labels || []).includes('📅 События'), 'addEventPhotosToGallery записал новый лейбл существующего фото в Firestore (repoSet)');
+
+  // РЕВЬЮ задачи 10 (Important, находка 2): пагинация галереи и гонка.
+  // Без photosLoadingMore два параллельных вызова loadMorePhotos() ушли бы
+  // с одним и тем же (ещё не обновлённым) курсором и оба реально сходили бы
+  // в Firestore за одной и той же страницей.
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  for (let i = 0; i < 5; i++) mock._store['couples/main/photos/race' + i] = { order: i, ts: i };
+  w('(s)=>{ s.db = s.defaultDB(); return 1; }');
+  await w('(s)=>s.loadHotSet()');
+  assert(w('(s)=>s.db.photos.length') === 5, 'горячий набор подтянул все 5 фото для теста гонки');
+  const getsBefore = mock._colGetCount;
+  const raceResults = await w('(s)=>Promise.all([s.loadMorePhotos(), s.loadMorePhotos()])');
+  assert(JSON.stringify(raceResults) === '[0,0]', 'обе параллельные догрузки вернули 0 (курсор уже в конце коллекции)');
+  assert(mock._colGetCount - getsBefore === 1, 'photosLoadingMore не дал второму параллельному вызову прочитать ту же страницу — реальное чтение Firestore случилось только одно');
+  assert(w('(s)=>s.photosLoadingMore') === false, 'после завершения обеих догрузок флаг снова снят');
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {

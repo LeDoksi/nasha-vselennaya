@@ -99,13 +99,22 @@ async function loadMonth(year, month) {
 }
 
 // Следующая страница галереи. Возвращает, сколько фото добавилось (0 — конец).
+// photosLoadingMore — защита от гонки: пока идёт запрос, второй параллельный
+// вызов (см. слушатель скролла в src/70-photos.js) выходит сразу же, не
+// повторяя чтение того же photosCursor — иначе он держал бы старое значение
+// курсора до завершения первого запроса и прочитал бы ту же страницу второй раз.
 async function loadMorePhotos() {
-  if (!fsReady || !photosCursor) return 0;
-  const snap = await fsCol('photos').orderBy('order', 'asc').startAfter(photosCursor).limit(PHOTO_PAGE).get();
-  const rows = docsToArray(snap);
-  db.photos = mergeById(db.photos, rows);
-  photosCursor = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
-  return rows.length;
+  if (!fsReady || !photosCursor || photosLoadingMore) return 0;
+  photosLoadingMore = true;
+  try {
+    const snap = await fsCol('photos').orderBy('order', 'asc').startAfter(photosCursor).limit(PHOTO_PAGE).get();
+    const rows = docsToArray(snap);
+    db.photos = mergeById(db.photos, rows);
+    photosCursor = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
+    return rows.length;
+  } finally {
+    photosLoadingMore = false;
+  }
 }
 
 /* ===== Запись =====
