@@ -748,17 +748,41 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   await new Promise(r => setTimeout(r, 10));
   assert(registry['#photosGrid'].innerHTML.includes('photosSentinel'), 'renderPhotos без IntersectionObserver всё равно дорисовывает метку в конец сетки');
 
-  // Копия: выгрузили — почистили базу — загрузили обратно, данные вернулись
+  // Копия: выгрузили — почистили базу — загрузили обратно, данные вернулись.
+  // РЕВЬЮ задачи 12 (Important, находка 2): раньше тест гонял только notes
+  // (где имя поля в db совпадает с именем коллекции в Firestore) — маппинг
+  // wishlist → wishes внутри importData() (самое лёгкое место для опечатки
+  // копипастом) оставался непроверенным. Теперь непусты все восемь
+  // выгружаемых сущностей, и после импорта каждая проверяется в своей
+  // коллекции/месте — включая wishlist→wishes и pushSubs→meta/settings.
   Object.keys(mock._store).forEach(k => delete mock._store[k]);
-  w('(s)=>{s.db = {...s.defaultDB(), notes:[{id:"b1",text:"Для бэкапа",author:"gosha",pinned:false,order:0,ts:1}]}; return 1;}');
+  w(`(s)=>{s.db = {
+    ...s.defaultDB(),
+    events: [{ id: 'be1', title: 'Годовщина', date: '2026-05-01', emoji: '💜', repeat: true }],
+    dates: [{ id: 'bd1', place: 'Кафе для бэкапа', date: '2026-01-10' }],
+    notes: [{ id: 'b1', text: 'Для бэкапа', author: 'gosha', pinned: false, order: 0, ts: 1 }],
+    lists: [{ id: 'bl1', title: 'Список для бэкапа', items: [] }],
+    wishlist: [{ id: 'bw1', text: 'Хотелка для бэкапа' }],
+    labels: [{ id: 'blb1', name: 'Бэкап-лейбл', color: '#ec4899' }],
+    photos: [{ id: 'bp1', url: 'x', order: 0 }],
+    pushSubs: { gosha: { endpoint: 'backup-endpoint' } }
+  }; return 1;}`);
   const dump = await w('(s)=>s.exportData()');
   assert(dump.ver === 2 && Array.isArray(dump.notes), 'копия — обычный JSON версии 2');
   assert(dump.notes[0].text === 'Для бэкапа', 'данные в копии открытым текстом');
   assert(JSON.stringify(dump).indexOf('"keys"') === -1, 'в копии больше нет сейфа');
 
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
   w('(s)=>{s.db = s.defaultDB(); return 1;}');
   assert((await w('(s)=>s.importData(' + JSON.stringify(JSON.stringify(dump)) + ')')) === true, 'импорт распознал копию');
-  assert(mock._store['couples/main/notes/b1'].text === 'Для бэкапа', 'импорт вернул данные в базу');
+  assert(mock._store['couples/main/events/be1'].title === 'Годовщина', 'событие доехало при импорте');
+  assert(mock._store['couples/main/dates/bd1'].place === 'Кафе для бэкапа', 'свидание доехало при импорте');
+  assert(mock._store['couples/main/notes/b1'].text === 'Для бэкапа', 'заметка доехала при импорте');
+  assert(mock._store['couples/main/lists/bl1'].title === 'Список для бэкапа', 'список доехал при импорте');
+  assert(mock._store['couples/main/wishes/bw1'].text === 'Хотелка для бэкапа', 'хотелка доехала в коллекцию wishes (db.wishlist → fsCol wishes)');
+  assert(mock._store['couples/main/labels/blb1'].name === 'Бэкап-лейбл', 'лейбл доехал при импорте');
+  assert(mock._store['couples/main/photos/bp1'].url === 'x', 'фото доехало при импорте');
+  assert(mock._store['couples/main/meta/settings'].pushSubs.gosha.endpoint === 'backup-endpoint', 'push-подписки доехали при импорте (meta/settings)');
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {

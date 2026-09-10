@@ -1088,7 +1088,12 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // --- Настройки: резервная копия, место и личный кабинет ---
   w('(s)=>s.go("settings")');
   w('(s)=>s.renderSettings()');
-  assert(registry['#backupHint'].innerHTML.includes('копия ещё не делалась'), 'напоминание о бэкапе');
+  // РЕВЬЮ задачи 12 (Minor, находка 4): renderSettings() больше не строит
+  // напоминание из db.backupDate — новый exportData() это поле не выставляет,
+  // так что подсказка врала бы даже сразу после успешной копии. Блок убран
+  // целиком (кнопка «Скачать копию» осталась) — проверяем, что ложное
+  // предупреждение больше не появляется.
+  assert(!registry['#backupHint'].innerHTML.includes('копия ещё не делалась'), 'ложное напоминание о бэкапе убрано');
   assert(/КБ|МБ/.test(registry['#storageInfo'].textContent), 'место в браузере показано');
   w('(s)=>{s.gateUser = {email:"shakov.georgy@gmail.com"}; s.renderSettings(); return 1;}');
   assert(registry['#gateAccountInfo'].textContent === 'shakov.georgy@gmail.com (Гоша)', 'в разделе «Доступ» видно вошедший Google-аккаунт');
@@ -1163,7 +1168,11 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
     dates: [],
     wishlist: []
   });
-  assert((await w('(s)=>s.importData(' + JSON.stringify(legacyBackup) + ')')) === null, 'копия без ver:2 отклонена, а не тихо зашифрована заново');
+  // РЕВЬЮ задачи 12 (Important, находка 1): отказ по формату — это не ошибка
+  // чтения файла, importData() возвращает отдельное значение 'format' (а не
+  // null), чтобы вызывающий код не показывал поверх уже понятного сообщения
+  // ещё один общий алерт «не получилось прочитать файл».
+  assert((await w('(s)=>s.importData(' + JSON.stringify(legacyBackup) + ')')) === 'format', 'копия без ver:2 отклонена, а не тихо зашифрована заново');
 
   // --- Конфетти не падает ---
   w('(s)=>s.celebrate()');

@@ -5694,15 +5694,13 @@ function renderSettings() {
   // Статус облачной синхронизации (модуль 95-sync.js)
   if (typeof renderSyncStatus === 'function') renderSyncStatus(syncUiState, syncUiTs);
   renderPushSettings(); // модуль 96-push.js — асинхронно проверяет текущую PushManager-подписку
-  if (!db.backupDate) {
-    hint.innerHTML = '<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Резервная копия ещё не делалась. Нажми «Скачать копию» — так ничего не потеряется.</span>';
-  } else {
-    const days = Math.floor((Date.now() - db.backupDate) / 86400000);
-    hint.innerHTML =
-      days >= 30
-        ? `<span style="color:#d97706;font-weight:700;font-size:14px">⚠️ Последняя копия была ${days} дн. назад. Самое время обновить её.</span>`
-        : `<span style="color:#059669;font-weight:700;font-size:14px">✅ Копия сделана ${days === 0 ? 'сегодня' : days + ' дн. назад'}. Всё под защитой.</span>`;
-  }
+  // РЕВЬЮ задачи 12 (Minor, находка 4): напоминание «копия ещё не делалась»/
+  // «была N дн. назад» держалось на db.backupDate, а новый exportData() это
+  // поле больше не выставляет — подсказка врала бы даже сразу после успешной
+  // выгрузки. Кнопка «Скачать копию» остаётся, жёлтые напоминания были нужны,
+  // пока данные жили только в браузере — сейчас это Firestore, убираем блок
+  // целиком (сама db.backupDate не трогается — её уборка в отдельной задаче).
+  hint.innerHTML = '';
   // Личный кабинет: какой Google-аккаунт вошёл
   const gi = $('#gateAccountInfo');
   if (gi) gi.textContent = gateUser && gateUser.email ? gateUser.email + (getUser() === 'dasha' ? ' (Даша)' : ' (Гоша)') : '—';
@@ -5750,13 +5748,26 @@ $('#exportBtn').addEventListener('click', () => {
 });
 /* Восстановление из копии: заливаем обратно в Firestore. Старый формат
    (зашифрованный сейф с полем keys) больше не поддерживается — он не
-   расшифровывается без пароля, которого в новой версии нет вовсе. */
+   расшифровывается без пароля, которого в новой версии нет вовсе.
+   Возвращает: true — успех, 'format' — копия не того формата (сообщение уже
+   показано здесь), 'cancel' — человек отказался на подтверждении, null —
+   настоящая ошибка чтения/разбора файла (поймана в catch). Четыре разных
+   исхода нужны вызывающему коду в #importInput, чтобы не показывать поверх
+   уже понятного сообщения ещё и общий «не получилось прочитать файл» —
+   именно так раньше вылезали два алерта подряд (РЕВЬЮ задачи 12, находка 1). */
 async function importData(text) {
   try {
     const d = JSON.parse(text);
     if (!d || d.ver !== 2) {
       alert('Это копия старого формата — восстановить её эта версия уже не умеет.');
-      return null;
+      return 'format';
+    }
+    // РЕВЬЮ задачи 12 (Important, находка 3): импорт целиком перезаписывает
+    // pushSubs — если партнёр переподписался между экспортом и импортом, его
+    // новая подписка тихо откатится к состоянию на момент копии. Ошибки на
+    // экране при этом не будет, поэтому предупреждаем заранее и явно.
+    if (!confirm('Копия заменит текущие данные — события, свидания, заметки, списки, хотелки, лейблы, фото и настройки уведомлений — тем, что было на момент её создания. Продолжить?')) {
+      return 'cancel';
     }
     await repoBatch('events', d.events || []);
     await repoBatch('dates', d.dates || []);
@@ -5784,13 +5795,17 @@ $('#importInput').addEventListener('change', e => {
   if (!f) return;
   const fr = new FileReader();
   fr.onload = async () => {
-    const ok = await importData(fr.result); // ждём и сейф, и фото-блобы
-    if (!ok) {
+    const result = await importData(fr.result); // ждём и сейф, и фото-блобы
+    if (result === true) {
+      e.target.value = '';
+      location.reload();
+    } else if (result === null) {
+      // именно ошибка чтения/разбора файла — importData ничего пользователю не показала
       alert('Не получилось прочитать файл:(');
-      return;
     }
-    e.target.value = '';
-    location.reload();
+    // result === 'format' или 'cancel' — importData уже объяснила пользователю,
+    // что происходит (неверный формат копии или отказ на подтверждении),
+    // повторный алерт здесь только запутал бы
   };
   fr.readAsText(f);
 });
