@@ -51,7 +51,18 @@ async function loadHotSet() {
 
   db.labels = docsToArray(labels);
   db.notes = docsToArray(notes);
-  db.lists = docsToArray(lists);
+  // lists читаем без orderBy (тот же .get(), что и раньше) — Firestore не
+  // гарантирует порядок документов между вызовами. order — источник истины
+  // для позиции карточки (проставлен backfill'ом в migrateDB), а id — вторичный
+  // устойчивый признак для списков без order, чтобы такой список вставал на
+  // одно и то же место при каждой загрузке, а не скакал. Дозапись order в базу
+  // здесь не делаем — лишняя запись на каждом входе ради ситуации, которая
+  // пользователям не встретится (order проставлен при миграции).
+  db.lists = docsToArray(lists).sort((a, b) => {
+    const ao = a.order === undefined ? Infinity : a.order;
+    const bo = b.order === undefined ? Infinity : b.order;
+    return ao - bo || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  });
   db.wishlist = docsToArray(wishes);
   db.dates = docsToArray(dates);
   db.events = mergeById(docsToArray(repeats), docsToArray(events));

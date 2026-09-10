@@ -622,6 +622,31 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   const idsAfterReload = w('(s)=>JSON.stringify([...s.db.lists].sort((a,b)=>(a.order??1e9)-(b.order??1e9)).map(l=>l.id))');
   assert(idsAfterReload === '["ls2","ls3","ls1"]', 'порядок списков после перетаскивания пережил reload/второе устройство (сортировка по order)');
 
+  // Повторное ревью задач 8-9 (Critical): loadHotSet() читает lists без orderBy —
+  // порядок документов, который отдаёт Firestore, между вызовами не гарантирован.
+  // Кладём в мок три списка БЕЗ order (например, если что-то создало документ в
+  // обход backfill'а в migrateDB) в одном порядке ключей стора, затем — тот же
+  // набор id в другом порядке, и проверяем, что loadHotSet() оба раза отдаёт
+  // одинаковый результат (сортировка по order, а при его отсутствии — по id).
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  mock._store['couples/main/lists/c1'] = { name: 'C', items: [] };
+  mock._store['couples/main/lists/a1'] = { name: 'A', items: [] };
+  mock._store['couples/main/lists/b1'] = { name: 'B', items: [] };
+  w('(s)=>{ s.db = s.defaultDB(); return 1; }');
+  await w('(s)=>s.loadHotSet()');
+  const idsShuffleOne = w('(s)=>JSON.stringify(s.db.lists.map(l=>l.id))');
+  assert(idsShuffleOne === '["a1","b1","c1"]', 'loadHotSet: списки без order отсортированы по id (устойчивый вторичный признак)');
+
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  mock._store['couples/main/lists/b1'] = { name: 'B', items: [] };
+  mock._store['couples/main/lists/c1'] = { name: 'C', items: [] };
+  mock._store['couples/main/lists/a1'] = { name: 'A', items: [] };
+  w('(s)=>{ s.db = s.defaultDB(); return 1; }');
+  await w('(s)=>s.loadHotSet()');
+  const idsShuffleTwo = w('(s)=>JSON.stringify(s.db.lists.map(l=>l.id))');
+  assert(idsShuffleTwo === idsShuffleOne, 'loadHotSet: тот же набор списков в другом порядке из Firestore даёт тот же результат');
+  assert(mock._store['couples/main/lists/a1'].order === undefined, 'loadHotSet не дозаписывает order в Firestore при чтении');
+
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
   console.log('FAIL: repo: ' + (e && e.message));

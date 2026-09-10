@@ -200,9 +200,17 @@ function migrateDB(d) {
   // проставляем его по текущей позиции в массиве, иначе при первой же
   // загрузке через Firestore порядок пары оказался бы случайным.
   if (d.lists.some(l => l.order === undefined)) {
-    d.lists.forEach((l, i) => {
-      if (l.order === undefined) l.order = i;
-    });
+    // Опора на позицию во входном массиве — тот же класс ошибки, что был
+    // с лейблами фото: порядок документов из Firestore .get() без orderBy
+    // не гарантирован, и один и тот же набор списков может прийти в разных
+    // порядках между вызовами. Сначала раскладываем по устойчивому признаку
+    // (id), и только потом раздаём номера — тогда backfill детерминирован
+    // независимо от порядка входа.
+    [...d.lists]
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .forEach((l, i) => {
+        if (l.order === undefined) l.order = i;
+      });
   }
   // Фикс мёртвой логики «оба ответили да»: раньше responses[from] у создателя
   // свидания никогда не выставлялся в 'yes' (UI не даёт создателю отвечать —
@@ -706,7 +714,18 @@ async function loadHotSet() {
 
   db.labels = docsToArray(labels);
   db.notes = docsToArray(notes);
-  db.lists = docsToArray(lists);
+  // lists читаем без orderBy (тот же .get(), что и раньше) — Firestore не
+  // гарантирует порядок документов между вызовами. order — источник истины
+  // для позиции карточки (проставлен backfill'ом в migrateDB), а id — вторичный
+  // устойчивый признак для списков без order, чтобы такой список вставал на
+  // одно и то же место при каждой загрузке, а не скакал. Дозапись order в базу
+  // здесь не делаем — лишняя запись на каждом входе ради ситуации, которая
+  // пользователям не встретится (order проставлен при миграции).
+  db.lists = docsToArray(lists).sort((a, b) => {
+    const ao = a.order === undefined ? Infinity : a.order;
+    const bo = b.order === undefined ? Infinity : b.order;
+    return ao - bo || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  });
   db.wishlist = docsToArray(wishes);
   db.dates = docsToArray(dates);
   db.events = mergeById(docsToArray(repeats), docsToArray(events));
