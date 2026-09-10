@@ -9,8 +9,25 @@ function mdOf(dateIso) {
   return typeof dateIso === 'string' && dateIso.length >= 10 ? dateIso.slice(5, 10) : '';
 }
 
-async function migrateFromVaultIfNeeded() {
+// legacyData — РЕЗУЛЬТАТ успешной расшифровки старого сейфа (уже прогнанный
+// через migrateDB(), со всеми преобразованиями схемы вроде альбомов→лейблов),
+// переданный явно вызывающим кодом (unlockWithKey в src/01-gate.js), а НЕ
+// угаданный по содержимому глобального db. Раньше функция сама смотрела на
+// db и решала «похоже на данные — значит, есть что переносить»: но если
+// расшифровка падала (не тот ключ, сейфа нет на этом устройстве), в игру
+// вступал ЛЮБОЙ db, до какого успело докатиться выполнение (вплоть до
+// defaultDB() — структуры с ОДНОЙ годовщиной-заглушкой «Мы начали
+// встречаться»). По длине db.events такую заглушку было не отличить от
+// настоящих данных: функция переносила эту одну годовщину и ставила флаг
+// migrated. Второе устройство, на котором сейф расшифровывался нормально,
+// видело флаг и уже НИЧЕГО не переносило — данные пары оставались запертыми в
+// старом сейфе. Единственный, кто точно знает, удалась расшифровка или нет, —
+// вызывающий код (строка с db = migrateDB(...) в unlockWithKey выполнится,
+// только если расшифровка и разбор JSON не бросили исключение); он и обязан
+// передать null явно на неудаче, а не заставлять эту функцию гадать.
+async function migrateFromVaultIfNeeded(legacyData) {
   if (!fsReady) return false;
+  if (!legacyData) return false; // расшифровка не удалась (или сейфа нет) — переносить нечего по определению
 
   // Флаг завершения — meta/settings.migrated. Батчи ниже идут по одному, БЕЗ
   // общей транзакции: если перенос оборвётся посередине (упала сеть, закрыли
@@ -22,7 +39,11 @@ async function migrateFromVaultIfNeeded() {
   const settings = await fsDoc().collection('meta').doc('settings').get();
   if (settings.exists && settings.data().migrated) return false;
 
-  if (!db || (!(db.events || []).length && !(db.notes || []).length && !(db.photos || []).length)) return false;
+  // Сейф расшифровался, но в нём и правда пусто (например, у новой пары) —
+  // это законный «нечего переносить», не путать с неудачной расшифровкой
+  // выше: флаг ниже не ставится, чтобы не означать «функция отработала
+  // вхолостую» как «данные пары уехали».
+  if (!(legacyData.events || []).length && !(legacyData.notes || []).length && !(legacyData.photos || []).length) return false;
 
   // Проба — доп. защита на случай «данные уже есть, а флага нет» (например,
   // перенос делала более старая версия кода, до появления флага). ВАЖНО
@@ -31,13 +52,13 @@ async function migrateFromVaultIfNeeded() {
   // кусок навсегда прятал бы от повторного запуска всё остальное, что не
   // успело доехать при обрыве на середине.
   const targets = [
-    ['events', db.events],
-    ['dates', db.dates],
-    ['notes', db.notes],
-    ['lists', db.lists],
-    ['wishes', db.wishlist],
-    ['labels', db.labels],
-    ['photos', db.photos]
+    ['events', legacyData.events],
+    ['dates', legacyData.dates],
+    ['notes', legacyData.notes],
+    ['lists', legacyData.lists],
+    ['wishes', legacyData.wishlist],
+    ['labels', legacyData.labels],
+    ['photos', legacyData.photos]
   ].filter(([, arr]) => (arr || []).length);
   const probes = await Promise.all(targets.map(([coll]) => fsCol(coll).limit(1).get()));
   if (targets.length && probes.every(p => p.docs.length)) {
@@ -46,7 +67,7 @@ async function migrateFromVaultIfNeeded() {
     // перестаёт получать уведомления, если его подписка не доехала. Если
     // локально есть pushSubs, проверяем, что они уже в Firestore — иначе
     // перенос не полный и должен повториться.
-    if (db.pushSubs && Object.keys(db.pushSubs).length) {
+    if (legacyData.pushSubs && Object.keys(legacyData.pushSubs).length) {
       const metaSnap = await fsDoc().collection('meta').doc('settings').get();
       const existingSubs = metaSnap.exists ? metaSnap.data().pushSubs || {} : {};
       if (!Object.keys(existingSubs).length) {
@@ -61,17 +82,17 @@ async function migrateFromVaultIfNeeded() {
   }
 
   // md нужен, чтобы годовщины находились независимо от года (см. спеку).
-  const events = (db.events || []).map(e => ({ ...e, md: mdOf(e.date) }));
+  const events = (legacyData.events || []).map(e => ({ ...e, md: mdOf(e.date) }));
 
   await repoBatch('events', events);
-  await repoBatch('dates', db.dates || []);
-  await repoBatch('notes', db.notes || []);
-  await repoBatch('lists', db.lists || []);
-  await repoBatch('wishes', db.wishlist || []);
-  await repoBatch('labels', db.labels || []);
-  await repoBatch('photos', db.photos || []);
-  if (db.pushSubs && Object.keys(db.pushSubs).length) {
-    await repoMeta({ pushSubs: db.pushSubs });
+  await repoBatch('dates', legacyData.dates || []);
+  await repoBatch('notes', legacyData.notes || []);
+  await repoBatch('lists', legacyData.lists || []);
+  await repoBatch('wishes', legacyData.wishlist || []);
+  await repoBatch('labels', legacyData.labels || []);
+  await repoBatch('photos', legacyData.photos || []);
+  if (legacyData.pushSubs && Object.keys(legacyData.pushSubs).length) {
+    await repoMeta({ pushSubs: legacyData.pushSubs });
   }
   // Флаг — только теперь, когда все батчи выше точно прошли успешно.
   await repoMeta({ migrated: true });

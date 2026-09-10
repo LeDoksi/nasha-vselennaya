@@ -434,7 +434,34 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{s.stopLiveUpdates(); return 1;}');
   assert(mock._listeners.length === 0, 'финальный stopLiveUpdates очистил подписки');
 
-  // Миграция: пустой Firestore + расшифрованный db со ВСЕМИ семью сущностями
+  // ===== Миграция из старого сейфа (src/06-migrate.js) =====
+  // migrateFromVaultIfNeeded(legacyData) с этой задачи получает результат
+  // расшифровки ЯВНЫМ аргументом, а не гадает по глобальному db — так был
+  // пойман прод-инцидент: на устройстве, где расшифровка не удавалась, db
+  // откатывался на defaultDB() с ОДНОЙ годовщиной-заглушкой, и старая проверка
+  // длины db.events принимала эту заглушку за настоящие данные, переносила её
+  // и ставила флаг migrated — второе устройство с живым сейфом после этого
+  // уже ничего не переносило.
+
+  // 1) Расшифровка не удалась (или сейфа на этом устройстве вообще нет) —
+  // вызывающий код (unlockWithKey) обязан передать null явно. Функция не
+  // должна лезть в Firestore ради переноса вообще — именно это до фикса
+  // молча переносило заглушку-годовщину и запирало второе устройство.
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  const migratedOnFailure = await w('(s)=>s.migrateFromVaultIfNeeded(null)');
+  assert(migratedOnFailure === false, 'неудачная расшифровка (legacyData=null) — миграция не выполняется');
+  assert(Object.keys(mock._store).length === 0, 'неудачная расшифровка не создала в Firestore ни одного документа (в т.ч. заглушку-годовщину)');
+
+  // 2) Расшифровка удалась, но сейф и правда пуст (например, у пары, которая
+  // ещё ничего не успела накопить) — переносить нечего. Флаг обязан означать
+  // «данные пары уехали», а не «функция отработала вхолостую».
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  const emptyLegacyData = { events: [], notes: [], photos: [], dates: [], lists: [], wishlist: [], labels: [], pushSubs: {} };
+  const migratedOnEmpty = await w('(s)=>s.migrateFromVaultIfNeeded(' + JSON.stringify(emptyLegacyData) + ')');
+  assert(migratedOnEmpty === false, 'пустой, но успешно расшифрованный сейф — миграция не выполняется вхолостую');
+  assert(!mock._store['couples/main/meta/settings'], 'пустой сейф не выставляет флаг migrated');
+
+  // 3) Расшифровка удалась, данные настоящие: перенос ВСЕХ семи сущностей
   // (+ pushSubs) → каждая переехала в свою коллекцию. РЕВЬЮ (Critical,
   // находка 2): раньше тест наполнял только notes/events — удаление
   // repoBatch по dates/lists/wishes/labels/photos или блока pushSubs не
@@ -442,8 +469,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // ниже намеренно разные — если убрать перенос конкретной коллекции, её
   // проверка ниже упадёт.
   Object.keys(mock._store).forEach(k => delete mock._store[k]);
-  w(`(s)=>{s.db = {
-    ...s.defaultDB(),
+  const legacyData1 = {
     events: [{ id: 'm2', title: 'Дата', date: '2026-05-01', repeat: true }],
     dates: [{ id: 'd1', place: 'Кафе', date: '2026-01-10' }],
     notes: [{ id: 'm1', text: 'Старая заметка', author: 'gosha', pinned: false, order: 0, ts: 1 }],
@@ -452,20 +478,20 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
     labels: [{ id: 'lb1', name: 'Семья', color: '#ec4899' }],
     photos: [{ id: 'p1', url: 'x', order: 0 }],
     pushSubs: { gosha: { endpoint: 'g' } }
-  }; return 1;}`);
-  assert((await w('(s)=>s.migrateFromVaultIfNeeded()')) === true, 'миграция выполнилась');
+  };
+  assert((await w('(s)=>s.migrateFromVaultIfNeeded(' + JSON.stringify(legacyData1) + ')')) === true, 'миграция выполнилась');
   assert(mock._store['couples/main/notes/m1'].text === 'Старая заметка', 'заметка переехала');
   assert(mock._store['couples/main/events/m2'].md === '05-01', 'у повторяющегося события проставлен md');
   assert(mock._store['couples/main/dates/d1'].place === 'Кафе', 'свидание переехало в коллекцию dates');
   assert(mock._store['couples/main/lists/l1'].title === 'Список покупок', 'список переехал в коллекцию lists');
-  assert(mock._store['couples/main/wishes/w1'].text === 'Хотелка', 'хотелка переехала в коллекцию wishes (db.wishlist → fsCol wishes)');
+  assert(mock._store['couples/main/wishes/w1'].text === 'Хотелка', 'хотелка переехала в коллекцию wishes (legacyData.wishlist → fsCol wishes)');
   assert(mock._store['couples/main/labels/lb1'].name === 'Семья', 'лейбл переехал в коллекцию labels');
   assert(mock._store['couples/main/photos/p1'].url === 'x', 'фото переехало в коллекцию photos');
   assert(mock._store['couples/main/meta/settings'].pushSubs.gosha.endpoint === 'g', 'push-подписки переехали в meta/settings');
   assert(mock._store['couples/main/meta/settings'].migrated === true, 'после успешного переноса выставлен флаг meta/settings.migrated');
 
   // Повторный вызов ничего не делает: флаг migrated уже стоит
-  assert((await w('(s)=>s.migrateFromVaultIfNeeded()')) === false, 'повторная миграция не запускается благодаря флагу');
+  assert((await w('(s)=>s.migrateFromVaultIfNeeded(' + JSON.stringify(legacyData1) + ')')) === false, 'повторная миграция не запускается благодаря флагу');
 
   // РЕВЬЮ (Critical, находка 1): перенос обрывается посередине — часть
   // батчей проходит, часть нет, флаг migrated не выставляется. До фикса гвард
@@ -473,8 +499,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // решал бы, что всё сделано, и навсегда пропускал notes/lists/wishlist/
   // labels/photos. Повторный запуск обязан доперенести остальное.
   Object.keys(mock._store).forEach(k => delete mock._store[k]);
-  w(`(s)=>{s.db = {
-    ...s.defaultDB(),
+  const legacyData2 = {
     events: [{ id: 'i1', title: 'Событие', date: '2026-06-01', repeat: false }],
     dates: [{ id: 'i2', place: 'Парк', date: '2026-06-02' }],
     notes: [{ id: 'i3', text: 'Заметка', author: 'gosha', pinned: false, order: 0, ts: 1 }],
@@ -482,7 +507,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
     wishlist: [{ id: 'i5', text: 'Хотелка 2' }],
     labels: [{ id: 'i6', name: 'Метка', color: '#000' }],
     photos: [{ id: 'i7', url: 'y', order: 0 }]
-  }; return 1;}`);
+  };
 
   // Подменяем firebase.firestore() так, чтобы ТРЕТИЙ по счёту batch().commit()
   // (в коде это repoBatch('notes', ...) — третий вызов repoBatch) падал:
@@ -510,7 +535,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   };
   let migrateError = null;
   try {
-    await w('(s)=>s.migrateFromVaultIfNeeded()');
+    await w('(s)=>s.migrateFromVaultIfNeeded(' + JSON.stringify(legacyData2) + ')');
   } catch (e) {
     migrateError = e;
   }
@@ -522,7 +547,9 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(!mock._store['couples/main/notes/i3'], 'notes НЕ доехали — обрыв случился на них');
   assert(!mock._store['couples/main/meta/settings'] || !mock._store['couples/main/meta/settings'].migrated, 'флаг migrated не выставлен после обрыва на середине');
 
-  const resumed = await w('(s)=>s.migrateFromVaultIfNeeded()');
+  // Повторный запуск: unlockWithKey расшифрует тот же сейф заново и снова
+  // передаст те же legacyData2 — вызывающий код не помнит, что было доперенесено.
+  const resumed = await w('(s)=>s.migrateFromVaultIfNeeded(' + JSON.stringify(legacyData2) + ')');
   assert(resumed === true, 'повторный запуск доперенёс остальное, а не пропустил его из-за старой пробы notes/events');
   assert(!!mock._store['couples/main/notes/i3'], 'notes доехали при повторном запуске');
   assert(!!mock._store['couples/main/lists/i4'], 'lists доехали при повторном запуске');
@@ -538,8 +565,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // при обрыве ровно на pushSubs функция заметит это и доперенесёт подписки
   // при следующем вызове.
   Object.keys(mock._store).forEach(k => delete mock._store[k]);
-  w(`(s)=>{s.db = {
-    ...s.defaultDB(),
+  const legacyData3 = {
     events: [{ id: 'p1', title: 'Событие', date: '2026-07-01', repeat: false }],
     dates: [{ id: 'p2', place: 'Ресторан', date: '2026-07-02' }],
     notes: [{ id: 'p3', text: 'Заметка', author: 'gosha', pinned: false, order: 0, ts: 1 }],
@@ -548,10 +574,10 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
     labels: [{ id: 'p6', name: 'Памятное', color: '#f59e0b' }],
     photos: [{ id: 'p7', url: 'z', order: 0 }],
     pushSubs: { gosha: { endpoint: 'sub-gosha' } }
-  }; return 1;}`);
+  };
 
   // Первый запуск миграции успешен
-  const migrateFirst = await w('(s)=>s.migrateFromVaultIfNeeded()');
+  const migrateFirst = await w('(s)=>s.migrateFromVaultIfNeeded(' + JSON.stringify(legacyData3) + ')');
   assert(migrateFirst === true, 'первый запуск миграции успешен');
   assert(!!mock._store['couples/main/events/p1'], 'events переехали');
   assert(!!mock._store['couples/main/dates/p2'], 'dates переехали');
@@ -572,7 +598,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // Без нового кода проба по 7 коллекциям видит, что все уже есть, и возвращает false.
   // Старая реализация без проверки pushSubs действительно вернула бы false.
   // С новым кодом функция видит, что pushSubs нет, и доперевозит их.
-  const resumedPushSubs = await w('(s)=>s.migrateFromVaultIfNeeded()');
+  const resumedPushSubs = await w('(s)=>s.migrateFromVaultIfNeeded(' + JSON.stringify(legacyData3) + ')');
   assert(resumedPushSubs === true, 'повторный запуск заметил неполноту pushSubs и завершил миграцию, а не вернул false');
   assert(mock._store['couples/main/meta/settings'].pushSubs.gosha.endpoint === 'sub-gosha', 'pushSubs доехали при повторном запуске');
   assert(mock._store['couples/main/meta/settings'].migrated === true, 'флаг migrated выставлен после успешного повторного переноса pushSubs');
