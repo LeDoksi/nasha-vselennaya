@@ -256,7 +256,8 @@ function renderPhotos() {
   // удаление, реордер, просто открытие вкладки) — если досылать следующую
   // страницу из конца рендера, любое непричастное действие вычерпывало бы
   // всю коллекцию по странице за раз, рекурсивно, пока не кончится курсор.
-  // Дозагрузка привязана к прокрутке галереи — см. слушатель scroll ниже.
+  // Дозагрузка привязана к видимости метки-сентинела в конце сетки — см.
+  // photosObserver и #photosSentinel в renderPhotosNow() ниже.
 }
 function renderPhotosNow() {
   const grid = $('#photosGrid');
@@ -301,7 +302,7 @@ function renderPhotosNow() {
       }
     }
   }
-  grid.innerHTML = list.length
+  const cards = list.length
     ? list
         .map(p => {
           // Кэш миниатюр может быть ещё не прогрет — рисуем каркас и заполняем src
@@ -330,17 +331,38 @@ function renderPhotosNow() {
         })
         .join('')
     : '<p class="cal-tip">📷 Загрузите ваши фото — они зашифруются и будут доступны с обоих устройств, если настроена синхронизация в Настройках.</p>';
+  // Невидимая метка в конце сетки — на неё наводится photosObserver ниже,
+  // чтобы знать, когда догружать следующую страницу. grid-column:1/-1 и
+  // высота 1px — иначе в CSS grid (photos-grid) это была бы лишняя пустая
+  // плитка на всю ширину колонки.
+  grid.innerHTML = cards + '<div id="photosSentinel" aria-hidden="true" style="grid-column:1/-1;height:1px"></div>';
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
+  // grid.innerHTML каждый раз пересоздаёт разметку целиком — старая метка
+  // уничтожена вместе с ней, новую нужно заново отдать тому же наблюдателю.
+  if (photosObserver) {
+    photosObserver.disconnect();
+    const sentinel = $('#photosSentinel');
+    if (sentinel) photosObserver.observe(sentinel);
+  }
 }
-// Дозагрузка страниц галереи по прокрутке (не по рендеру — см. комментарий в
-// renderPhotos() выше). Слушатель вешается один раз при загрузке скрипта, а
-// не на каждую перерисовку. window нет в песочнице тестов — там блок просто
-// не выполняется, сама пагинация (loadMorePhotos) тестируется напрямую.
-if (typeof window !== 'undefined' && window.addEventListener) {
-  window.addEventListener('scroll', () => {
+// Дозагрузка страниц галереи по видимости метки #photosSentinel (конец сетки),
+// а не по событию scroll: если первая страница (60 фото) и так умещается в
+// экран — широкий монитор, планшет лёжа, редкая сетка миниатюр — скроллбар
+// не появляется, scroll не всплывает ни разу, и загрузка следующих страниц
+// намертво зависает. IntersectionObserver же срабатывает и в этом случае
+// (метка сразу видна), и при прокрутке, и при ресайзе — не нужно гадать,
+// из-за чего метка попала в поле зрения. Держим один наблюдатель на всё
+// время жизни скрипта (не пересоздаём на каждый рендер) — только переводим
+// его на новую метку после renderPhotosNow(), см. выше. photosLoadingMore
+// защищает от повторного запроса, если срабатываний несколько подряд.
+// IntersectionObserver есть не везде (песочница тестов, старые окружения) —
+// тогда наблюдатель просто не создаётся, а пагинация (loadMorePhotos)
+// тестируется напрямую.
+let photosObserver = null;
+if (typeof IntersectionObserver === 'function') {
+  photosObserver = new IntersectionObserver(entries => {
+    if (!entries.some(e => e.isIntersecting)) return;
     if (activeView !== 'photos' || !db.photos.length || !photosCursor) return;
-    const nearEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 600;
-    if (!nearEnd) return;
     loadMorePhotos().then(added => {
       if (added) renderPhotos();
     });

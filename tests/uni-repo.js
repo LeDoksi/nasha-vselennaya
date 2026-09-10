@@ -208,6 +208,12 @@ function __TEST__(s){
   // РЕВЬЮ задачи 10 (Important): гонка в loadMorePhotos — тест ниже дёргает
   // её параллельно и смотрит на число реальных чтений мока.
   Object.defineProperty(s, 'photosLoadingMore', { get: () => photosLoadingMore, configurable: true });
+  // РЕВЬЮ задачи 10 (Important, повторное ревью): дозагрузка по scroll не
+  // срабатывала, если контент помещался на экран — заменена на
+  // IntersectionObserver. Тест ниже проверяет, что его отсутствие в
+  // песочнице (как и в реальных старых окружениях) не роняет рендер.
+  s.renderPhotos = renderPhotos;
+  Object.defineProperty(s, 'photosObserver', { get: () => photosObserver, configurable: true });
 }
 `;
 
@@ -717,6 +723,16 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(JSON.stringify(raceResults) === '[0,0]', 'обе параллельные догрузки вернули 0 (курсор уже в конце коллекции)');
   assert(mock._colGetCount - getsBefore === 1, 'photosLoadingMore не дал второму параллельному вызову прочитать ту же страницу — реальное чтение Firestore случилось только одно');
   assert(w('(s)=>s.photosLoadingMore') === false, 'после завершения обеих догрузок флаг снова снят');
+
+  // РЕВЬЮ задачи 10 (Important, повторное ревью): дозагрузка по scroll
+  // тупиковала, если галерея умещалась в экран без прокрутки (scroll ни разу
+  // не всплывал). Заменена на IntersectionObserver над меткой #photosSentinel.
+  // В песочнице IntersectionObserver нет вовсе (как и window) — здесь только
+  // проверяем, что при его отсутствии рендер не падает и наблюдатель не создан.
+  assert(w('(s)=>s.photosObserver') === null, 'без IntersectionObserver в окружении наблюдатель не создаётся (не падает)');
+  w('(s)=>{ s.renderPhotos(); return 1; }');
+  await new Promise(r => setTimeout(r, 10));
+  assert(registry['#photosGrid'].innerHTML.includes('photosSentinel'), 'renderPhotos без IntersectionObserver всё равно дорисовывает метку в конец сетки');
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
