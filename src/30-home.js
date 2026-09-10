@@ -357,7 +357,7 @@ function saveDateFromModal() {
     existing.note = $('#dtNote').value.trim();
     existing.emoji = $('#dtEmoji').value.trim() || '💘';
     editingDateId = null;
-    save();
+    repoSet('dates', existing);
     $('#dateOverlay').hidden = true;
     renderHome();
     renderCalendar();
@@ -370,7 +370,7 @@ function saveDateFromModal() {
   // никогда не мог ответить сам — bothYes/celebrate() требовали 'yes' от
   // обоих буквально, из-за чего «Мы идём на свидание!» не срабатывало
   // НИКОГДА ни при каком сценарии использования.
-  db.dates.push({
+  const dt = {
     id: uid(),
     date,
     time: $('#dtTime').value,
@@ -380,8 +380,9 @@ function saveDateFromModal() {
     note: $('#dtNote').value.trim(),
     emoji: $('#dtEmoji').value.trim() || '💘',
     done: false
-  });
-  save();
+  };
+  db.dates.push(dt);
+  repoSet('dates', dt);
   $('#dateOverlay').hidden = true;
   renderHome();
   renderCalendar();

@@ -132,10 +132,20 @@ function renderDayPanel() {
 function addDayEvent() {
   const title = $('#dayTitle').value.trim();
   if (!title) return;
-  db.events.push({ id: uid(), title, date: selectedDate, emoji: $('#dayEmoji').value.trim() || '💜', repeat: true });
-  save();
+  const ev = { id: uid(), title, date: selectedDate, emoji: $('#dayEmoji').value.trim() || '💜', repeat: true };
+  ev.md = mdOf(ev.date); // md ищут годовщины по 'MM-DD' независимо от года
+  db.events.push(ev);
+  repoSet('events', ev);
   renderCalendar();
   renderHome();
+}
+// Календарь держит в памяти не все события, а только загруженные окна
+// месяцев — после любой смены calY/calM дотягиваем сам месяц и оба соседних
+// (соседние — заранее, чтобы дальнейшее листание шло без пауз на сеть).
+function loadCalMonthNeighbors() {
+  loadMonth(calY, calM).then(() => renderCalendar());
+  loadMonth(calM === 0 ? calY - 1 : calY, calM === 0 ? 11 : calM - 1);
+  loadMonth(calM === 11 ? calY + 1 : calY, calM === 11 ? 0 : calM + 1);
 }
 $('#calPrev').addEventListener('click', () => {
   calM--;
@@ -145,6 +155,7 @@ $('#calPrev').addEventListener('click', () => {
   }
   selectedDate = null;
   renderCalendar();
+  loadCalMonthNeighbors();
 });
 $('#calNext').addEventListener('click', () => {
   calM++;
@@ -154,6 +165,7 @@ $('#calNext').addEventListener('click', () => {
   }
   selectedDate = null;
   renderCalendar();
+  loadCalMonthNeighbors();
 });
 $('#addEventBtn').addEventListener('click', () => openEventModal());
 
@@ -233,6 +245,7 @@ function jumpToNearestEvent() {
   calM = m - 1;
   selectedDate = nx.date;
   renderCalendar(); // updateNearestJump() скроет кнопку/плашку: ближайшее уже на экране
+  loadCalMonthNeighbors();
 }
 $('#jumpNextBtn').addEventListener('click', jumpToNearestEvent);
 
@@ -265,6 +278,7 @@ function jumpCalendar(m, y) {
   calY = +y;
   selectedDate = null;
   renderCalendar();
+  loadCalMonthNeighbors();
 }
 $('#calMonthSelect').addEventListener('change', e => jumpCalendar(e.target.value, calY));
 $('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.value));
@@ -371,7 +385,10 @@ function addEventPhotoQuick(evId) {
       const ids = addEventPhotosToGallery(ok, ev.title);
       const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object' ? x.data : x));
       ev.photos = Array.isArray(ev.photos) ? ev.photos.concat(refs) : refs;
-      save();
+      // repoSet пишет документ целиком (не merge) — без явного md годовщина
+      // потеряла бы дату повтора, хотя мы всего лишь добавили фото.
+      ev.md = mdOf(ev.date);
+      repoSet('events', ev);
       renderCalendar();
       renderHome();
     },
@@ -446,7 +463,7 @@ function addDatePhotoQuick(dtId) {
       const ids = addDatePhotosToGallery(ok, title);
       const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object' ? x.data : x));
       dt.photos = Array.isArray(dt.photos) ? dt.photos.concat(refs) : refs;
-      save();
+      repoSet('dates', dt);
       renderCalendar();
       renderHome();
     },
@@ -795,24 +812,31 @@ function saveEventFromModal() {
     data.photos = ids.length ? ids : evPhotoData.map(x => (x && typeof x === 'object' ? x.data : x));
   }
   const ev = editingEventId ? db.events.find(x => x.id === editingEventId) : null;
+  let savedEv;
   if (ev) {
     if (ev.photos && !evPhotoData.length) delete ev.photos;
     Object.assign(ev, data);
+    savedEv = ev;
   } else {
     // Если редактируемое событие не найдено (например, удалено в другой вкладке) —
     // создаём новое, чтобы пользовательские данные не терялись молча.
-    db.events.push({ id: uid(), ...data });
+    savedEv = { id: uid(), ...data };
+    db.events.push(savedEv);
   }
+  // md ставим при каждом сохранении, а не только при создании: пользователь
+  // мог поправить дату у уже существующей годовщины.
+  savedEv.md = mdOf(savedEv.date);
   // Переходим на месяц события, чтобы оно сразу появилось в календаре
   const [evY, evM] = date.split('-').map(Number);
   calM = evM - 1;
   calY = evY;
   selectedDate = date;
   editingEventId = null;
-  save();
+  repoSet('events', savedEv);
   $('#eventOverlay').hidden = true;
   renderCalendar();
   renderHome();
+  loadCalMonthNeighbors();
 }
 $('#evSave').addEventListener('click', saveEventFromModal);
 

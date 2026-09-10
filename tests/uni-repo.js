@@ -552,6 +552,12 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(w('(s)=>s.isLocked()') === false, 'вход прошёл');
   assert(w('(s)=>s.db.notes.some(n=>n.id==="afterlogin")') === true, 'данные пришли из Firestore, а не из сейфа');
 
+  // Событие, созданное интерфейсом (src/40-calendar.js), попадает в Firestore
+  // вместе с md — без него годовщина исчезла бы из всех лет, кроме своего.
+  w('(s)=>{const ev={id:"ev-new",title:"Новое",date:"2026-06-15",repeat:true}; s.db.events.push(ev); s.repoSet("events", {...ev, md:"06-15"}); return 1;}');
+  await new Promise(r => setTimeout(r, 10));
+  assert(mock._store['couples/main/events/ev-new'].md === '06-15', 'событие сохранено с md');
+
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
   console.log('FAIL: repo: ' + (e && e.message));
