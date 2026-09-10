@@ -196,11 +196,6 @@ function __TEST__(s){
   // Сеттер нужен только тесту миграции ниже: он подставляет db напрямую,
   // как если бы сейф уже был расшифрован гейтом.
   Object.defineProperty(s, 'db', { get: () => db, set: v => { db = v; }, configurable: true });
-  // Для проверки страховочного save() рядом с repoSet (фото событий/свиданий,
-  // задача 7 ревью) — реальные aesEnc/aesDec и masterKey, без мока: тот же
-  // WebCrypto, что использует само приложение.
-  s.save = save; s.aesDec = aesDec; s.VAULT_KEY = VAULT_KEY;
-  Object.defineProperty(s, 'masterKey', { get: () => masterKey, configurable: true });
   s.saveEventFromModal = saveEventFromModal;
   Object.defineProperty(s, 'evPhotoData', { get: () => evPhotoData, set: v => { evPhotoData = v; }, configurable: true });
 }
@@ -566,27 +561,26 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   await new Promise(r => setTimeout(r, 10));
   assert(mock._store['couples/main/events/ev-new'].md === '06-15', 'событие сохранено с md');
 
-  // Critical из ревью задачи 7: saveEventFromModal (когда есть evPhotoData)
-  // меняет db.photos через addEventPhotosToGallery() (новая карточка в
-  // галерее) — а repoSet('events', ...) пишет только сам документ события,
-  // репозитория 'photos' в проекте пока нет (переедет в задаче 10,
-  // src/70-photos.js). Зовём настоящую saveEventFromModal() с уже готовым
+  // Было Critical в ревью задачи 7, закрыто задачей 10: saveEventFromModal
+  // (когда есть evPhotoData) меняет db.photos через addEventPhotosToGallery() —
+  // заводит новую карточку в галерее. repoSet('events', ...) пишет только сам
+  // документ события; метаданные самой карточки фото теперь сохраняет
+  // addEventPhotosToGallery() изнутри, своим repoSet('photos', ...) — после
+  // того как блоб уйдёт в photoStore и base64 уберётся из памяти (см.
+  // src/40-calendar.js). Зовём настоящую saveEventFromModal() с уже готовым
   // evPhotoData (как если бы фото уже было прочитано file-picker'ом — сам
-  // readFile()/FileReader/Image/canvas здесь не мокаем, это отдельный шаг
-  // ДО вызова saveEventFromModal и заводить под него канвас-моки ради этого
-  // теста избыточно) и проверяем, что фото долетело не только до db.photos
-  // в памяти, но и до зашифрованного сейфа — то есть переживёт перезагрузку.
+  // readFile()/FileReader/Image/canvas здесь не мокаем, это отдельный шаг ДО
+  // вызова saveEventFromModal и заводить под него канвас-моки ради этого
+  // теста избыточно) и проверяем, что метаданные фото долетели не только до
+  // db.photos в памяти, но и до Firestore — то есть переживут перезагрузку.
   w('(s)=>{ s.document.querySelector("#evTitle").value = "Годовщина"; s.document.querySelector("#evDate").value = "2026-07-01"; s.evPhotoData = [{data:"data:image/png;base64,aGk="}]; return 1; }');
   w('(s)=>{ s.saveEventFromModal(); return 1; }');
-  await new Promise(r => setTimeout(r, 10));
-  const vaultKey = w('(s)=>s.VAULT_KEY');
-  const vaultBlob = JSON.parse(sandbox._store[vaultKey]).db;
-  const plainBytes = await w('(s)=>s.aesDec(s.masterKey, ' + JSON.stringify(vaultBlob) + ')');
-  const plainDb = JSON.parse(Buffer.from(plainBytes).toString('utf8'));
-  assert(
-    plainDb.photos.some(p => p.title === 'Годовщина'),
-    'saveEventFromModal с фото сохранил метаданные фото в сейф (Critical, ревью задачи 7)'
-  );
+  await new Promise(r => setTimeout(r, 20));
+  const newPhotoId = w('(s)=>{ const p = s.db.photos.find(p=>p.title==="Годовщина"); return p && p.id; }');
+  assert(typeof newPhotoId === 'string' && newPhotoId.length > 0, 'новая карточка фото события появилась в db.photos');
+  assert(!!mock._store['couples/main/photos/' + newPhotoId], 'saveEventFromModal сохранил метаданные фото через repoSet (задача 10, закрывает Critical из ревью задачи 7)');
+  assert(mock._store['couples/main/photos/' + newPhotoId].title === 'Годовщина', 'сохранённые метаданные фото содержат правильный title');
+  assert(mock._store['couples/main/photos/' + newPhotoId].data === undefined, 'base64 фото не улетает в Firestore — сам файл живёт в photoStore/бакете, документ содержит только метаданные');
 
   // Critical (ревью задач 8-9): порядок карточек списков должен пережить
   // reload / второе устройство — listsSortEnd обязан писать order через

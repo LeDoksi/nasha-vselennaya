@@ -330,7 +330,10 @@ function addEventPhotosToGallery(photos, title) {
     const existing = db.photos.find(p => p.id === photoRef);
     if (existing) {
       if (!Array.isArray(existing.labels)) existing.labels = [];
-      if (!existing.labels.includes(EVENT_LABEL)) existing.labels.push(EVENT_LABEL);
+      if (!existing.labels.includes(EVENT_LABEL)) {
+        existing.labels.push(EVENT_LABEL);
+        repoSet('photos', existing); // лейбл поменялся у уже существующего фото — своя запись
+      }
       ids.push(existing.id);
     } else {
       const ph = { id: uid(), data: photoRef, title, labels: [EVENT_LABEL], pinned: false, ts: Date.now(), order: 0 };
@@ -347,6 +350,7 @@ function addEventPhotosToGallery(photos, title) {
               const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size, origType: origFile ? origFile.type || '' : '' };
               await photoStore.put(ph.id, blob, thumb, meta, origFile); // origFile — сырой файл, если есть
               if (ph.data === photoRef) delete ph.data; // блоб в сторе — base64 из памяти убираем
+              repoSet('photos', ph); // метаданные без base64 — теперь можно писать в Firestore
               if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
             })
             .catch(e => console.warn('Не удалось сохранить фото события в хранилище', e));
@@ -389,14 +393,9 @@ function addEventPhotoQuick(evId) {
       // потеряла бы дату повтора, хотя мы всего лишь добавили фото.
       ev.md = mdOf(ev.date);
       repoSet('events', ev);
-      // repoSet выше пишет только сам документ события. addEventPhotosToGallery()
-      // чуть выше уже поменял db.photos (новая карточка в галерее или лейбл на
-      // существующем фото) — а репозитория 'photos' в проекте пока нет, метаданные
-      // фото на него переедут отдельной задачей. save() — временная страховка через
-      // старый шифрованный сейф, чтобы это фото не потерялось молча при перезагрузке
-      // или не долетело на другое устройство. Снять эту строку в задаче 10
-      // (src/70-photos.js), когда появится repoSet('photos', ...).
-      save();
+      // repoSet выше пишет только сам документ события — метаданные фото
+      // (новая карточка или лейбл на существующем) addEventPhotosToGallery()
+      // уже сохранила сама через repoSet('photos', ...) для каждого задетого фото.
       renderCalendar();
       renderHome();
     },
@@ -417,7 +416,10 @@ function addDatePhotosToGallery(photos, title) {
     const existing = db.photos.find(p => p.id === photoRef);
     if (existing) {
       if (!Array.isArray(existing.labels)) existing.labels = [];
-      if (!existing.labels.includes(DATE_LABEL)) existing.labels.push(DATE_LABEL);
+      if (!existing.labels.includes(DATE_LABEL)) {
+        existing.labels.push(DATE_LABEL);
+        repoSet('photos', existing); // лейбл поменялся у уже существующего фото — своя запись
+      }
       ids.push(existing.id);
     } else {
       const ph = { id: uid(), data: photoRef, title, labels: [DATE_LABEL], pinned: false, ts: Date.now(), order: 0 };
@@ -432,6 +434,7 @@ function addDatePhotosToGallery(photos, title) {
               const meta = { type: blob.type || 'image/jpeg', thumbType: (thumb && thumb.type) || 'image/webp', title, size: blob.size, origType: origFile ? origFile.type || '' : '' };
               await photoStore.put(ph.id, blob, thumb, meta, origFile); // origFile — сырой файл, если есть
               if (ph.data === photoRef) delete ph.data;
+              repoSet('photos', ph); // метаданные без base64 — теперь можно писать в Firestore
               if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
             })
             .catch(e => console.warn('Не удалось сохранить фото свидания в хранилище', e));
@@ -472,14 +475,9 @@ function addDatePhotoQuick(dtId) {
       const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object' ? x.data : x));
       dt.photos = Array.isArray(dt.photos) ? dt.photos.concat(refs) : refs;
       repoSet('dates', dt);
-      // repoSet выше пишет только сам документ свидания. addDatePhotosToGallery()
-      // чуть выше уже поменял db.photos (новая карточка в галерее или лейбл на
-      // существующем фото) — а репозитория 'photos' в проекте пока нет, метаданные
-      // фото на него переедут отдельной задачей. save() — временная страховка через
-      // старый шифрованный сейф, чтобы это фото не потерялось молча при перезагрузке
-      // или не долетело на другое устройство. Снять эту строку в задаче 10
-      // (src/70-photos.js), когда появится repoSet('photos', ...).
-      save();
+      // repoSet выше пишет только сам документ свидания — метаданные фото
+      // (новая карточка или лейбл на существующем) addDatePhotosToGallery()
+      // уже сохранила сама через repoSet('photos', ...) для каждого задетого фото.
       renderCalendar();
       renderHome();
     },
@@ -849,15 +847,9 @@ function saveEventFromModal() {
   selectedDate = date;
   editingEventId = null;
   repoSet('events', savedEv);
-  // repoSet выше пишет только сам документ события. Если в форме были свежие
-  // фото (evPhotoData), addEventPhotosToGallery() чуть выше уже поменял db.photos
-  // (новая карточка в галерее или лейбл на существующем фото) — а репозитория
-  // 'photos' в проекте пока нет, метаданные фото на него переедут отдельной
-  // задачей. save() — временная страховка через старый шифрованный сейф, чтобы
-  // это фото не потерялось молча при перезагрузке или не долетело на другое
-  // устройство. Снять эту строку в задаче 10 (src/70-photos.js), когда появится
-  // repoSet('photos', ...).
-  if (evPhotoData.length) save();
+  // repoSet выше пишет только сам документ события — метаданные свежих фото
+  // (evPhotoData) addEventPhotosToGallery() уже сохранила сама через
+  // repoSet('photos', ...) для каждого задетого фото.
   $('#eventOverlay').hidden = true;
   renderCalendar();
   renderHome();
