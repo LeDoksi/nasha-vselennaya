@@ -1,4 +1,4 @@
-/* Юнит-тест синхронизации фото: мок Firebase RTDB (вход/сейф) + мок fetch для
+/* Юнит-тест синхронизации фото: мок Firebase Auth (вход) + мок fetch для
    Yandex Object Storage (чтение — анонимно напрямую в бакет; запись — через
    мок Cloud Function photo-sign, которая отдаёт «подписанную» ссылку — см.
    src/95-photos-cloud.js и functions/photo-sign/).
@@ -55,8 +55,10 @@ function makeEl() {
     }
   };
 }
-// Мок Firebase: только RTDB (сейф). Фото больше не идут через Firebase.
-const mockDb = { data: {}, _onCb: null };
+// Мок Firebase: только Auth (Google-вход не тестируется здесь — гейт
+// проверяется в uni-sync.js). Ключ шифрования фото заводится напрямую через
+// ensureMasterKey() ниже без обращения к Firestore (fsReady не включаем) —
+// как на самом первом запуске, когда ни локального кэша, ни облака ещё нет.
 const firebase = {
   initializeApp(config, name) {
     return { name: name || 'default', config };
@@ -69,36 +71,6 @@ const firebase = {
       onAuthStateChanged: cb => {
         cb(null);
         return () => {};
-      }
-    };
-  },
-  database() {
-    return {
-      ref(path) {
-        const get = () => path.split('/').reduce((o, k) => (o == null ? o : o[k]), mockDb.data);
-        const put = obj => {
-          const keys = path.split('/');
-          let o = mockDb.data;
-          for (let i = 0; i < keys.length - 1; i++) {
-            o = o[keys[i]] = o[keys[i]] || {};
-          }
-          o[keys[keys.length - 1]] = obj;
-        };
-        return {
-          set(obj) {
-            put(obj);
-            return Promise.resolve();
-          },
-          once() {
-            return Promise.resolve({ val: () => get() });
-          },
-          on(type, cb) {
-            mockDb._onCb = cb;
-          },
-          off() {
-            mockDb._onCb = null;
-          }
-        };
       }
     };
   }
@@ -274,7 +246,6 @@ function __TEST__(s){
   Object.defineProperty(s, 'FIREBASE_CONFIG', { get: () => FIREBASE_CONFIG, set: v => { FIREBASE_CONFIG = v; }, configurable: true });
   Object.defineProperty(s, 'YANDEX_CLOUD_CONFIG', { get: () => YANDEX_CLOUD_CONFIG, set: v => { YANDEX_CLOUD_CONFIG = v; }, configurable: true });
   s.ensureMasterKey = ensureMasterKey; s.unlockWithKey = unlockWithKey; s.setUser = setUser;
-  s.lock = lock; s.loadVault = loadVault;
   Object.defineProperty(s, 'gateUser', { get: () => gateUser, set: v => { gateUser = v; }, configurable: true });
   s.initPhotoSync = initPhotoSync; s.stopPhotoSync = stopPhotoSync;
   s.syncPhotos = syncPhotos; s.schedulePhotoSync = schedulePhotoSync; s.listCloudPhotos = listCloudPhotos;
@@ -329,7 +300,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{s.FIREBASE_CONFIG = { projectId: "mock" }; return 1;}');
   w(`(s)=>{s.YANDEX_CLOUD_CONFIG = { bucket: "nasha-vselennaya", region: "ru-central1", signFnUrl: "${SIGN_FN_URL}" }; return 1;}`);
   w('(s)=>{s.setUser("gosha"); s.gateUser = {email:"shakov.georgy@gmail.com"}; return 1;}');
-  await w('(s)=>s.ensureMasterKey("gosha").then(k=>s.unlockWithKey(k))');
+  await w('(s)=>s.ensureMasterKey().then(k=>s.unlockWithKey(k))');
   await w('(s)=>s.initPhotoSync()');
   assert(w('(s)=>s.syncStorage') !== null, 'syncStorage инициализирован (Yandex Object Storage)');
   assert(JSON.stringify(await w('(s)=>s.listCloudPhotos()')) === '{}', 'пустой бакет = пустой список');

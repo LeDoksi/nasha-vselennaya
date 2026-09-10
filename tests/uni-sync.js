@@ -1,6 +1,12 @@
-/* Юнит-тест Google-гейта и обмена общим ключом пары (src/01-gate.js).
-   Мок Firebase Auth (Google-вход, allowlist по email) + мок Firebase RTDB —
-   RTDB здесь нужен только под vaults/secret (общий AES-ключ пары, см. README).
+/* Юнит-тест Google-гейта и ключа шифрования фото (src/01-gate.js).
+   Мок Firebase Auth (Google-вход, allowlist по email) + мок Firestore
+   (tests/fs-mock.js, тот же, что в uni-repo.js) — ключ шифрования фото
+   (общий на обоих партнёров) теперь публикуется и читается ТОЛЬКО через
+   Firestore (meta/settings.photoKey). Раньше он ходил через отдельный канал
+   Firebase Realtime Database (vaults/secret) с разовым переносом старых
+   данных при первом входе — весь этот механизм (src/06-migrate.js, старый
+   сейф, RTDB-канал ключа) выброшен целиком вместе со старыми данными,
+   владелец решил начинать с чистой базы.
 
    Раньше этот файл проверял ещё и блоб-синхронизацию (весь зашифрованный
    сейф целиком через vaults/shared, push/pull/live-обновление/конфликты) —
@@ -11,12 +17,15 @@
    персистентность данных проверяется в tests/uni-repo.js.
 
    Проверяет: гейт пускает только два email из ALLOWED_EMAILS; первый вход
-   генерирует и публикует общий ключ пары в vaults/secret; второе устройство
-   без локального кэша ключа и без пароля получает тот же ключ из облака.
+   генерирует и публикует общий ключ фото в Firestore (meta/settings.photoKey);
+   второе устройство без локального кэша ключа получает тот же ключ оттуда,
+   а не заводит свой.
    Запуск: node tests\uni-sync.js app.js */
 const fs = require('fs');
+const { makeFsMock } = require('./fs-mock.js');
 const file = process.argv[2];
 let src = fs.readFileSync(file, 'utf8');
+const mock = makeFsMock();
 
 const registry = {};
 function makeEl() {
@@ -61,11 +70,9 @@ function makeEl() {
     }
   };
 }
-// Мок Firebase RTDB: хранилище-объект, set/once/on/off (нужен только под vaults/secret)
-const mockDb = { data: {}, _onCb: null };
-// Мок Firebase Auth: signInWithPopup/signInWithRedirect отдают mockPopupUser
-// (или бросают, если он не задан — «закрыли окно входа»); onAuthStateChanged
-// сразу отдаёт mockCurrentUser (как уже вошедшего с прошлого раза).
+// Мок Firebase Auth: signInWithPopup отдаёт mockPopupUser (или бросает, если
+// он не задан — «закрыли окно входа»); onAuthStateChanged сразу отдаёт
+// mockCurrentUser (как уже вошедшего с прошлого раза).
 let mockPopupUser = null;
 let mockCurrentUser = null;
 function authObj() {
@@ -98,36 +105,7 @@ const firebase = {
   auth() {
     return authObj();
   },
-  database() {
-    return {
-      ref(path) {
-        const get = () => path.split('/').reduce((o, k) => (o == null ? o : o[k]), mockDb.data);
-        const put = obj => {
-          const keys = path.split('/');
-          let o = mockDb.data;
-          for (let i = 0; i < keys.length - 1; i++) {
-            o = o[keys[i]] = o[keys[i]] || {};
-          }
-          o[keys[keys.length - 1]] = obj;
-        };
-        return {
-          set(obj) {
-            put(obj);
-            return Promise.resolve();
-          },
-          once() {
-            return Promise.resolve({ val: () => get() });
-          },
-          on(type, cb) {
-            mockDb._onCb = cb;
-          },
-          off() {
-            mockDb._onCb = null;
-          }
-        };
-      }
-    };
-  }
+  firestore: mock.firestore
 };
 firebase.auth.GoogleAuthProvider = function GoogleAuthProvider() {};
 const sandbox = {
@@ -219,9 +197,8 @@ function __TEST__(s){
   Object.defineProperty(s, 'db', { get: () => db, set: v => { db = v; }, configurable: true });
   Object.defineProperty(s, 'currentUser', { get: () => currentUser, configurable: true });
   Object.defineProperty(s, 'gateUser', { get: () => gateUser, set: v => { gateUser = v; }, configurable: true });
-  s.lock = lock; s.isLocked = isLocked;
-  s.loadVault = loadVault;
-  s.gateSignIn = gateSignIn; s.boot = boot; s.ensureMasterKey = ensureMasterKey; s.unlockWithKey = unlockWithKey;
+  s.isLocked = isLocked;
+  s.gateSignIn = gateSignIn; s.ensureMasterKey = ensureMasterKey; s.unlockWithKey = unlockWithKey;
   Object.defineProperty(s, 'masterKey', { get: () => masterKey, configurable: true });
 }
 `;
@@ -273,23 +250,27 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(w('(s)=>s.isLocked()') === true, 'чужой email не проходит гейт');
   assert(w('(s)=>s.gateUser') === null, 'gateUser не выставлен для чужого email');
 
-  // 2. Гейт пропускает Гошу — генерируется и публикуется общий ключ пары
+  // 2. Гейт пропускает Гошу — совсем первый запуск пары: локального кэша
+  // ключа нет, в Firestore тоже ничего нет, поэтому ensureMasterKey заводит
+  // новый ключ и публикует его в meta/settings.photoKey.
   mockPopupUser = { email: 'shakov.georgy@gmail.com', uid: 'uid-gosha' };
   await w('(s)=>s.gateSignIn()');
   assert(w('(s)=>s.isLocked()') === false, 'Гоша проходит гейт');
   assert(w('(s)=>s.currentUser') === 'gosha', 'email определил профиль — Гоша');
-  assert(typeof mockDb.data.vaults.secret === 'string' && mockDb.data.vaults.secret.length > 0, 'первый вход публикует общий ключ в vaults/secret');
+  const settingsDoc = mock._store['couples/main/meta/settings'];
+  assert(!!settingsDoc && typeof settingsDoc.photoKey === 'string' && settingsDoc.photoKey.length > 0, 'первый вход публикует ключ фото в Firestore (meta/settings.photoKey)');
+  const firstPhotoKey = settingsDoc.photoKey;
 
-  // 3. «Второе устройство»: Даша, локального кэша ключа и вовсе нет — ключ
-  // приходит из vaults/secret, без единого пароля (сами данные пары теперь
-  // синхронизируются через Firestore, а не через этот ключевой канал — см.
-  // tests/uni-repo.js).
-  w('(s)=>s.lock()');
+  // 3. «Второе устройство»: Даша, локального кэша ключа нет — ключ приходит
+  // из meta/settings.photoKey, без единого пароля, и это ТОТ ЖЕ ключ, что
+  // завёл Гоша (иначе Даша не расшифровала бы его фото). Сами данные пары
+  // синхронизируются через Firestore отдельно от ключа — см. tests/uni-repo.js.
   sandbox._store = {}; // «новое устройство» — локального кэша ключа нет
   mockPopupUser = { email: 'dashach98@gmail.com', uid: 'uid-dasha' };
   await w('(s)=>s.gateSignIn()');
   assert(w('(s)=>s.isLocked()') === false, 'Даша на новом устройстве проходит гейт');
   assert(w('(s)=>s.currentUser') === 'dasha', 'email определил профиль — Даша');
+  assert(mock._store['couples/main/meta/settings'].photoKey === firstPhotoKey, 'Даша получила тот же ключ фото, а не завела свой');
 
   console.log('OK: ' + results.length + ' sync checks passed');
 })().catch(e => {

@@ -165,18 +165,6 @@ const firebase = {
   auth() {
     return authObj();
   },
-  database() {
-    return {
-      ref() {
-        return {
-          set: async () => {},
-          once: async () => ({ val: () => null }),
-          on() {},
-          off() {}
-        };
-      }
-    };
-  },
   firestore: mock.firestore
 };
 firebase.auth.GoogleAuthProvider = function GoogleAuthProvider() {};
@@ -256,10 +244,8 @@ function __TEST__(s){
   s.filteredPhotos = filteredPhotos; s.renderEventBar = renderEventBar; s.eventsForPhoto = eventsForPhoto; s.photoByRef = photoByRef; s.addEventPhotosToGallery = addEventPhotosToGallery; s.evThumbs = evThumbs; s.dtThumbs = dtThumbs;
   s.wishCard = wishCard; s.fmtWishDate = fmtWishDate;
   s.relabelEventPhotos = relabelEventPhotos;
-  s.unlockWithKey = unlockWithKey; s.ensureMasterKey = ensureMasterKey; s.tryUnwrapKey = tryUnwrapKey;
-  s.publishMigratedKey = publishMigratedKey; s.migrateLegacyVault = migrateLegacyVault;
-  s.pbkdf2Key = pbkdf2Key; s.aesEnc = aesEnc; s.randBytes = randBytes; s.b64 = b64;
-  s.lock = lock; s.isLocked = isLocked; s.loadVault = loadVault; s.legacyDB = legacyDB;
+  s.unlockWithKey = unlockWithKey; s.ensureMasterKey = ensureMasterKey;
+  s.isLocked = isLocked;
   // Firestore: initFirestore зовём явно (в реальном коде это делает
   // tryEnterWithUser() перед ensureMasterKey — здесь гейт не вызывается, тест
   // входит через ensureMasterKey/unlockWithKey напрямую). fsReady — с сеттером
@@ -273,7 +259,7 @@ function __TEST__(s){
   s.initPhotoSync = initPhotoSync; s.stopPhotoSync = stopPhotoSync;
   Object.defineProperty(s, 'photoStore', { get: () => photoStore, configurable: true });
   s.migratePhotosToStore = migratePhotosToStore; s.dataUrlToBlob = dataUrlToBlob;
-  s.photoUrl = photoUrl; s.photoSrc = photoSrc; s.warmThumbCache = warmThumbCache; s.clearPhotoStore = clearPhotoStore;
+  s.photoUrl = photoUrl; s.photoSrc = photoSrc; s.warmThumbCache = warmThumbCache;
   s.initPhotoStore = initPhotoStore; s.getThumbUrl = getThumbUrl; s.setThumbUrl = setThumbUrl;
   s.makeThumbBlob = makeThumbBlob; s.canDraw = canDraw;
   s.photoDate = photoDate; s.onThisDayItems = onThisDayItems; s.memoryByDay = memoryByDay;
@@ -336,60 +322,31 @@ wrapped(
 const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
 
 (async () => {
-  // --- Замок: приложение закрыто, сейфа ещё нет ---
+  // --- Гейт: приложение закрыто до входа ---
   assert(w('(s)=>s.isLocked()') === true, 'приложение закрыто до входа');
-  assert(w('(s)=>s.loadVault()') === null, 'сейфа ещё нет');
 
-  // --- Первый вход (гейт Google уже прошёл — тестируем то, что после него):
-  // старые данные мигрируют и шифруются единым ключом пары, а затем (задача 6)
-  // переезжают в Firestore. initFirestore() зовём явно — в реальном коде это
-  // делает tryEnterWithUser() до ensureMasterKey (см. src/01-gate.js) — здесь
-  // гейт не вызывается, поэтому шаг руками.
+  // --- Первый вход (гейт Google уже пройден — тестируем то, что после него):
+  // ключ шифрования фото приходит из Firestore или (на самом первом запуске
+  // пары) заводится заново — см. ensureMasterKey в src/01-gate.js. Данные
+  // приходят из Firestore. initFirestore() зовём явно — в реальном коде это
+  // делает tryEnterWithUser() до ensureMasterKey — здесь гейт не вызывается,
+  // поэтому шаг руками.
   w('(s)=>{s.setUser("gosha"); return 1;}');
   await w('(s)=>s.initFirestore()');
-  const firstKey = await w('(s)=>s.ensureMasterKey("gosha")');
-  // Симулируем старый зашифрованный сейф (universe_vault), который на этом
-  // устройстве якобы остался с версии ДО перевода на Firestore: старый формат
-  // фото (album — строка, не id лейбла), version:3 (< 9) — как у настоящего
-  // старого сейфа, версия в нём есть ВСЕГДА (миграции пишут её с первого
-  // релиза), просто меньше текущей. unlockWithKey() читает именно его (см.
-  // src/01-gate.js) — сама схема шифрования не изменилась, поменялось только
-  // то, что происходит ПОСЛЕ расшифровки (миграция едет дальше в Firestore, а
-  // не остаётся только в сейфе). Важно: version нужен именно здесь, а не
-  // отсутствие поля — код собирает {...defaultDB(), ...JSON.parse(raw)}, и
-  // без version в исходных данных подставился бы version:9 из defaultDB() ДО
-  // того, как migrateDB() успеет посчитать fromVersion, и миграция лейблов
-  // (fromVersion<9) молча не сработала бы — ровно то, чего с версией в данных
-  // не бывает у настоящего старого сейфа. Ключ для шифровки — тот же, что
-  // вернул ensureMasterKey выше: stash на sandbox, т.к. CryptoKey нельзя
-  // вписать в строку кода для w().
-  sandbox._firstKey = firstKey;
-  const legacyBlob = await w(
-    '(s)=>s.aesEnc(s._firstKey, new TextEncoder().encode(JSON.stringify({version:3,events:[],notes:[],shopping:[],todos:[],photos:[{id:"pOld",data:"x",title:"t",album:"Поездка",pinned:false,ts:1,order:0}],dates:[]})))'
-  );
-  sandbox.localStorage.setItem('universe_vault', JSON.stringify({ db: legacyBlob }));
-  await w('(s)=>s.unlockWithKey(s._firstKey)');
+  await w('(s)=>s.ensureMasterKey().then(k=>s.unlockWithKey(k))');
   assert(w('(s)=>s.isLocked()') === false, 'после unlockWithKey приложение открыто');
   assert(w('(s)=>s.currentUser') === 'gosha', 'вошёл Гоша');
-  const vault1 = w('(s)=>s.loadVault()');
-  assert(vault1 && vault1.db, 'сейф имеет структуру { db }');
-  const vaultRaw = w('(s)=>JSON.stringify(s.loadVault())');
-  assert(!vaultRaw.includes('Поездка') && !vaultRaw.includes('pOld'), 'в localStorage нет открытого текста');
-  // УДАЛЕНО: 'старый открытый файл удалён после миграции' (localStorage['universe']
-  // === null). Задача 6 убрала из unlockWithKey() ветку «сейфа нет → тащим
-  // legacyDB()/чистим localStorage['universe']» — источник данных теперь
-  // Firestore, а не древний плоский localStorage. legacyDB()/KEY (см.
-  // src/10-vault.js, src/00-core.js) с этого коммита не вызываются НИОТКУДА
-  // (проверено grep'ом по src/) — планово удаляются целиком в задаче 14
-  // (см. .superpowers/sdd/2026-09-09-firestore-data-layer/progress.md,
-  // строка про T14 «удаление файлов»). Эквивалента не существует: это не
-  // изменившийся способ добычи старого поведения, а то поведение, для
-  // которого в новой архитектуре больше нет ни одного жизненного сценария
-  // (единственный путь миграции — из ЗАШИФРОВАННОГО сейфа, который проверка
-  // ниже (vaultRaw/labels/version) продолжает покрывать). Восстанавливать
-  // мёртвый код ради строки ассерта было бы ложной страховкой.
 
-  // --- Миграция: старые данные получили version и новые поля ---
+  // --- Повторный вход тем же ключом (например, обновление страницы): ключ
+  // берётся из локального кэша, без нового обращения к Firestore ---
+  await w('(s)=>s.ensureMasterKey().then(k=>s.unlockWithKey(k))');
+  assert(w('(s)=>s.isLocked()') === false, 'локальный кэш ключа снова открывает приложение без пароля');
+  assert(w('(s)=>s.currentUser') === 'gosha', 'система знает: вошёл Гоша');
+
+  // --- migrateDB(): схема данных дописывает недостающие поля и переводит
+  // старый формат альбомов (строка) в лейблы-объекты {id,name,color} — сама
+  // функция больше не завязана на старый сейф, применяется к любому db ---
+  w('(s)=>{s.db = s.migrateDB({version:3,events:[],notes:[],shopping:[],todos:[],photos:[{id:"pOld",data:"x",title:"t",album:"Поездка",pinned:false,ts:1,order:0}],dates:[]}); return 1;}');
   assert(w('(s)=>s.db.version') === 9, 'db.version = 9 после миграции');
   assert(Array.isArray(w('(s)=>s.db.wishlist')), 'wishlist добавлен миграцией');
   assert(w('(s)=>s.db.backupDate') === null, 'backupDate добавлен миграцией');
@@ -399,22 +356,11 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(!!w('(s)=>s.db.labels[0].id'), 'у мигрированного лейбла есть стабильный id');
   assert(w('(s)=>s.db.photos[0].labels[0] === s.db.labels[0].id'), 'фото ссылается на лейбл по id, а не по имени');
 
-  // --- Приватный «замок» (по бездействию) — прячет данные, но не требует
-  // Google-логина заново: ensureMasterKey достаёт ключ из локального кэша ---
-  w('(s)=>s.lock()');
-  assert(w('(s)=>s.masterKey') === null, 'после lock() ключ очищен из памяти');
-  assert(w('(s)=>s.db.photos.length') === 0, 'данные очищены из памяти');
-  await w('(s)=>s.ensureMasterKey("gosha").then(k=>s.unlockWithKey(k))');
-  assert(w('(s)=>s.isLocked()') === false, 'локальный кэш ключа снова открывает приложение без пароля');
-  assert(w('(s)=>s.currentUser') === 'gosha', 'система знает: вошёл Гоша');
-  assert(w('(s)=>s.db.labels.some(l=>l.name==="Поездка")'), 'данные расшифрованы и на месте');
-
-  // Вход через Firestore проверен выше (дважды: первый вход и возврат из
-  // замка) — дальше по файлу тесты правят db НАПРЯМУЮ (рендер экранов, а не
-  // персистентность — та отдельно и подробно покрыта в uni-repo.js). Гасим
-  // мок здесь же: иначе следующий unlockWithKey() (ниже по файлу, у входа
-  // Даши после lock()) заново дёрнет loadHotSet() и затрёт db тем, что лежит
-  // в Firestore-моке (а туда прямые правки db.*.push(...) ниже не попадают),
+  // Вход через Firestore проверен выше — дальше по файлу тесты правят db
+  // НАПРЯМУЮ (рендер экранов, а не персистентность — та отдельно и подробно
+  // покрыта в uni-repo.js). Гасим мок здесь же: иначе следующий вход Даши
+  // ниже по файлу заново дёрнет loadHotSet() и затрёт db тем, что лежит в
+  // Firestore-моке (а туда прямые правки db.*.push(...) ниже не попадают),
   // потеряв весь накопленный тестовый стейт.
   w('(s)=>{s.stopLiveUpdates(); s.fsReady = false; return 1;}');
 
@@ -1083,16 +1029,9 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(!pOffHtml.includes('data-label-off="📅 События"'), 'у служебного лейбла «События» крестика нет');
   w('(s)=>{s.selectedPhotos.clear();}');
 
-  // --- Настройки: резервная копия, место и личный кабинет ---
+  // --- Настройки: личный кабинет ---
   w('(s)=>s.go("settings")');
   w('(s)=>s.renderSettings()');
-  // РЕВЬЮ задачи 12 (Minor, находка 4): renderSettings() больше не строит
-  // напоминание из db.backupDate — новый exportData() это поле не выставляет,
-  // так что подсказка врала бы даже сразу после успешной копии. Блок убран
-  // целиком (кнопка «Скачать копию» осталась) — проверяем, что ложное
-  // предупреждение больше не появляется.
-  assert(!registry['#backupHint'].innerHTML.includes('копия ещё не делалась'), 'ложное напоминание о бэкапе убрано');
-  assert(/КБ|МБ/.test(registry['#storageInfo'].textContent), 'место в браузере показано');
   w('(s)=>{s.gateUser = {email:"shakov.georgy@gmail.com"}; s.renderSettings(); return 1;}');
   assert(registry['#gateAccountInfo'].textContent === 'shakov.georgy@gmail.com (Гоша)', 'в разделе «Доступ» видно вошедший Google-аккаунт');
 
@@ -1111,38 +1050,14 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(registry['#motionToggle'].checked === false, 'чекбокс снят при включённых анимациях');
 
   // --- Второй Google-аккаунт (Даша) на этом же «устройстве» — тот же общий
-  // ключ, та же расшифровка, никакого отдельного пароля не нужно ---
-  w('(s)=>s.lock()');
+  // ключ шифрования фото, та же расшифровка, никакого отдельного пароля не
+  // нужно (владелец решил: у каждого своё устройство, прятать по таймеру
+  // незачем — приватного «замка» между Гошей и Дашей больше нет вовсе) ---
   w('(s)=>{s.setUser("dasha"); return 1;}');
-  await w('(s)=>s.ensureMasterKey("dasha").then(k=>s.unlockWithKey(k))');
+  await w('(s)=>s.ensureMasterKey().then(k=>s.unlockWithKey(k))');
   assert(w('(s)=>s.isLocked()') === false, 'Даша заходит тем же кэшированным ключом без пароля');
   assert(w('(s)=>s.currentUser') === 'dasha', 'система знает: вошла Даша');
   assert(w('(s)=>s.db.labels.some(l=>l.name==="Поездка")'), 'Даша видит те же данные, что и Гоша');
-
-  // --- Замок вычищает память, но не требует нового Google-входа ---
-  w('(s)=>s.lock()');
-  assert(w('(s)=>s.isLocked()') === true, 'замок активирован');
-  assert(w('(s)=>s.masterKey') === null, 'ключ выброшен из памяти при блокировке');
-  assert(w('(s)=>s.db.photos.length') === 0, 'данные очищены из памяти при блокировке');
-  await w('(s)=>s.ensureMasterKey("dasha").then(k=>s.unlockWithKey(k))'); // возврат в «разблокированное» состояние для следующих тестов
-
-  // --- Миграция со старого (парольного) сейфа: tryUnwrapKey всё ещё умеет
-  // открыть ДРЕВНИЙ формат {ver,a,db,keys:[{who,s,i,d}]} — см.
-  // migrateLegacyVault в src/01-gate.js. Ключ такого сейфа независим от
-  // текущего (общего) — проверяем на отдельном самодельном сейфе. ---
-  await w(`(s)=>(async()=>{
-    const legacyKey = await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);
-    const kraw = new Uint8Array(await crypto.subtle.exportKey('raw', legacyKey));
-    const salt = s.randBytes(16);
-    const pwdKey = await s.pbkdf2Key('starPass1', salt, 600000);
-    const wrap = { who:'gosha', s: s.b64(salt), ...(await s.aesEnc(pwdKey, kraw)) };
-    s.localStorage.setItem('legacyVaultTest', JSON.stringify({ver:1,a:600000,db:{i:'x',d:'x'},keys:[wrap]}));
-    return 1;
-  })()`);
-  const legacyVaultTest = JSON.parse(w('(s)=>s.localStorage.getItem("legacyVaultTest")'));
-  assert((await w('(s)=>s.tryUnwrapKey("gosha","starPass1",' + JSON.stringify(legacyVaultTest) + ')')) !== null, 'tryUnwrapKey всё ещё открывает старый (парольный) сейф верным паролем');
-  assert((await w('(s)=>s.tryUnwrapKey("gosha","wrong-pass",' + JSON.stringify(legacyVaultTest) + ')')) === null, 'tryUnwrapKey отклоняет неверный пароль на старом сейфе');
-  assert((await w('(s)=>s.tryUnwrapKey("dasha","starPass1",' + JSON.stringify(legacyVaultTest) + ')')) === null, 'tryUnwrapKey: у Даши в этом старом сейфе обёртки нет');
 
   // --- Экспорт больше не сейф: сейфа не существует с задачи 12, копия — это
   // обычный JSON (полная проверка круговым рейсом через живой Firestore — в
@@ -1278,30 +1193,6 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // refreshSizes считает байты
   const sizes = await w('(s)=>s.photoStore.refreshSizes()');
   assert(sizes.count >= 1 && sizes.bytes >= 0, 'refreshSizes возвращает количество и объём');
-  // блокировка очищает хранилище и кэш
-  w('(s)=>s.lock()');
-  assert(w('(s)=>s.getThumbUrl("psOld")') === null, 'lock очищает кэш миниатюр');
-  await w('(s)=>s.ensureMasterKey("dasha").then(k=>s.unlockWithKey(k))');
-  assert(w('(s)=>s.isLocked()') === false, 'повторный вход после lock() работает');
-  // УДАЛЕНО: 'после входа фото на месте' (db.photos.some(id==="psOld")).
-  // Держалось на save() — он переписывал зашифрованный сейф текущим db на
-  // каждый чих, и psOld (добавлен здесь напрямую в db.photos, в обход
-  // репозитория) переживал lock()+relogin только благодаря этому снимку.
-  // Локальная запись сейфа убрана целиком вместе с блоб-синхронизацией (см.
-  // src/10-vault.js, src/01-gate.js) — источник правды теперь Firestore, а
-  // fsReady здесь намеренно выключен (см. комментарий выше про relock-циклы),
-  // так что относить это же фото ещё и туда было бы отдельным (и лишним для
-  // этого блока) тестом. Персистентность db.photos через Firestore подробно
-  // покрыта в tests/uni-repo.js; выгрузка/скачивание самого файла — в
-  // tests/uni-photo-sync.js. Эквивалента здесь нет: это не изменившийся
-  // способ добычи старого поведения, а поведение, которого у прямых
-  // db.photos.push() (тестовое сокращение, не то, что делает реальный код —
-  // см. src/70-photos.js) в новой архитектуре больше нет.
-
-  // --- Сброс очищает сейф ---
-  w('(s)=>{s.localStorage.removeItem("universe_vault"); s.localStorage.removeItem("universe");}');
-  assert(w('(s)=>s.loadVault()') === null, 'после сброса сейфа нет');
-
   // --- Фаза B: «В этот день», даты фото, память-дерево ---
   w('(s)=>{s.db.events=[]; s.db.notes=[]; s.db.photos=[]; s.db.dates=[]; return 1;}');
   // фото с EXIF-датой, фото с привязкой к событию и фото только с датой загрузки
@@ -1506,11 +1397,10 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(registry['#lightbox'].hidden === true, 'светбокс закрывается');
   assert(w('(s)=>s.lightboxList.length') === 0, 'при закрытии список фото очищается');
 
-  // --- Блокировка не ломается вместе с модулем облака фото (src/95-photos-cloud.js) ---
-  // Раньше здесь проверялась ещё и блоб-синхронизация (syncReady, текст
-  // #syncStatus) — убрана вместе с ней целиком, см. src/95-photos-cloud.js.
-  w('(s)=>{s.lock(); s.initPhotoSync(); s.stopPhotoSync(); return 1;}');
-  assert(w('(s)=>s.isLocked()') === true, 'блокировка работает вместе с модулем облака фото');
+  // --- Модуль облака фото (src/95-photos-cloud.js) не падает на повторных
+  // вызовах init/stop (например, при смене пользователя без перезагрузки) ---
+  w('(s)=>{s.initPhotoSync(); s.stopPhotoSync(); return 1;}');
+  assert(true, 'initPhotoSync/stopPhotoSync не бросают исключений');
 
   console.log('OK: ' + results.length + ' checks passed\n' + results.join('\n'));
 })().catch(e => {

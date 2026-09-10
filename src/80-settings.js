@@ -1,31 +1,6 @@
 /* ===== Настройки ===== */
-/* ===== Настройки: резервная копия и место в браузере ===== */
 function renderSettings() {
-  const bytes = new Blob([JSON.stringify(db)]).size || JSON.stringify(db).length;
-  const kb = Math.max(1, Math.round(bytes / 1024));
-  const si = $('#storageInfo');
-  if (si) si.textContent = kb >= 1024 ? (kb / 1024).toFixed(1) + ' МБ' : kb + ' КБ';
-  // Фото-хранилище (IndexedDB) считаем асинхронно и показываем отдельной строкой
-  if (photoStore) {
-    photoStore
-      .refreshSizes()
-      .then(sz => {
-        const fk = Math.max(1, Math.round((sz.bytes || 0) / 1024));
-        const fs = $('#photoStorageInfo');
-        if (fs) fs.textContent = `${sz.count} фото · ${fk >= 1024 ? (fk / 1024).toFixed(1) + ' МБ' : fk + ' КБ'}`;
-      })
-      .catch(() => {});
-  }
-  const hint = $('#backupHint');
-  if (!hint) return;
   renderPushSettings(); // модуль 96-push.js — асинхронно проверяет текущую PushManager-подписку
-  // РЕВЬЮ задачи 12 (Minor, находка 4): напоминание «копия ещё не делалась»/
-  // «была N дн. назад» держалось на db.backupDate, а новый exportData() это
-  // поле больше не выставляет — подсказка врала бы даже сразу после успешной
-  // выгрузки. Кнопка «Скачать копию» остаётся, жёлтые напоминания были нужны,
-  // пока данные жили только в браузере — сейчас это Firestore, убираем блок
-  // целиком (сама db.backupDate не трогается — её уборка в отдельной задаче).
-  hint.innerHTML = '';
   // Личный кабинет: какой Google-аккаунт вошёл
   const gi = $('#gateAccountInfo');
   if (gi) gi.textContent = gateUser && gateUser.email ? gateUser.email + (getUser() === 'dasha' ? ' (Даша)' : ' (Гоша)') : '—';
@@ -134,14 +109,6 @@ $('#importInput').addEventListener('change', e => {
   };
   fr.readAsText(f);
 });
-$('#resetBtn').addEventListener('click', () => {
-  if (confirm('Точно удалить ВСЕ данные? Это не отменить.')) {
-    store.remove(VAULT_KEY);
-    store.remove(KEY);
-    location.reload();
-  }
-});
-
 /* ===== Настройки: уменьшенное движение =====
    data-motion на <html>: 'reduced' — анимации всегда выключены, 'full' — всегда
    включены (перекрывает систему). Без атрибута — уважаем prefers-reduced-motion. */

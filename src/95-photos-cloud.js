@@ -20,7 +20,6 @@
 let FIREBASE_CONFIG = {
   apiKey: 'AIzaSyDuAkskIpj3bsFOX6aPecFWZGJOlOzGzUk',
   authDomain: 'nasha-vselennaya.firebaseapp.com',
-  databaseURL: 'https://nasha-vselennaya-default-rtdb.europe-west1.firebasedatabase.app',
   projectId: 'nasha-vselennaya',
   storageBucket: 'nasha-vselennaya.firebasestorage.app',
   messagingSenderId: '222445763153',
@@ -45,7 +44,7 @@ let YANDEX_CLOUD_CONFIG = {
 
 // Таймаут для сетевых вызовов: не держим пользователя на «загружаем…»
 // бесконечно, если Firebase отвечает медленно (мобильный интернет). Также
-// используется гейтом (src/01-gate.js) при чтении vaults/secret и ключа фото.
+// используется гейтом (src/01-gate.js) при чтении ключа фото из Firestore.
 function withTimeout(promise, ms) {
   let timer = null;
   return Promise.race([
@@ -90,7 +89,12 @@ function initPhotoSync() {
   schedulePhotoSync();
 }
 
-/* ===== Остановка: при lock() ===== */
+/* ===== Остановка синхронизации фото =====
+   Раньше вызывалась из lock() (приватный замок по бездействию) — его убрали
+   целиком (у каждого своё устройство, прятать по таймеру незачем), поэтому
+   сейчас сам app.js эту функцию не зовёт. Держим как явную точку входа для
+   будущего кода/тестов — так же, как isLocked() ниже по сборке. */
+// eslint-disable-next-line no-unused-vars
 function stopPhotoSync() {
   clearTimeout(photoSyncTimer);
   syncStorage = null;

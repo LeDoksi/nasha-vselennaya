@@ -470,12 +470,6 @@ async function initPhotoStore() {
   photoStore = MemoryPhotoStore;
 }
 
-// Очистка при блокировке
-function clearPhotoStore() {
-  if (photoStore && photoStore._map) photoStore._map.clear();
-  photoStore = null;
-}
-
 // ===== Вспомогательные функции для работы с фото =====
 
 // Создание миниатюры (Canvas, ~256px по длинной стороне)
@@ -587,9 +581,6 @@ function getThumbUrl(id) {
 }
 function setThumbUrl(id, url) {
   thumbCache.set(id, url);
-}
-function clearThumbCache() {
-  thumbCache.clear();
 }
 
 // ===== Единый источник URL фото для рендеров =====

@@ -4,7 +4,6 @@
 'use strict';
 
 const START_DATE = '2026-03-30';
-const KEY = 'universe';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -14,6 +13,11 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const safeUrl = u => (/^https?:\/\//i.test(String(u || '')) ? String(u) : '#');
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const isHidden = () => !!(document.hidden || document.visibilityState === 'hidden');
+// 'YYYY-MM-DD' → 'MM-DD' — по нему годовщины (src/40-calendar.js) находятся
+// независимо от года. Раньше жила в удалённом src/06-migrate.js (разовый
+// перенос данных), но нужна и обычной работе с повторяющимися событиями —
+// перенесена сюда как общая утилита.
+const mdOf = dateIso => (typeof dateIso === 'string' && dateIso.length >= 10 ? dateIso.slice(5, 10) : '');
 
 /* ===== Защита хранилища и глобальные ошибки =====
    localStorage умеет бросать исключения (переполнение ~5МБ, приватный режим) —
@@ -78,20 +82,12 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 }
 
 /* ===== Крипто-ядро (WebCrypto) =====
-   Все данные зашифрованы мастер-ключом K (AES-GCM-256).
-   K живёт только в памяти браузера.
-   Для каждого пароля K «обёрнут» ключом, полученным из пароля через
-   PBKDF2-SHA256 (600k итераций — рекомендация OWASP; было 150k). В
-   localStorage лежит только зашифрованный «сейф» — прочитать его без
-   пароля нельзя. Число итераций хранится per-vault (vault.a) — у уже
-   существующих сейфов остаётся их исходное значение, апгрейд действует
-   только на новые (createVault) и не требует миграции старых. */
-const enc = new TextEncoder();
-const dec = new TextDecoder();
-const VAULT_KEY = 'universe_vault'; // зашифрованный сейф
-const PBKDF2_ITERS = 600000; // стойкость обёртки паролем
-const AUTO_LOCK_MS = 30 * 60 * 1000; // автозамок после 30 минут без действий
-
+   Раньше здесь была ещё и обвязка вокруг пароля (PBKDF2 + зашифрованный
+   «сейф» в localStorage) — вход теперь только через Google (см.
+   src/01-gate.js), пароля у пары больше нет. Осталось единственное, для чего
+   шифрование всё ещё нужно: фото в облаке (Yandex Object Storage) лежат как
+   AES-GCM-шифртекст, а ключ — общий на обоих партнёров (см. ensureMasterKey
+   в src/01-gate.js) и живёт только в памяти браузера. */
 function b64(u8) {
   let s = '';
   for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
@@ -109,10 +105,6 @@ function randBytes(n) {
   return a;
 }
 
-async function pbkdf2Key(pass, salt, iters) {
-  const base = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iters }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-}
 async function aesEnc(key, bytes) {
   const iv = randBytes(12);
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes));
@@ -148,9 +140,12 @@ function defaultDB() {
   };
 }
 // Миграции: аккуратно добавляем поля, которых ещё не было в старых версиях.
-// migrateDB() вызывается на КАЖДОЙ загрузке сейфа (не только один раз при
-// смене версии), поэтому каждый шаг обязан быть идемпотентным — версии ниже
-// fromVersion определяют, какие блоки ещё нужно применить.
+// Раньше вызывалась на каждой загрузке старого сейфа (unlockWithKey) — вместе
+// с сейфом эта точка вызова убрана (данные теперь из Firestore, уже в
+// актуальной форме), но сама функция — общая логика апгрейда схемы db,
+// пригодится и для будущих версий. Каждый шаг обязан быть идемпотентным —
+// версии ниже fromVersion определяют, какие блоки ещё нужно применить.
+// eslint-disable-next-line no-unused-vars
 function migrateDB(d) {
   const fromVersion = typeof d.version === 'number' ? d.version : 0;
   const cur = defaultDB();
@@ -266,8 +261,7 @@ function relabelEventPhotos(d) {
 let masterKey = null; // мастер-ключ K — никуда не записывается
 let currentUser = null; // кто вошёл (gosha/dasha)
 let db = defaultDB();
-let authLocked = true; // пока замок закрыт — приложение невидимо
-let lastActivity = Date.now();
+let authLocked = true; // пока не вошли через Google — приложение невидимо
 let fsReady = false; // Firestore подключён и готов (см. src/03-firestore.js)
 // Какие месяцы календаря уже в кэше (см. src/04-repo.js). Читается из
 // 40-calendar.js, поэтому объявлено здесь, а не в 04-repo.js — TDZ.

@@ -1,28 +1,31 @@
 /* ===== Гейт: вход только для двух Google-аккаунтов =====
-   Раньше сайт был закрыт паролем (PBKDF2 + AES, свой пароль у каждого).
-   Теперь первый (и единственный) барьер — Google-вход, ограниченный
-   ALLOWED_EMAILS: без него никто не видит даже экран приложения, а Firebase
-   RTDB и обе Cloud Function (photo-sign, send-push) точно так же проверяют
-   auth.token.email — так что дыра «кто угодно анонимно» (см. PROJECT-MEMORY)
-   закрыта не только на клиенте.
+   Раньше сайт был закрыт паролем (PBKDF2 + AES, свой пароль у каждого), а
+   после — общим ключом пары, синхронизированным через Firebase Realtime
+   Database (vaults/secret) с разовым переносом старых данных при первом
+   входе. Оба механизма (src/06-migrate.js, старый сейф в localStorage,
+   RTDB-канал ключа) выброшены целиком вместе со старыми данными — владелец
+   решил начинать с чистой базы в Firestore. Единственный барьер теперь —
+   Google-вход, ограниченный ALLOWED_EMAILS: без него никто не видит даже
+   экран приложения, а Firestore и обе Cloud Function (photo-sign,
+   send-push) точно так же проверяют auth.token.email — так что дыра «кто
+   угодно анонимно» (см. PROJECT-MEMORY) закрыта не только на клиенте.
 
    Каждый — на своём устройстве под своим Google-аккаунтом, поэтому кто есть
    кто определяется ТОЛЬКО email из GATE_WHO_BY_EMAIL — без ручного выбора
    «Гоша/Даша», как было раньше на экране входа.
 
-   Шифрование данных осталось (AES-GCM), но ключ больше не оборачивается
-   паролем персонально: единый мастер-ключ пары лежит в RTDB по пути
-   vaults/secret — читать его может только уже вошедший через Google (те же
-   правила, что и на vaults/shared). Локально ключ кэшируется в localStorage
-   (universe_mk), поэтому офлайн всё работает мгновенно и повторный вход не
-   спрашивает вообще ничего. */
+   Шифрование осталось только для фото в облаке (Yandex Object Storage,
+   см. src/95-photos-cloud.js): общий ключ пары (AES-GCM) лежит в Firestore
+   (meta/settings.photoKey) — читать его может только уже вошедший через
+   Google. Локально ключ кэшируется в localStorage (universe_mk), поэтому
+   офлайн всё работает мгновенно и повторный вход не спрашивает вообще
+   ничего. */
 const ALLOWED_EMAILS = ['shakov.georgy@gmail.com', 'dashach98@gmail.com'];
 const GATE_WHO_BY_EMAIL = {
   'shakov.georgy@gmail.com': 'gosha',
   'dashach98@gmail.com': 'dasha'
 };
 const KEY_CACHE = 'universe_mk'; // локально закэшированный сырой AES-ключ (base64)
-const RTDB_SECRET_PATH = 'vaults/secret';
 
 let fbApp = null; // единственное Firebase-приложение на весь сайт (гейт + синк + фото)
 let gateUser = null; // Google-пользователь, прошедший проверку email
@@ -44,24 +47,22 @@ function showGateErr(msg) {
   if (el) el.textContent = msg || '';
 }
 
-/* ===== Ключ шифрования: локальный кэш → облако → (первый запуск) новый ===== */
+/* ===== Ключ шифрования фото: локальный кэш → Firestore → (первый запуск) новый ===== */
 async function importRawKey(rawB64) {
   return crypto.subtle.importKey('raw', unb64(rawB64), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
 }
 async function exportRawKey(key) {
   return b64(new Uint8Array(await crypto.subtle.exportKey('raw', key)));
 }
-async function publishMigratedKey(key) {
+// Кэширует ключ локально и публикует его в Firestore — единственное место,
+// где он теперь живёт в облаке. Вызывается только на самом первом запуске
+// пары (ни локального кэша, ни meta/settings.photoKey ещё нет нигде) —
+// партнёр на своём устройстве получит этот же ключ при следующем входе (см.
+// ensureMasterKey ниже). Без этого второе устройство завело бы свой ключ и
+// не увидело бы зашифрованные фото первого.
+async function publishPhotoKey(key) {
   const rawB64 = await exportRawKey(key);
   store.set(KEY_CACHE, rawB64);
-  const app = ensureFbApp();
-  if (app) {
-    try {
-      await firebase.database(app).ref(RTDB_SECRET_PATH).set(rawB64);
-    } catch (e) {
-      console.warn('[gate] не удалось опубликовать ключ в облако', e);
-    }
-  }
   if (fsReady) {
     try {
       await repoMeta({ photoKey: rawB64 });
@@ -71,35 +72,7 @@ async function publishMigratedKey(key) {
   }
 }
 
-// Старый сейф (до этого обновления) хранит мастер-ключ, обёрнутый паролем
-// каждого — tryUnwrapKey/pbkdf2Key (10-vault.js) остались нетронутыми именно
-// для этой разовой миграции. Если с прошлого раза жива сессия в
-// sessionStorage (старый «запомнить меня» трюк) — ключ достаём без пароля;
-// иначе один-единственный раз показываем поле для пароля.
-async function migrateLegacyVault(who, legacy) {
-  try {
-    const raw = sessionStorage.getItem('universe_session');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.who === who && parsed.k) {
-        const key = await crypto.subtle.importKey('raw', unb64(parsed.k), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
-        await aesDec(key, legacy.db); // проверяем, что ключ и правда подходит
-        await publishMigratedKey(key);
-        return key;
-      }
-    }
-  } catch (e) {
-    /* сессия не подошла — показываем разовую миграцию ниже */
-  }
-  showAuth('gate');
-  $('#gateMigrateWrap').hidden = false;
-  showGateErr('');
-  const p = $('#gateMigratePass');
-  if (p && p.focus) p.focus();
-  return null;
-}
-
-async function ensureMasterKey(who) {
+async function ensureMasterKey() {
   const cachedB64 = store.get(KEY_CACHE);
   if (cachedB64) {
     try {
@@ -108,8 +81,6 @@ async function ensureMasterKey(who) {
       store.remove(KEY_CACHE);
     }
   }
-  // Ключ фото: сначала Firestore (новое место), потом RTDB (старое, для
-  // устройства, которое зашло первым и ещё не переносило данные).
   if (fsReady) {
     try {
       const snap = await withTimeout(fsDoc().collection('meta').doc('settings').get(), 10000);
@@ -122,82 +93,23 @@ async function ensureMasterKey(who) {
       console.warn('[gate] ключ фото из Firestore недоступен', e);
     }
   }
-  const app = ensureFbApp();
-  if (app) {
-    try {
-      const snap = await withTimeout(firebase.database(app).ref(RTDB_SECRET_PATH).once('value'), 10000);
-      const raw = snap && snap.val ? snap.val() : null;
-      if (typeof raw === 'string' && raw) {
-        store.set(KEY_CACHE, raw);
-        return await importRawKey(raw);
-      }
-    } catch (e) {
-      console.warn('[gate] не удалось получить облачный ключ', e);
-    }
-  }
-  const legacy = loadVault();
-  if (legacy && Array.isArray(legacy.keys) && legacy.keys.length) {
-    return await migrateLegacyVault(who, legacy);
-  }
-  // Совсем первый запуск (ни локально, ни в облаке ничего нет) — заводим ключ.
+  // Ни локально, ни в Firestore ключа нет — совсем первый запуск пары.
+  // Заводим новый и публикуем (см. publishPhotoKey выше).
   const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
-  await publishMigratedKey(key);
+  await publishPhotoKey(key);
   return key;
 }
 
-async function gateMigrateSubmit() {
-  const who = GATE_WHO_BY_EMAIL[gateUser && gateUser.email];
-  const pass = $('#gateMigratePass').value;
-  const legacy = loadVault();
-  const key = who && legacy ? await tryUnwrapKey(who, pass, legacy) : null;
-  if (!key) {
-    showGateErr('Неверный пароль. Попробуй ещё раз.');
-    return;
-  }
-  await publishMigratedKey(key);
-  $('#gateMigrateWrap').hidden = true;
-  await unlockWithKey(key);
-}
-
-/* ===== Вход: собственно AES-ключ получен — расшифровываем локальный сейф
-   (или начинаем с пустого, если его ещё нет — данные подтянутся из облака) ===== */
+/* ===== Вход: ключ шифрования фото получен — данные приходят из Firestore ===== */
 async function unlockWithKey(key) {
   masterKey = key;
   applyMotion(getMotion()); // раньше стояло в удалённом initAuth() — сохранённый выбор анимаций
-  // Данные приходят из Firestore. Старый сейф читаем ровно один раз — чтобы
-  // было что переносить; после успешного переезда он больше не нужен.
-  const legacyVault = loadVault();
-  if (legacyVault && legacyVault.db) {
-    try {
-      const raw = await aesDec(masterKey, legacyVault.db);
-      db = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(raw)) });
-      // Строка выше выполнится, только если aesDec/JSON.parse НЕ бросили
-      // исключение — значит, db здесь гарантированно результат успешной
-      // расшифровки (с накопленными миграциями схемы вроде альбомов→лейблов),
-      // а не заглушка defaultDB(). Передаём его migrateFromVaultIfNeeded()
-      // явным аргументом, вместо того чтобы функция сама читала глобальный db
-      // и гадала, настоящие там данные или нет — см. комментарий в
-      // src/06-migrate.js, почему это и было корнем прод-бага.
-      await migrateFromVaultIfNeeded(db);
-    } catch (e) {
-      console.warn('Старый сейф не расшифровался — работаем только с облаком', e);
-      // Раньше здесь молчали (только console.warn) — человек видел пустой
-      // экран и не понимал, почему пропали данные. Расшифровка не удалась
-      // именно НА ЭТОМ устройстве (например, ключ ещё не долетел из облака) —
-      // сами данные целы на устройстве, где сейф открывается нормально.
-      notify('Старые данные на этом устройстве не открылись — они не потеряны. Зайди с того устройства, где сайт открывался раньше 💜', true);
-    }
-  }
   await loadHotSet();
   startLiveUpdates();
   await initPhotoStore();
   await photoStore.migratePhotos(db);
   await photoStore.refreshSizes();
   warmThumbCache();
-  // Раньше здесь закреплялся save() — переписывал зашифрованный сейф текущим
-  // db, чтобы следующий вход мог его перечитать. Источник правды теперь
-  // Firestore (loadHotSet() выше), локальная запись сейфа убрана целиком
-  // (см. src/10-vault.js) — закреплять миграцию некуда и незачем.
   unlockApp();
 }
 
@@ -221,8 +133,7 @@ async function tryEnterWithUser(user) {
     setUser(GATE_WHO_BY_EMAIL[user.email]);
     showGateErr('Загружаем…');
     await initFirestore();
-    const key = await ensureMasterKey(GATE_WHO_BY_EMAIL[user.email]);
-    if (!key) return; // ensureMasterKey уже показал разовый экран миграции
+    const key = await ensureMasterKey();
     await unlockWithKey(key);
   } catch (e) {
     console.warn('[gate] вход не завершился', e);
@@ -270,19 +181,6 @@ async function gateSignIn() {
   }
 }
 
-// Возврат после lock() (приватный «замок» по бездействию — см. 10-vault.js):
-// Google-сессия жива, повторно логиниться не нужно, достаточно одного тапа.
-async function gateResume() {
-  $('#gateResumeBtn').hidden = true;
-  $('#gateResumeHint').hidden = true;
-  $('#gateSignInBtn').hidden = false;
-  const who = gateUser && GATE_WHO_BY_EMAIL[gateUser.email];
-  if (!who) return; // Google-сессия почему-то пропала — обычный вход через кнопку
-  showGateErr('Загружаем…');
-  const key = await ensureMasterKey(who);
-  if (key) await unlockWithKey(key);
-}
-
 async function gateSignOut() {
   if (!confirm('Выйти из Google-аккаунта на этом устройстве? Чтобы открыть сайт снова, понадобится войти через Google ещё раз.')) return;
   try {
@@ -295,15 +193,6 @@ async function gateSignOut() {
 
 const gateSignInBtnEl = $('#gateSignInBtn');
 if (gateSignInBtnEl) gateSignInBtnEl.addEventListener('click', gateSignIn);
-const gateResumeBtnEl = $('#gateResumeBtn');
-if (gateResumeBtnEl) gateResumeBtnEl.addEventListener('click', gateResume);
-const gateMigrateGoEl = $('#gateMigrateGo');
-if (gateMigrateGoEl) gateMigrateGoEl.addEventListener('click', gateMigrateSubmit);
-const gateMigratePassEl = $('#gateMigratePass');
-if (gateMigratePassEl)
-  gateMigratePassEl.addEventListener('keydown', e => {
-    if (e.key === 'Enter') gateMigrateSubmit();
-  });
 const gateSignOutBtnEl = $('#gateSignOutBtn');
 if (gateSignOutBtnEl) gateSignOutBtnEl.addEventListener('click', gateSignOut);
 

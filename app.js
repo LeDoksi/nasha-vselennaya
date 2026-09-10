@@ -4,7 +4,6 @@
 'use strict';
 
 const START_DATE = '2026-03-30';
-const KEY = 'universe';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -14,6 +13,11 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const safeUrl = u => (/^https?:\/\//i.test(String(u || '')) ? String(u) : '#');
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const isHidden = () => !!(document.hidden || document.visibilityState === 'hidden');
+// 'YYYY-MM-DD' → 'MM-DD' — по нему годовщины (src/40-calendar.js) находятся
+// независимо от года. Раньше жила в удалённом src/06-migrate.js (разовый
+// перенос данных), но нужна и обычной работе с повторяющимися событиями —
+// перенесена сюда как общая утилита.
+const mdOf = dateIso => (typeof dateIso === 'string' && dateIso.length >= 10 ? dateIso.slice(5, 10) : '');
 
 /* ===== Защита хранилища и глобальные ошибки =====
    localStorage умеет бросать исключения (переполнение ~5МБ, приватный режим) —
@@ -78,20 +82,12 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 }
 
 /* ===== Крипто-ядро (WebCrypto) =====
-   Все данные зашифрованы мастер-ключом K (AES-GCM-256).
-   K живёт только в памяти браузера.
-   Для каждого пароля K «обёрнут» ключом, полученным из пароля через
-   PBKDF2-SHA256 (600k итераций — рекомендация OWASP; было 150k). В
-   localStorage лежит только зашифрованный «сейф» — прочитать его без
-   пароля нельзя. Число итераций хранится per-vault (vault.a) — у уже
-   существующих сейфов остаётся их исходное значение, апгрейд действует
-   только на новые (createVault) и не требует миграции старых. */
-const enc = new TextEncoder();
-const dec = new TextDecoder();
-const VAULT_KEY = 'universe_vault'; // зашифрованный сейф
-const PBKDF2_ITERS = 600000; // стойкость обёртки паролем
-const AUTO_LOCK_MS = 30 * 60 * 1000; // автозамок после 30 минут без действий
-
+   Раньше здесь была ещё и обвязка вокруг пароля (PBKDF2 + зашифрованный
+   «сейф» в localStorage) — вход теперь только через Google (см.
+   src/01-gate.js), пароля у пары больше нет. Осталось единственное, для чего
+   шифрование всё ещё нужно: фото в облаке (Yandex Object Storage) лежат как
+   AES-GCM-шифртекст, а ключ — общий на обоих партнёров (см. ensureMasterKey
+   в src/01-gate.js) и живёт только в памяти браузера. */
 function b64(u8) {
   let s = '';
   for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
@@ -109,10 +105,6 @@ function randBytes(n) {
   return a;
 }
 
-async function pbkdf2Key(pass, salt, iters) {
-  const base = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iters }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-}
 async function aesEnc(key, bytes) {
   const iv = randBytes(12);
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes));
@@ -148,9 +140,12 @@ function defaultDB() {
   };
 }
 // Миграции: аккуратно добавляем поля, которых ещё не было в старых версиях.
-// migrateDB() вызывается на КАЖДОЙ загрузке сейфа (не только один раз при
-// смене версии), поэтому каждый шаг обязан быть идемпотентным — версии ниже
-// fromVersion определяют, какие блоки ещё нужно применить.
+// Раньше вызывалась на каждой загрузке старого сейфа (unlockWithKey) — вместе
+// с сейфом эта точка вызова убрана (данные теперь из Firestore, уже в
+// актуальной форме), но сама функция — общая логика апгрейда схемы db,
+// пригодится и для будущих версий. Каждый шаг обязан быть идемпотентным —
+// версии ниже fromVersion определяют, какие блоки ещё нужно применить.
+// eslint-disable-next-line no-unused-vars
 function migrateDB(d) {
   const fromVersion = typeof d.version === 'number' ? d.version : 0;
   const cur = defaultDB();
@@ -266,8 +261,7 @@ function relabelEventPhotos(d) {
 let masterKey = null; // мастер-ключ K — никуда не записывается
 let currentUser = null; // кто вошёл (gosha/dasha)
 let db = defaultDB();
-let authLocked = true; // пока замок закрыт — приложение невидимо
-let lastActivity = Date.now();
+let authLocked = true; // пока не вошли через Google — приложение невидимо
 let fsReady = false; // Firestore подключён и готов (см. src/03-firestore.js)
 // Какие месяцы календаря уже в кэше (см. src/04-repo.js). Читается из
 // 40-calendar.js, поэтому объявлено здесь, а не в 04-repo.js — TDZ.
@@ -291,30 +285,33 @@ function setUser(u) {
   renderCalendar();
 }
 /* ===== Гейт: вход только для двух Google-аккаунтов =====
-   Раньше сайт был закрыт паролем (PBKDF2 + AES, свой пароль у каждого).
-   Теперь первый (и единственный) барьер — Google-вход, ограниченный
-   ALLOWED_EMAILS: без него никто не видит даже экран приложения, а Firebase
-   RTDB и обе Cloud Function (photo-sign, send-push) точно так же проверяют
-   auth.token.email — так что дыра «кто угодно анонимно» (см. PROJECT-MEMORY)
-   закрыта не только на клиенте.
+   Раньше сайт был закрыт паролем (PBKDF2 + AES, свой пароль у каждого), а
+   после — общим ключом пары, синхронизированным через Firebase Realtime
+   Database (vaults/secret) с разовым переносом старых данных при первом
+   входе. Оба механизма (src/06-migrate.js, старый сейф в localStorage,
+   RTDB-канал ключа) выброшены целиком вместе со старыми данными — владелец
+   решил начинать с чистой базы в Firestore. Единственный барьер теперь —
+   Google-вход, ограниченный ALLOWED_EMAILS: без него никто не видит даже
+   экран приложения, а Firestore и обе Cloud Function (photo-sign,
+   send-push) точно так же проверяют auth.token.email — так что дыра «кто
+   угодно анонимно» (см. PROJECT-MEMORY) закрыта не только на клиенте.
 
    Каждый — на своём устройстве под своим Google-аккаунтом, поэтому кто есть
    кто определяется ТОЛЬКО email из GATE_WHO_BY_EMAIL — без ручного выбора
    «Гоша/Даша», как было раньше на экране входа.
 
-   Шифрование данных осталось (AES-GCM), но ключ больше не оборачивается
-   паролем персонально: единый мастер-ключ пары лежит в RTDB по пути
-   vaults/secret — читать его может только уже вошедший через Google (те же
-   правила, что и на vaults/shared). Локально ключ кэшируется в localStorage
-   (universe_mk), поэтому офлайн всё работает мгновенно и повторный вход не
-   спрашивает вообще ничего. */
+   Шифрование осталось только для фото в облаке (Yandex Object Storage,
+   см. src/95-photos-cloud.js): общий ключ пары (AES-GCM) лежит в Firestore
+   (meta/settings.photoKey) — читать его может только уже вошедший через
+   Google. Локально ключ кэшируется в localStorage (universe_mk), поэтому
+   офлайн всё работает мгновенно и повторный вход не спрашивает вообще
+   ничего. */
 const ALLOWED_EMAILS = ['shakov.georgy@gmail.com', 'dashach98@gmail.com'];
 const GATE_WHO_BY_EMAIL = {
   'shakov.georgy@gmail.com': 'gosha',
   'dashach98@gmail.com': 'dasha'
 };
 const KEY_CACHE = 'universe_mk'; // локально закэшированный сырой AES-ключ (base64)
-const RTDB_SECRET_PATH = 'vaults/secret';
 
 let fbApp = null; // единственное Firebase-приложение на весь сайт (гейт + синк + фото)
 let gateUser = null; // Google-пользователь, прошедший проверку email
@@ -336,24 +333,22 @@ function showGateErr(msg) {
   if (el) el.textContent = msg || '';
 }
 
-/* ===== Ключ шифрования: локальный кэш → облако → (первый запуск) новый ===== */
+/* ===== Ключ шифрования фото: локальный кэш → Firestore → (первый запуск) новый ===== */
 async function importRawKey(rawB64) {
   return crypto.subtle.importKey('raw', unb64(rawB64), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
 }
 async function exportRawKey(key) {
   return b64(new Uint8Array(await crypto.subtle.exportKey('raw', key)));
 }
-async function publishMigratedKey(key) {
+// Кэширует ключ локально и публикует его в Firestore — единственное место,
+// где он теперь живёт в облаке. Вызывается только на самом первом запуске
+// пары (ни локального кэша, ни meta/settings.photoKey ещё нет нигде) —
+// партнёр на своём устройстве получит этот же ключ при следующем входе (см.
+// ensureMasterKey ниже). Без этого второе устройство завело бы свой ключ и
+// не увидело бы зашифрованные фото первого.
+async function publishPhotoKey(key) {
   const rawB64 = await exportRawKey(key);
   store.set(KEY_CACHE, rawB64);
-  const app = ensureFbApp();
-  if (app) {
-    try {
-      await firebase.database(app).ref(RTDB_SECRET_PATH).set(rawB64);
-    } catch (e) {
-      console.warn('[gate] не удалось опубликовать ключ в облако', e);
-    }
-  }
   if (fsReady) {
     try {
       await repoMeta({ photoKey: rawB64 });
@@ -363,35 +358,7 @@ async function publishMigratedKey(key) {
   }
 }
 
-// Старый сейф (до этого обновления) хранит мастер-ключ, обёрнутый паролем
-// каждого — tryUnwrapKey/pbkdf2Key (10-vault.js) остались нетронутыми именно
-// для этой разовой миграции. Если с прошлого раза жива сессия в
-// sessionStorage (старый «запомнить меня» трюк) — ключ достаём без пароля;
-// иначе один-единственный раз показываем поле для пароля.
-async function migrateLegacyVault(who, legacy) {
-  try {
-    const raw = sessionStorage.getItem('universe_session');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.who === who && parsed.k) {
-        const key = await crypto.subtle.importKey('raw', unb64(parsed.k), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
-        await aesDec(key, legacy.db); // проверяем, что ключ и правда подходит
-        await publishMigratedKey(key);
-        return key;
-      }
-    }
-  } catch (e) {
-    /* сессия не подошла — показываем разовую миграцию ниже */
-  }
-  showAuth('gate');
-  $('#gateMigrateWrap').hidden = false;
-  showGateErr('');
-  const p = $('#gateMigratePass');
-  if (p && p.focus) p.focus();
-  return null;
-}
-
-async function ensureMasterKey(who) {
+async function ensureMasterKey() {
   const cachedB64 = store.get(KEY_CACHE);
   if (cachedB64) {
     try {
@@ -400,8 +367,6 @@ async function ensureMasterKey(who) {
       store.remove(KEY_CACHE);
     }
   }
-  // Ключ фото: сначала Firestore (новое место), потом RTDB (старое, для
-  // устройства, которое зашло первым и ещё не переносило данные).
   if (fsReady) {
     try {
       const snap = await withTimeout(fsDoc().collection('meta').doc('settings').get(), 10000);
@@ -414,82 +379,23 @@ async function ensureMasterKey(who) {
       console.warn('[gate] ключ фото из Firestore недоступен', e);
     }
   }
-  const app = ensureFbApp();
-  if (app) {
-    try {
-      const snap = await withTimeout(firebase.database(app).ref(RTDB_SECRET_PATH).once('value'), 10000);
-      const raw = snap && snap.val ? snap.val() : null;
-      if (typeof raw === 'string' && raw) {
-        store.set(KEY_CACHE, raw);
-        return await importRawKey(raw);
-      }
-    } catch (e) {
-      console.warn('[gate] не удалось получить облачный ключ', e);
-    }
-  }
-  const legacy = loadVault();
-  if (legacy && Array.isArray(legacy.keys) && legacy.keys.length) {
-    return await migrateLegacyVault(who, legacy);
-  }
-  // Совсем первый запуск (ни локально, ни в облаке ничего нет) — заводим ключ.
+  // Ни локально, ни в Firestore ключа нет — совсем первый запуск пары.
+  // Заводим новый и публикуем (см. publishPhotoKey выше).
   const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
-  await publishMigratedKey(key);
+  await publishPhotoKey(key);
   return key;
 }
 
-async function gateMigrateSubmit() {
-  const who = GATE_WHO_BY_EMAIL[gateUser && gateUser.email];
-  const pass = $('#gateMigratePass').value;
-  const legacy = loadVault();
-  const key = who && legacy ? await tryUnwrapKey(who, pass, legacy) : null;
-  if (!key) {
-    showGateErr('Неверный пароль. Попробуй ещё раз.');
-    return;
-  }
-  await publishMigratedKey(key);
-  $('#gateMigrateWrap').hidden = true;
-  await unlockWithKey(key);
-}
-
-/* ===== Вход: собственно AES-ключ получен — расшифровываем локальный сейф
-   (или начинаем с пустого, если его ещё нет — данные подтянутся из облака) ===== */
+/* ===== Вход: ключ шифрования фото получен — данные приходят из Firestore ===== */
 async function unlockWithKey(key) {
   masterKey = key;
   applyMotion(getMotion()); // раньше стояло в удалённом initAuth() — сохранённый выбор анимаций
-  // Данные приходят из Firestore. Старый сейф читаем ровно один раз — чтобы
-  // было что переносить; после успешного переезда он больше не нужен.
-  const legacyVault = loadVault();
-  if (legacyVault && legacyVault.db) {
-    try {
-      const raw = await aesDec(masterKey, legacyVault.db);
-      db = migrateDB({ ...defaultDB(), ...JSON.parse(dec.decode(raw)) });
-      // Строка выше выполнится, только если aesDec/JSON.parse НЕ бросили
-      // исключение — значит, db здесь гарантированно результат успешной
-      // расшифровки (с накопленными миграциями схемы вроде альбомов→лейблов),
-      // а не заглушка defaultDB(). Передаём его migrateFromVaultIfNeeded()
-      // явным аргументом, вместо того чтобы функция сама читала глобальный db
-      // и гадала, настоящие там данные или нет — см. комментарий в
-      // src/06-migrate.js, почему это и было корнем прод-бага.
-      await migrateFromVaultIfNeeded(db);
-    } catch (e) {
-      console.warn('Старый сейф не расшифровался — работаем только с облаком', e);
-      // Раньше здесь молчали (только console.warn) — человек видел пустой
-      // экран и не понимал, почему пропали данные. Расшифровка не удалась
-      // именно НА ЭТОМ устройстве (например, ключ ещё не долетел из облака) —
-      // сами данные целы на устройстве, где сейф открывается нормально.
-      notify('Старые данные на этом устройстве не открылись — они не потеряны. Зайди с того устройства, где сайт открывался раньше 💜', true);
-    }
-  }
   await loadHotSet();
   startLiveUpdates();
   await initPhotoStore();
   await photoStore.migratePhotos(db);
   await photoStore.refreshSizes();
   warmThumbCache();
-  // Раньше здесь закреплялся save() — переписывал зашифрованный сейф текущим
-  // db, чтобы следующий вход мог его перечитать. Источник правды теперь
-  // Firestore (loadHotSet() выше), локальная запись сейфа убрана целиком
-  // (см. src/10-vault.js) — закреплять миграцию некуда и незачем.
   unlockApp();
 }
 
@@ -513,8 +419,7 @@ async function tryEnterWithUser(user) {
     setUser(GATE_WHO_BY_EMAIL[user.email]);
     showGateErr('Загружаем…');
     await initFirestore();
-    const key = await ensureMasterKey(GATE_WHO_BY_EMAIL[user.email]);
-    if (!key) return; // ensureMasterKey уже показал разовый экран миграции
+    const key = await ensureMasterKey();
     await unlockWithKey(key);
   } catch (e) {
     console.warn('[gate] вход не завершился', e);
@@ -562,19 +467,6 @@ async function gateSignIn() {
   }
 }
 
-// Возврат после lock() (приватный «замок» по бездействию — см. 10-vault.js):
-// Google-сессия жива, повторно логиниться не нужно, достаточно одного тапа.
-async function gateResume() {
-  $('#gateResumeBtn').hidden = true;
-  $('#gateResumeHint').hidden = true;
-  $('#gateSignInBtn').hidden = false;
-  const who = gateUser && GATE_WHO_BY_EMAIL[gateUser.email];
-  if (!who) return; // Google-сессия почему-то пропала — обычный вход через кнопку
-  showGateErr('Загружаем…');
-  const key = await ensureMasterKey(who);
-  if (key) await unlockWithKey(key);
-}
-
 async function gateSignOut() {
   if (!confirm('Выйти из Google-аккаунта на этом устройстве? Чтобы открыть сайт снова, понадобится войти через Google ещё раз.')) return;
   try {
@@ -587,15 +479,6 @@ async function gateSignOut() {
 
 const gateSignInBtnEl = $('#gateSignInBtn');
 if (gateSignInBtnEl) gateSignInBtnEl.addEventListener('click', gateSignIn);
-const gateResumeBtnEl = $('#gateResumeBtn');
-if (gateResumeBtnEl) gateResumeBtnEl.addEventListener('click', gateResume);
-const gateMigrateGoEl = $('#gateMigrateGo');
-if (gateMigrateGoEl) gateMigrateGoEl.addEventListener('click', gateMigrateSubmit);
-const gateMigratePassEl = $('#gateMigratePass');
-if (gateMigratePassEl)
-  gateMigratePassEl.addEventListener('keydown', e => {
-    if (e.key === 'Enter') gateMigrateSubmit();
-  });
 const gateSignOutBtnEl = $('#gateSignOutBtn');
 if (gateSignOutBtnEl) gateSignOutBtnEl.addEventListener('click', gateSignOut);
 
@@ -1568,12 +1451,6 @@ async function initPhotoStore() {
   photoStore = MemoryPhotoStore;
 }
 
-// Очистка при блокировке
-function clearPhotoStore() {
-  if (photoStore && photoStore._map) photoStore._map.clear();
-  photoStore = null;
-}
-
 // ===== Вспомогательные функции для работы с фото =====
 
 // Создание миниатюры (Canvas, ~256px по длинной стороне)
@@ -1685,9 +1562,6 @@ function getThumbUrl(id) {
 }
 function setThumbUrl(id, url) {
   thumbCache.set(id, url);
-}
-function clearThumbCache() {
-  thumbCache.clear();
 }
 
 // ===== Единый источник URL фото для рендеров =====
@@ -1805,149 +1679,6 @@ async function hydratePhotoImgs(scope) {
     // следующий hydratePhotoImgs после докачки подхватит его сам.
   }
 }
-/* ===== Разовый переезд из старого зашифрованного сейфа в Firestore =====
-   Запускается сам при первом входе новой версии и безопасен при повторах:
-   если в базе уже есть хоть один документ — не делает ничего.
-
-   Старый блоб в Realtime Database НЕ удаляется: пока владелец своими глазами
-   не подтвердит, что всё на месте, он остаётся нетронутой страховкой. */
-
-function mdOf(dateIso) {
-  return typeof dateIso === 'string' && dateIso.length >= 10 ? dateIso.slice(5, 10) : '';
-}
-
-// legacyData — РЕЗУЛЬТАТ успешной расшифровки старого сейфа (уже прогнанный
-// через migrateDB(), со всеми преобразованиями схемы вроде альбомов→лейблов),
-// переданный явно вызывающим кодом (unlockWithKey в src/01-gate.js), а НЕ
-// угаданный по содержимому глобального db. Раньше функция сама смотрела на
-// db и решала «похоже на данные — значит, есть что переносить»: но если
-// расшифровка падала (не тот ключ, сейфа нет на этом устройстве), в игру
-// вступал ЛЮБОЙ db, до какого успело докатиться выполнение (вплоть до
-// defaultDB() — структуры с ОДНОЙ годовщиной-заглушкой «Мы начали
-// встречаться»). По длине db.events такую заглушку было не отличить от
-// настоящих данных: функция переносила эту одну годовщину и ставила флаг
-// migrated. Второе устройство, на котором сейф расшифровывался нормально,
-// видело флаг и уже НИЧЕГО не переносило — данные пары оставались запертыми в
-// старом сейфе. Единственный, кто точно знает, удалась расшифровка или нет, —
-// вызывающий код (строка с db = migrateDB(...) в unlockWithKey выполнится,
-// только если расшифровка и разбор JSON не бросили исключение); он и обязан
-// передать null явно на неудаче, а не заставлять эту функцию гадать.
-async function migrateFromVaultIfNeeded(legacyData) {
-  if (!fsReady) return false;
-  if (!legacyData) return false; // расшифровка не удалась (или сейфа нет) — переносить нечего по определению
-
-  // Флаг завершения — meta/settings.migrated. Батчи ниже идут по одному, БЕЗ
-  // общей транзакции: если перенос оборвётся посередине (упала сеть, закрыли
-  // вкладку), часть коллекций уже уедет в Firestore, а часть — нет. Флаг
-  // ставится только после того, как ВСЕ батчи прошли успешно (см. конец
-  // функции), поэтому именно он, а не проба ниже, — надёжный признак «перенос
-  // точно закончен». Без него повторный запуск при обрыве на середине рисковал
-  // бы навсегда пропустить то, что не успело доехать.
-  const settings = await fsDoc().collection('meta').doc('settings').get();
-  if (settings.exists && settings.data().migrated) return false;
-
-  // Сейф расшифровался, но в нём и правда пусто (например, у новой пары) —
-  // это законный «нечего переносить», не путать с неудачной расшифровкой
-  // выше: флаг ниже не ставится, чтобы не означать «функция отработала
-  // вхолостую» как «данные пары уехали».
-  if (!(legacyData.events || []).length && !(legacyData.notes || []).length && !(legacyData.photos || []).length) return false;
-
-  // Проба — доп. защита на случай «данные уже есть, а флага нет» (например,
-  // перенос делала более старая версия кода, до появления флага). ВАЖНО
-  // проверять ВСЕ семь переносимых коллекций, а не только notes/events как
-  // было раньше (Critical-находка ревью): иначе один случайно уже переехавший
-  // кусок навсегда прятал бы от повторного запуска всё остальное, что не
-  // успело доехать при обрыве на середине.
-  const targets = [
-    ['events', legacyData.events],
-    ['dates', legacyData.dates],
-    ['notes', legacyData.notes],
-    ['lists', legacyData.lists],
-    ['wishes', legacyData.wishlist],
-    ['labels', legacyData.labels],
-    ['photos', legacyData.photos]
-  ].filter(([, arr]) => (arr || []).length);
-  const probes = await Promise.all(targets.map(([coll]) => fsCol(coll).limit(1).get()));
-  if (targets.length && probes.every(p => p.docs.length)) {
-    // Important-находка ревью: обрыв на хвосте после 7 коллекций оставляет
-    // pushSubs неперенесёнными, но проба выше это не видит. Партнёр молча
-    // перестаёт получать уведомления, если его подписка не доехала. Если
-    // локально есть pushSubs, проверяем, что они уже в Firestore — иначе
-    // перенос не полный и должен повториться.
-    if (legacyData.pushSubs && Object.keys(legacyData.pushSubs).length) {
-      const metaSnap = await fsDoc().collection('meta').doc('settings').get();
-      const existingSubs = metaSnap.exists ? metaSnap.data().pushSubs || {} : {};
-      if (!Object.keys(existingSubs).length) {
-        // Есть локальные pushSubs, но в Firestore их нет — перенос незавершён.
-        // Продолжаем выполнение (не возвращаем false), чтобы доперенести pushSubs.
-      } else {
-        return false;
-      }
-    } else {
-      return false;
-    }
-  }
-
-  // md нужен, чтобы годовщины находились независимо от года (см. спеку).
-  const events = (legacyData.events || []).map(e => ({ ...e, md: mdOf(e.date) }));
-
-  await repoBatch('events', events);
-  await repoBatch('dates', legacyData.dates || []);
-  await repoBatch('notes', legacyData.notes || []);
-  await repoBatch('lists', legacyData.lists || []);
-  await repoBatch('wishes', legacyData.wishlist || []);
-  await repoBatch('labels', legacyData.labels || []);
-  await repoBatch('photos', legacyData.photos || []);
-  if (legacyData.pushSubs && Object.keys(legacyData.pushSubs).length) {
-    await repoMeta({ pushSubs: legacyData.pushSubs });
-  }
-  // Флаг — только теперь, когда все батчи выше точно прошли успешно.
-  await repoMeta({ migrated: true });
-  console.warn('[migrate] данные перенесены в Firestore; старый сейф в RTDB оставлен как страховка');
-  return true;
-}
-/* ===== Хранилище ===== */
-function legacyDB() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return defaultDB();
-    const d = JSON.parse(raw);
-    return { ...defaultDB(), ...migrateDB(d) };
-  } catch (e) {
-    return defaultDB();
-  }
-}
-// Читает старый зашифрованный сейф (universe_vault) — только на чтение.
-// Раньше сюда же писал save() на каждое изменение (и его закреплял push
-// блоб-синхронизации), но с переходом на Firestore как источник правды
-// (каждый экран пишет точечно через репозиторий, см. src/04-repo.js) запись
-// сюда убрана целиком — незачем. Само чтение остаётся: разовый перенос
-// данных пары (src/06-migrate.js, вызывается из unlockWithKey в
-// src/01-gate.js) читает отсюда старый сейф ровно один раз.
-function loadVault() {
-  try {
-    return JSON.parse(localStorage.getItem(VAULT_KEY));
-  } catch (e) {
-    return null;
-  }
-}
-
-/* ===== Разовая миграция со старого (парольного) сейфа =====
-   tryUnwrapKey понадобится ТОЛЬКО пока у кого-то ещё жив старый сейф с
-   keys:[...] — см. migrateLegacyVault в src/01-gate.js. Новые сейфы такого
-   поля не имеют вовсе. */
-async function tryUnwrapKey(who, pass, vault) {
-  const wrap = (vault && (vault.keys || [])).find(k => k.who === who);
-  if (!wrap) return null;
-  try {
-    const pwdKey = await pbkdf2Key(pass, unb64(wrap.s), vault.a || PBKDF2_ITERS);
-    const kraw = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(wrap.i) }, pwdKey, unb64(wrap.d)));
-    return await crypto.subtle.importKey('raw', kraw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
-  } catch (e) {
-    return null;
-  }
-}
-
 /* ===== Замок: экран гейта (см. src/01-gate.js) ===== */
 function showAuth(which) {
   $('#gateScreen').hidden = which !== 'gate';
@@ -1958,40 +1689,12 @@ function unlockApp() {
   setTheme(getTheme());
   renderSettings();
   go('home');
-  lastActivity = Date.now();
-  startAutoLock();
   maybeShowDateInvitePopup(); // неотвеченные приглашения на свидание — сразу видно, не только листая вниз
   // Облако фото (Yandex Object Storage, см. src/95-photos-cloud.js): после
   // входа выгружаем свои фото / скачиваем недостающие. Данные (события,
   // заметки и т.п.) синхронизировать не нужно — они читаются/пишутся прямо
   // в Firestore каждым экраном, отдельного шага при входе не требуют.
   if (typeof initPhotoSync === 'function') initPhotoSync();
-}
-// Приватный «замок» по бездействию (см. AUTO_LOCK_MS ниже): прячет данные на
-// этом устройстве, но НЕ разлогинивает из Google — сессия жива, возврат
-// (gateResume в src/01-gate.js) занимает один тап, без пароля.
-function lock() {
-  if (!masterKey) return; // уже закрыто
-  masterKey = null;
-  db = defaultDB();
-  clearPhotoStore();
-  clearThumbCache();
-  countdownTarget = null;
-  authLocked = true;
-  document.body.classList.add('auth');
-  showAuth('gate');
-  const migrateWrap = $('#gateMigrateWrap');
-  if (migrateWrap) migrateWrap.hidden = true;
-  const signInBtn = $('#gateSignInBtn');
-  if (signInBtn) signInBtn.hidden = true;
-  const resumeBtn = $('#gateResumeBtn');
-  if (resumeBtn) resumeBtn.hidden = false;
-  const resumeHint = $('#gateResumeHint');
-  if (resumeHint) resumeHint.hidden = false;
-  showGateErr('');
-  // Облако фото: при блокировке отключаем таймер сверки (но НЕ Google-сессию —
-  // см. stopPhotoSync в src/95-photos-cloud.js)
-  if (typeof stopPhotoSync === 'function') stopPhotoSync();
 }
 // Публичный API: сам app.js её не вызывает (UI смотрит на authLocked
 // напрямую), но тесты дёргают через s.isLocked — держим как явную точку
@@ -2000,29 +1703,6 @@ function lock() {
 function isLocked() {
   return authLocked;
 }
-
-/* ===== Автозамок ===== */
-let autoLockTimer = null;
-function startAutoLock() {
-  if (autoLockTimer) return;
-  ['click', 'keydown', 'pointerdown', 'scroll', 'touchstart'].forEach(ev =>
-    document.addEventListener(
-      ev,
-      () => {
-        lastActivity = Date.now();
-      },
-      { passive: true }
-    )
-  );
-  autoLockTimer = setInterval(() => {
-    if (isHidden() || !masterKey) return;
-    if (Date.now() - lastActivity > AUTO_LOCK_MS) lock();
-  }, 60000);
-}
-
-/* ===== Кнопка «скрыть приватность» в настройках ===== */
-const lockNowBtnEl = $('#lockNowBtn');
-if (lockNowBtnEl) lockNowBtnEl.addEventListener('click', lock);
 /* ===== Тема ===== */
 const THEME_KEY = 'universe_theme';
 function getTheme() {
@@ -5683,33 +5363,8 @@ if (typeof Sortable !== 'undefined') {
 // Чип лейбла → фото (обратное направление) — см. 05-dnd.js/chipDragSetup.
 chipDragSetup($('#labelBar'));
 /* ===== Настройки ===== */
-/* ===== Настройки: резервная копия и место в браузере ===== */
 function renderSettings() {
-  const bytes = new Blob([JSON.stringify(db)]).size || JSON.stringify(db).length;
-  const kb = Math.max(1, Math.round(bytes / 1024));
-  const si = $('#storageInfo');
-  if (si) si.textContent = kb >= 1024 ? (kb / 1024).toFixed(1) + ' МБ' : kb + ' КБ';
-  // Фото-хранилище (IndexedDB) считаем асинхронно и показываем отдельной строкой
-  if (photoStore) {
-    photoStore
-      .refreshSizes()
-      .then(sz => {
-        const fk = Math.max(1, Math.round((sz.bytes || 0) / 1024));
-        const fs = $('#photoStorageInfo');
-        if (fs) fs.textContent = `${sz.count} фото · ${fk >= 1024 ? (fk / 1024).toFixed(1) + ' МБ' : fk + ' КБ'}`;
-      })
-      .catch(() => {});
-  }
-  const hint = $('#backupHint');
-  if (!hint) return;
   renderPushSettings(); // модуль 96-push.js — асинхронно проверяет текущую PushManager-подписку
-  // РЕВЬЮ задачи 12 (Minor, находка 4): напоминание «копия ещё не делалась»/
-  // «была N дн. назад» держалось на db.backupDate, а новый exportData() это
-  // поле больше не выставляет — подсказка врала бы даже сразу после успешной
-  // выгрузки. Кнопка «Скачать копию» остаётся, жёлтые напоминания были нужны,
-  // пока данные жили только в браузере — сейчас это Firestore, убираем блок
-  // целиком (сама db.backupDate не трогается — её уборка в отдельной задаче).
-  hint.innerHTML = '';
   // Личный кабинет: какой Google-аккаунт вошёл
   const gi = $('#gateAccountInfo');
   if (gi) gi.textContent = gateUser && gateUser.email ? gateUser.email + (getUser() === 'dasha' ? ' (Даша)' : ' (Гоша)') : '—';
@@ -5818,14 +5473,6 @@ $('#importInput').addEventListener('change', e => {
   };
   fr.readAsText(f);
 });
-$('#resetBtn').addEventListener('click', () => {
-  if (confirm('Точно удалить ВСЕ данные? Это не отменить.')) {
-    store.remove(VAULT_KEY);
-    store.remove(KEY);
-    location.reload();
-  }
-});
-
 /* ===== Настройки: уменьшенное движение =====
    data-motion на <html>: 'reduced' — анимации всегда выключены, 'full' — всегда
    включены (перекрывает систему). Без атрибута — уважаем prefers-reduced-motion. */
@@ -6248,7 +5895,6 @@ spawnHeart();
 let FIREBASE_CONFIG = {
   apiKey: 'AIzaSyDuAkskIpj3bsFOX6aPecFWZGJOlOzGzUk',
   authDomain: 'nasha-vselennaya.firebaseapp.com',
-  databaseURL: 'https://nasha-vselennaya-default-rtdb.europe-west1.firebasedatabase.app',
   projectId: 'nasha-vselennaya',
   storageBucket: 'nasha-vselennaya.firebasestorage.app',
   messagingSenderId: '222445763153',
@@ -6273,7 +5919,7 @@ let YANDEX_CLOUD_CONFIG = {
 
 // Таймаут для сетевых вызовов: не держим пользователя на «загружаем…»
 // бесконечно, если Firebase отвечает медленно (мобильный интернет). Также
-// используется гейтом (src/01-gate.js) при чтении vaults/secret и ключа фото.
+// используется гейтом (src/01-gate.js) при чтении ключа фото из Firestore.
 function withTimeout(promise, ms) {
   let timer = null;
   return Promise.race([
@@ -6318,7 +5964,12 @@ function initPhotoSync() {
   schedulePhotoSync();
 }
 
-/* ===== Остановка: при lock() ===== */
+/* ===== Остановка синхронизации фото =====
+   Раньше вызывалась из lock() (приватный замок по бездействию) — его убрали
+   целиком (у каждого своё устройство, прятать по таймеру незачем), поэтому
+   сейчас сам app.js эту функцию не зовёт. Держим как явную точку входа для
+   будущего кода/тестов — так же, как isLocked() ниже по сборке. */
+// eslint-disable-next-line no-unused-vars
 function stopPhotoSync() {
   clearTimeout(photoSyncTimer);
   syncStorage = null;
@@ -6928,81 +6579,6 @@ async function notifyPartner(title, body) {
     console.warn('[push] не удалось отправить партнёру', e);
   }
 }
-
-/* ===== Диагностика уведомлений =====
-   notifyPartner() выше нарочно тихо проглатывает ошибки (это не критичный
-   путь) — но это же делает его непригодным для отладки живой проблемы «пуш
-   не пришёл». Эта функция шлёт РЕАЛЬНЫЙ тестовый пуш самому себе (не
-   партнёру) и показывает настоящий ответ send-push прямо на экране —
-   изолирует, где именно рвётся цепочка: нет своей подписки/токена, сама
-   функция ответила ошибкой, или всё дошло до неё, но не показалось (тогда
-   дело уже не в коде сайта, а в доставке на конкретное устройство/ОС). */
-async function runPushDiagnostics() {
-  const out = $('#pushDiagOut');
-  if (!out) return;
-  out.hidden = false;
-  const lines = [];
-  const add = s => lines.push(s);
-  try {
-    add('Notification.permission: ' + (typeof Notification !== 'undefined' ? Notification.permission : 'нет API'));
-    add('pushSupported(): ' + pushSupported());
-    add('isStandalone() (добавлено на экран «Домой»): ' + isStandalone());
-    add('service worker зарегистрирован: ' + !!swRegistration);
-    const sub = await currentPushSubscription();
-    add('своя подписка активна прямо сейчас: ' + !!sub);
-    if (sub) {
-      try {
-        add('  endpoint-хост: ' + new URL(sub.toJSON().endpoint).host);
-      } catch (e) {}
-    }
-    const me = getUser();
-    const partner = me === 'gosha' ? 'dasha' : 'gosha';
-    add('своя подписка в кэше (db.pushSubs.' + me + '): ' + !!(db.pushSubs && db.pushSubs[me]));
-    add('подписка партнёра в кэше (db.pushSubs.' + partner + '): ' + !!(db.pushSubs && db.pushSubs[partner]));
-    add('PUSH_CONFIG.sendFnUrl: ' + (PUSH_CONFIG.sendFnUrl || 'НЕ ЗАДАН'));
-    // fbApp — то же приложение, из которого notifyPartner() берёт ID-токен
-    // (см. выше); если оно не поднялось, токена не будет и пуш не уйдёт.
-    add('fbApp: ' + (typeof fbApp !== 'undefined' && fbApp ? 'есть' : 'НЕТ'));
-    let token = null;
-    try {
-      // Тот же источник токена, что и в notifyPartner() — иначе диагностика
-      // проверяла бы не тот путь, которым реально уходит пуш.
-      const user = fbApp && firebase.auth(fbApp).currentUser;
-      token = user ? await user.getIdToken() : null;
-    } catch (e) {
-      add('ошибка getIdToken: ' + String((e && e.message) || e));
-    }
-    add('Firebase ID-токен получен: ' + !!token);
-    if (!sub) {
-      add('— тест не отправлен: нет собственной активной подписки —');
-      out.textContent = lines.join(String.fromCharCode(10));
-      return;
-    }
-    if (!token || !PUSH_CONFIG.sendFnUrl) {
-      add('— тест не отправлен: нет токена авторизации или не задан sendFnUrl —');
-      out.textContent = lines.join(String.fromCharCode(10));
-      return;
-    }
-    add('— отправляю тестовый пуш самому себе —');
-    try {
-      const res = await fetch(PUSH_CONFIG.sendFnUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Firebase-Token': token },
-        body: JSON.stringify({ subscription: sub.toJSON(), title: '🔔 Тестовое уведомление', body: 'Если видишь это — доставка работает' })
-      });
-      const text = await res.text();
-      add('ответ send-push: ' + res.status + ' ' + text.slice(0, 300));
-      add(res.ok ? '— если уведомление не появилось при статусе 200, дело не в коде сайта, а в доставке на этом устройстве/ОС —' : '— функция ответила ошибкой, см. текст выше —');
-    } catch (e) {
-      add('ошибка запроса к send-push (сеть/CORS): ' + String((e && e.message) || e));
-    }
-  } catch (e) {
-    add('неожиданная ошибка: ' + String((e && e.message) || e));
-  }
-  out.textContent = lines.join(String.fromCharCode(10));
-}
-const pushDiagBtnEl = $('#pushDiagBtn');
-if (pushDiagBtnEl) pushDiagBtnEl.addEventListener('click', runPushDiagnostics);
 
 // typeof-проверка, а не просто вызов: часть мини-DOM тестовых песочниц
 // (tests/uni-*.js) не определяют navigator вообще — без проверки любой такой
