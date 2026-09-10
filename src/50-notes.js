@@ -37,8 +37,9 @@ function renderNotes() {
 function addNote() {
   const t = $('#noteText').value.trim();
   if (!t) return;
-  db.notes.unshift({ id: uid(), text: t, ts: Date.now(), pinned: false, author: getUser(), order: 0 });
-  save();
+  const note = { id: uid(), text: t, ts: Date.now(), pinned: false, author: getUser(), order: 0 };
+  db.notes.unshift(note);
+  repoSet('notes', note); // точечная запись новой заметки, не всего набора
   $('#noteText').value = '';
   renderNotes();
 }
@@ -52,14 +53,14 @@ function togglePinNote(id) {
   const n = db.notes.find(x => x.id === id);
   if (!n) return;
   n.pinned = !n.pinned;
-  save();
+  repoSet('notes', n);
   renderNotes();
 }
 function deleteNote(id) {
   if (!confirmDelete('Удалить заметку? Это не отменить.')) return;
   db.notes = db.notes.filter(x => x.id !== id);
   if (editingNoteId === id) editingNoteId = null;
-  save();
+  repoDelete('notes', id);
   renderNotes();
 }
 
@@ -82,7 +83,7 @@ function saveNoteEdit(id, text) {
     n.ts = Date.now();
   }
   editingNoteId = null;
-  save();
+  repoSet('notes', n);
   renderNotes();
 }
 $('#notesGrid').addEventListener('dblclick', e => {
@@ -108,7 +109,7 @@ function notesSortEnd(evt) {
       const n = db.notes.find(x => x.id === id);
       if (n) n.order = i;
     });
-  save();
+  repoBatch('notes', db.notes); // порядок меняется у всех заметок разом — батч, не поштучно
   renderNotes();
 }
 if (typeof Sortable !== 'undefined') {
