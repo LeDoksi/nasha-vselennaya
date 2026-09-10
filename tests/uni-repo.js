@@ -195,6 +195,13 @@ function __TEST__(s){
   // Сеттер нужен только тесту миграции ниже: он подставляет db напрямую,
   // как если бы сейф уже был расшифрован гейтом.
   Object.defineProperty(s, 'db', { get: () => db, set: v => { db = v; }, configurable: true });
+  // Для проверки страховочного save() рядом с repoSet (фото событий/свиданий,
+  // задача 7 ревью) — реальные aesEnc/aesDec и masterKey, без мока: тот же
+  // WebCrypto, что использует само приложение.
+  s.save = save; s.aesDec = aesDec; s.VAULT_KEY = VAULT_KEY;
+  Object.defineProperty(s, 'masterKey', { get: () => masterKey, configurable: true });
+  s.saveEventFromModal = saveEventFromModal;
+  Object.defineProperty(s, 'evPhotoData', { get: () => evPhotoData, set: v => { evPhotoData = v; }, configurable: true });
 }
 `;
 
@@ -557,6 +564,28 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{const ev={id:"ev-new",title:"Новое",date:"2026-06-15",repeat:true}; s.db.events.push(ev); s.repoSet("events", {...ev, md:"06-15"}); return 1;}');
   await new Promise(r => setTimeout(r, 10));
   assert(mock._store['couples/main/events/ev-new'].md === '06-15', 'событие сохранено с md');
+
+  // Critical из ревью задачи 7: saveEventFromModal (когда есть evPhotoData)
+  // меняет db.photos через addEventPhotosToGallery() (новая карточка в
+  // галерее) — а repoSet('events', ...) пишет только сам документ события,
+  // репозитория 'photos' в проекте пока нет (переедет в задаче 10,
+  // src/70-photos.js). Зовём настоящую saveEventFromModal() с уже готовым
+  // evPhotoData (как если бы фото уже было прочитано file-picker'ом — сам
+  // readFile()/FileReader/Image/canvas здесь не мокаем, это отдельный шаг
+  // ДО вызова saveEventFromModal и заводить под него канвас-моки ради этого
+  // теста избыточно) и проверяем, что фото долетело не только до db.photos
+  // в памяти, но и до зашифрованного сейфа — то есть переживёт перезагрузку.
+  w('(s)=>{ s.document.querySelector("#evTitle").value = "Годовщина"; s.document.querySelector("#evDate").value = "2026-07-01"; s.evPhotoData = [{data:"data:image/png;base64,aGk="}]; return 1; }');
+  w('(s)=>{ s.saveEventFromModal(); return 1; }');
+  await new Promise(r => setTimeout(r, 10));
+  const vaultKey = w('(s)=>s.VAULT_KEY');
+  const vaultBlob = JSON.parse(sandbox._store[vaultKey]).db;
+  const plainBytes = await w('(s)=>s.aesDec(s.masterKey, ' + JSON.stringify(vaultBlob) + ')');
+  const plainDb = JSON.parse(Buffer.from(plainBytes).toString('utf8'));
+  assert(
+    plainDb.photos.some(p => p.title === 'Годовщина'),
+    'saveEventFromModal с фото сохранил метаданные фото в сейф (Critical, ревью задачи 7)'
+  );
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {

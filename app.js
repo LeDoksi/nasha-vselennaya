@@ -3344,6 +3344,14 @@ function addEventPhotoQuick(evId) {
       // потеряла бы дату повтора, хотя мы всего лишь добавили фото.
       ev.md = mdOf(ev.date);
       repoSet('events', ev);
+      // repoSet выше пишет только сам документ события. addEventPhotosToGallery()
+      // чуть выше уже поменял db.photos (новая карточка в галерее или лейбл на
+      // существующем фото) — а репозитория 'photos' в проекте пока нет, метаданные
+      // фото на него переедут отдельной задачей. save() — временная страховка через
+      // старый шифрованный сейф, чтобы это фото не потерялось молча при перезагрузке
+      // или не долетело на другое устройство. Снять эту строку в задаче 10
+      // (src/70-photos.js), когда появится repoSet('photos', ...).
+      save();
       renderCalendar();
       renderHome();
     },
@@ -3419,6 +3427,14 @@ function addDatePhotoQuick(dtId) {
       const refs = ids.length ? ids : ok.map(x => (x && typeof x === 'object' ? x.data : x));
       dt.photos = Array.isArray(dt.photos) ? dt.photos.concat(refs) : refs;
       repoSet('dates', dt);
+      // repoSet выше пишет только сам документ свидания. addDatePhotosToGallery()
+      // чуть выше уже поменял db.photos (новая карточка в галерее или лейбл на
+      // существующем фото) — а репозитория 'photos' в проекте пока нет, метаданные
+      // фото на него переедут отдельной задачей. save() — временная страховка через
+      // старый шифрованный сейф, чтобы это фото не потерялось молча при перезагрузке
+      // или не долетело на другое устройство. Снять эту строку в задаче 10
+      // (src/70-photos.js), когда появится repoSet('photos', ...).
+      save();
       renderCalendar();
       renderHome();
     },
@@ -3788,6 +3804,15 @@ function saveEventFromModal() {
   selectedDate = date;
   editingEventId = null;
   repoSet('events', savedEv);
+  // repoSet выше пишет только сам документ события. Если в форме были свежие
+  // фото (evPhotoData), addEventPhotosToGallery() чуть выше уже поменял db.photos
+  // (новая карточка в галерее или лейбл на существующем фото) — а репозитория
+  // 'photos' в проекте пока нет, метаданные фото на него переедут отдельной
+  // задачей. save() — временная страховка через старый шифрованный сейф, чтобы
+  // это фото не потерялось молча при перезагрузке или не долетело на другое
+  // устройство. Снять эту строку в задаче 10 (src/70-photos.js), когда появится
+  // repoSet('photos', ...).
+  if (evPhotoData.length) save();
   $('#eventOverlay').hidden = true;
   renderCalendar();
   renderHome();
