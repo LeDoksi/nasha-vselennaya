@@ -174,3 +174,20 @@ if (typeof document !== 'undefined' && document.addEventListener) {
   document.addEventListener('click', onNavDocClick);
 }
 buildBottomNav();
+
+/* ===== Плашка «нет сети» в шапке =====
+   Без интернета старое (ещё не закэшированное локально) фото просто не
+   открывается — без объяснения это выглядит как поломка. Показываем плашку
+   ТОЛЬКО когда сети действительно нет (navigator.onLine — не идеальный
+   индикатор, но лучше, чем сетевой пинг на каждый чих) и держим её в
+   актуальном состоянии через online/offline. */
+function updateOfflineBadge() {
+  const el = $('#offlineBadge');
+  if (!el) return;
+  el.hidden = typeof navigator === 'undefined' || navigator.onLine !== false;
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('online', updateOfflineBadge);
+  window.addEventListener('offline', updateOfflineBadge);
+}
+updateOfflineBadge();

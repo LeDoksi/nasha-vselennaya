@@ -12,7 +12,7 @@
        причём на десктопе окно Google даже не открывается. Ловушка в том, что
        анонимный вход (был до 09.2026) ходил только XHR — поэтому дыру в CSP
        не было видно, пока не появился настоящий Google-вход. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-src https://nasha-vselennaya.firebaseapp.com https://accounts.google.com https://apis.google.com; connect-src 'self' https://*.firebasedatabase.app wss://*.firebasedatabase.app https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.storage.yandexcloud.net https://functions.yandexcloud.net https://firestore.googleapis.com https://www.googleapis.com">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-src https://nasha-vselennaya.firebaseapp.com https://accounts.google.com https://apis.google.com; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.storage.yandexcloud.net https://functions.yandexcloud.net https://firestore.googleapis.com https://www.googleapis.com">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
@@ -72,6 +72,10 @@
         <button class="nav-btn" data-view="memory">Память</button>
       </nav>
       <div class="header-actions">
+        <!-- Плашка «нет сети»: объясняет, почему старое (ещё не закэшированное
+             локально) фото сейчас не открывается — см. updateOfflineBadge в
+             src/20-theme-nav.js. Скрыта, пока navigator.onLine не говорит обратное. -->
+        <span class="offline-badge" id="offlineBadge" hidden>📡 Нет сети</span>
         <button class="nav-btn invite-btn" id="dateInviteBtn" hidden data-open-invites title="Есть неотвеченные приглашения на свидание" aria-label="Приглашения на свидание"><svg class="nav-icon" aria-hidden="true"><use href="#icon-heart"></use></svg><span class="invite-badge" id="dateInviteCount">0</span></button>
         <button class="btn theme-toggle" id="themeToggle" title="Сменить тему" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-moon"></use></svg></button>
         <button class="nav-btn settings-btn" data-view="settings" title="Настройки" aria-label="Настройки"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg></button>
@@ -191,21 +195,16 @@
     <section class="view" id="view-settings">
       <div class="settings-card">
         <h3>💾 Данные</h3>
-        <p>Всё хранится в этом браузере на этом компьютере — в зашифрованном виде. Скачивай резервную копию: без пароля её не прочитать, зато ничего не потеряется.</p>
-        <div id="backupHint" style="margin-bottom:14px"></div>
-        <div style="margin-bottom:14px;font-size:13px;color:var(--muted)">Занято в браузере: <b id="storageInfo" style="color:var(--ink)">0 КБ</b></div>
-<div style="margin-bottom:14px;font-size:13px;color:var(--muted)">Фото-хранилище: <b id="photoStorageInfo" style="color:var(--ink)">0 фото</b></div>
+        <p>Всё хранится в общем облаке пары (Firestore) — данные шифровать больше не нужно, доступ и так закрыт входом через Google. Скачивай копию как страховку.</p>
         <div class="settings-btns">
           <button class="btn" id="exportBtn">⬇ Скачать копию</button>
           <label class="btn file-btn">⬆ Загрузить копию<input type="file" id="importInput" accept=".json" hidden></label>
-          <button class="btn btn-danger" id="resetBtn">🗑 Сбросить всё</button>
         </div>
       </div>
       <div class="settings-card">
         <h3>🔐 Доступ</h3>
         <p>Вход в сайт: <b id="gateAccountInfo"></b></p>
         <div class="settings-btns">
-          <button class="btn" id="lockNowBtn">🔒 Скрыть (приватность на этом устройстве)</button>
           <button class="btn btn-danger" id="gateSignOutBtn">🚪 Выйти из Google-аккаунта</button>
         </div>
         <p class="cal-tip" style="margin-top:12px">Доступ на сайт есть только у двух аккаунтов Google — Гоши и Даши.</p>
@@ -230,10 +229,6 @@
           <span>Включить уведомления о свиданиях</span>
         </label>
         <p class="cal-tip" id="pushHint" style="margin-top:10px"></p>
-        <div class="settings-btns" style="margin-top:10px">
-          <button class="btn" id="pushDiagBtn">🔍 Диагностика уведомлений (тест самому себе)</button>
-        </div>
-        <pre id="pushDiagOut" hidden style="margin-top:10px;font-size:12px;line-height:1.5;white-space:pre-wrap;background:var(--bg2,#151522);border:1px solid var(--border);border-radius:var(--radius);padding:10px;max-height:260px;overflow:auto;color:var(--muted)"></pre>
       </div>
     </section>
   </main>
@@ -376,15 +371,7 @@
       <h1>Наша вселенная</h1>
       <p class="auth-sub" id="gateSub">Заходи через Google — доступ есть только у нас двоих.</p>
       <button type="button" class="btn" id="gateSignInBtn" style="width:100%">Войти через Google 💜</button>
-      <button type="button" class="btn" id="gateResumeBtn" style="width:100%" hidden>Открыть без входа 💜</button>
-      <p class="auth-hint" id="gateResumeHint" hidden>Ты уже входил(а) на этом устройстве — Google запомнил, вводить ничего не нужно.</p>
       <p class="auth-err" id="gateErr" role="alert" aria-live="polite"></p>
-
-      <div id="gateMigrateWrap" hidden>
-        <label for="gateMigratePass" class="auth-label">Пароль от старого сейфа (нужен последний раз)</label>
-        <input type="password" id="gateMigratePass" autocomplete="current-password" placeholder="••••••">
-        <button type="button" class="btn" id="gateMigrateGo" style="width:100%">Подтвердить — и больше не спросим 💜</button>
-      </div>
     </div>
   </section>
 
@@ -414,7 +401,6 @@
   <!-- Firebase SDK (фаза B1, только сейф — фото идут в Yandex Object Storage):
        без интернета/на file:// не загрузятся — сайт останется локальным -->
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
   <script src="vendor/sortable.min.js"></script>
