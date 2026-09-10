@@ -1,13 +1,14 @@
 /* ===== Push-уведомления о свиданиях (Фаза 3) =====
-   Архитектура: подписка PushManager каждого пользователя лежит ВНУТРИ
-   зашифрованного сейфа (db.pushSubs.gosha/dasha, см. 00-core.js) — оба
-   партнёра и так расшифровывают его одним мастер-ключом, поэтому это не
-   новая утечка, и подписка синхронизируется тем же каналом, что и всё
-   остальное. Отправка — БЕЗ серверных триггеров на запись в базу (RTDB тут
-   только канал синхронизации сейфа, не полноценный бэкенд): клиент, который
-   только что создал приглашение или ответил на него, уже знает подписку
-   получателя локально (расшифрована) и сам дёргает Cloud Function
-   `send-push` (functions/send-push/) — та же схема авторизации
+   Архитектура: подписка PushManager каждого пользователя лежит в общем на
+   двоих документе `meta/settings` (поле pushSubs.gosha/dasha, см.
+   src/04-repo.js — repoMeta пишет туда точечно по пути поля, а не
+   перезаписывает документ целиком, иначе устройство одного партнёра затёрло
+   бы подписку другого). Живая подписка на этот документ (startLiveUpdates)
+   держит db.pushSubs свежим на обоих устройствах. Отправка — БЕЗ серверных
+   триггеров на запись в базу: клиент, который только что создал приглашение
+   или ответил на него, уже знает подписку получателя локально (из db.pushSubs)
+   и сам дёргает Cloud Function `send-push` (functions/send-push/), авторизуясь
+   ID-токеном приложения гейта (fbApp, см. src/01-gate.js) — та же схема
    (X-Firebase-Token), что и у photo-sign в 95-sync.js.
 
    iOS: push работает только если сайт добавлен на экран «Домой» — обычная
@@ -91,8 +92,12 @@ async function enablePushNotifications() {
     alert('Не получилось подписаться на уведомления.');
     return false;
   }
-  db.pushSubs[getUser()] = sub.toJSON();
-  await save();
+  const subJson = sub.toJSON();
+  db.pushSubs = db.pushSubs || {};
+  db.pushSubs[getUser()] = subJson;
+  // Точечно: документ настроек общий на двоих, запись целиком затёрла бы
+  // подписку партнёра, и уведомления перестали бы к нему приходить — молча.
+  await repoMeta({ ['pushSubs.' + getUser()]: subJson });
   renderPushSettings();
   return true;
 }
@@ -105,7 +110,9 @@ async function disablePushNotifications() {
     } catch (e) {}
   }
   if (db.pushSubs) delete db.pushSubs[getUser()];
-  await save();
+  // Точечное удаление поля, а не запись документа целиком — та же причина,
+  // что и выше: перезаписали бы подписку партнёра.
+  await repoMeta({ ['pushSubs.' + getUser()]: firebase.firestore.FieldValue.delete() });
   renderPushSettings();
 }
 
@@ -143,7 +150,9 @@ async function notifyPartner(title, body) {
     if (!sub) return;
     let authHeaders = {};
     try {
-      const user = syncFirebase && firebase.auth(syncFirebase).currentUser;
+      // Токен берём из приложения гейта (fbApp), а не из syncFirebase —
+      // тот принадлежит старой блоб-синхронизации, которая скоро исчезнет.
+      const user = fbApp && firebase.auth(fbApp).currentUser;
       if (user) authHeaders = { 'X-Firebase-Token': await user.getIdToken() };
     } catch (e) {}
     // Без токена нечем авторизоваться перед send-push — тихо не отправляем
@@ -187,13 +196,15 @@ async function runPushDiagnostics() {
     }
     const me = getUser();
     const partner = me === 'gosha' ? 'dasha' : 'gosha';
-    add('своя подписка в сейфе (db.pushSubs.' + me + '): ' + !!(db.pushSubs && db.pushSubs[me]));
-    add('подписка партнёра в сейфе (db.pushSubs.' + partner + '): ' + !!(db.pushSubs && db.pushSubs[partner]));
+    add('своя подписка в кэше (db.pushSubs.' + me + '): ' + !!(db.pushSubs && db.pushSubs[me]));
+    add('подписка партнёра в кэше (db.pushSubs.' + partner + '): ' + !!(db.pushSubs && db.pushSubs[partner]));
     add('PUSH_CONFIG.sendFnUrl: ' + (PUSH_CONFIG.sendFnUrl || 'НЕ ЗАДАН'));
     add('syncReady: ' + (typeof syncReady !== 'undefined' ? syncReady : '?'));
     let token = null;
     try {
-      const user = syncFirebase && firebase.auth(syncFirebase).currentUser;
+      // Тот же источник токена, что и в notifyPartner() — иначе диагностика
+      // проверяла бы не тот путь, которым реально уходит пуш.
+      const user = fbApp && firebase.auth(fbApp).currentUser;
       token = user ? await user.getIdToken() : null;
     } catch (e) {
       add('ошибка getIdToken: ' + String((e && e.message) || e));
