@@ -4071,7 +4071,7 @@ function saveSubtaskEdit(listId, itemId, text) {
   const inp = $('#subtaskEdit-' + itemId);
   const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
   if (t) it.text = t;
-  save();
+  repoSet('lists', list); // подзадача живёт внутри документа списка — пишем список целиком
   renderLists();
 }
 // Редактирование названия списка — в отличие от подзадачи, список пересоздать
@@ -4095,7 +4095,7 @@ function saveListNameEdit(listId, text) {
   const inp = $('#listNameEdit-' + listId);
   const t = (text !== undefined ? text : (inp && inp.value) || '').trim();
   if (t) list.name = t;
-  save();
+  repoSet('lists', list);
   renderLists();
 }
 // Выполненные подзадачи всегда внизу списка: устойчивая сортировка —
@@ -4239,7 +4239,7 @@ function createList(rawName) {
   if (!name) return null;
   const list = { id: uid(), name, items: [] };
   db.lists.unshift(list); // новый список — сверху
-  save();
+  repoSet('lists', list);
   renderLists();
   const inp = $('#listNameInput');
   if (inp) inp.value = '';
@@ -4252,7 +4252,7 @@ function addListSubtask(listId, inputId) {
   const text = (inp && inp.value ? String(inp.value) : '').trim();
   if (!text) return false;
   list.items.unshift({ id: uid(), text, done: false });
-  save();
+  repoSet('lists', list); // подзадача — часть документа списка
   if (inp) inp.value = '';
   refreshListCard(listId);
   return true;
@@ -4264,7 +4264,7 @@ function toggleSubtask(listId, itemId) {
   if (!it) return false;
   it.done = !it.done;
   list.items = sortListItems(list.items); // выполненные — вниз
-  save();
+  repoSet('lists', list);
   refreshListCard(listId);
   // мини-«поп» галочки у переключённой подзадачи (анимация в CSS)
   const ul = $('#listItems-' + listId);
@@ -4281,7 +4281,7 @@ function delSubtask(listId, itemId) {
   const list = db.lists.find(x => x.id === listId);
   if (!list) return false;
   list.items = list.items.filter(x => x.id !== itemId);
-  save();
+  repoSet('lists', list);
   refreshListCard(listId);
   return true;
 }
@@ -4291,7 +4291,7 @@ function completeList(listId) {
   if (!list) return false;
   if (!confirm('Выполнить список «' + list.name + '»? Он будет удалён вместе с подзадачами.')) return false;
   db.lists = db.lists.filter(x => x.id !== listId);
-  save();
+  repoDelete('lists', listId); // «выполнить» на деле удаляет весь список вместе с подзадачами
   renderLists();
   return true;
 }
@@ -4304,7 +4304,12 @@ function listsSortEnd(evt) {
     .filter(c => c.classList && c.classList.contains('list-card'))
     .map(c => db.lists.find(l => l.id === c.dataset.id))
     .filter(Boolean);
-  save();
+  // Записи в Firestore здесь нет: порядок списков — только позиция в массиве
+  // db.lists, у документа списка нет order-поля (см. комментарий выше). Сами
+  // документы от перестановки не меняются, писать нечего; без отдельного поля
+  // порядок карточек всё равно не переживёт перезагрузку.
+  // ponytail: персистентность порядка списков требует отдельного order-поля
+  // и миграции — вне рамок задачи 9, до этого правки drag-порядка живут только в сессии.
 }
 if (typeof Sortable !== 'undefined') {
   Sortable.create($('#listsWrap'), {
@@ -4336,7 +4341,7 @@ function subtaskSortEnd(listId, evt) {
     .map(li => list.items.find(it => it.id === li.dataset.item))
     .filter(Boolean);
   if (items.length === list.items.length) list.items = items;
-  save();
+  repoSet('lists', list); // порядок подзадач — часть документа списка, не отдельная сущность
 }
 function initSubtaskSortables() {
   if (typeof Sortable === 'undefined') return;
@@ -4497,18 +4502,21 @@ async function saveWishFromModal() {
     }
   }
   const existing = editingWishId ? db.wishlist.find(x => x.id === editingWishId) : null;
+  let wish;
   if (existing) {
     // Владелец/статус «исполнено» правка не трогает — только текст/ссылку/фото.
     existing.text = text;
     existing.link = $('#wishLink').value.trim() || '';
     if (photoId) existing.photoId = photoId; // новое фото выбрано — заменяем; иначе старое остаётся
     editingWishId = null;
+    wish = existing;
   } else {
-    const wish = { id: uid(), text, link: $('#wishLink').value.trim() || '', owner: getUser(), done: false, ts: Date.now() };
+    wish = { id: uid(), text, link: $('#wishLink').value.trim() || '', owner: getUser(), done: false, ts: Date.now() };
     if (photoId) wish.photoId = photoId;
     db.wishlist.unshift(wish);
   }
-  save();
+  // коллекция в базе называется wishes, массив в памяти — db.wishlist (расхождение осознанное)
+  repoSet('wishes', wish);
   $('#wishOverlay').hidden = true;
   renderWishlist();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
@@ -4520,7 +4528,7 @@ function toggleDateDone(id) {
   const d = db.dates.find(x => x.id === id);
   if (!d) return false;
   d.done = !d.done;
-  save();
+  repoSet('dates', d); // меняется само свидание, не список/хотелка — коллекция dates
   renderHome();
   renderCalendar();
   return d.done;
@@ -4547,7 +4555,7 @@ document.addEventListener('click', e => {
   if (delEv) {
     if (!confirmDelete('Удалить событие? Это не отменить.')) return;
     db.events = db.events.filter(x => x.id !== delEv.dataset.delEvent);
-    save();
+    repoDelete('events', delEv.dataset.delEvent); // это событие, не список/хотелка
     renderCalendar();
     renderHome();
     return;
@@ -4593,7 +4601,7 @@ document.addEventListener('click', e => {
       const justAnswered = d.responses[who] !== val; // true, если это не «снял ответ», а именно новый ответ
       d.responses[who] = d.responses[who] === val ? null : val;
       if (d.responses.gosha === 'yes' && d.responses.dasha === 'yes') celebrate(); // оба согласились — салют!
-      save();
+      repoSet('dates', d); // меняется свидание (responses), не список/хотелка
       renderHome();
       renderCalendar();
       // Пуш пригласившему — только на настоящий ответ, не на его снятие; без деталей, см. src/96-push.js
@@ -4612,7 +4620,7 @@ document.addEventListener('click', e => {
   if (delDate) {
     if (!confirmDelete('Удалить свидание? Это не отменить.')) return;
     db.dates = db.dates.filter(x => x.id !== delDate.dataset.delDate);
-    save();
+    repoDelete('dates', delDate.dataset.delDate); // это свидание, не список/хотелка
     renderHome();
     renderCalendar();
     return;
@@ -4735,7 +4743,7 @@ document.addEventListener('click', e => {
           w.doneBy = me;
           w.doneAt = Date.now();
         }
-        save();
+        repoSet('wishes', w);
       }
       renderWishlist();
     }
@@ -4750,7 +4758,7 @@ document.addEventListener('click', e => {
   if (wishDel) {
     if (!confirmDelete('Удалить хотелку? Это не отменить.')) return;
     db.wishlist = db.wishlist.filter(x => x.id !== wishDel.dataset.wishDel);
-    save();
+    repoDelete('wishes', wishDel.dataset.wishDel);
     renderWishlist();
     return;
   }
