@@ -12,7 +12,7 @@
    версии и миниатюры по-прежнему синхронизируются через Yandex Object Storage
    (см. YANDEX_CLOUD_CONFIG и makeCloudStorage ниже) — бакет публичный на
    чтение (без секретных ключей на клиенте), см. README. Запускается из
-   initPhotoSync(), которую вызывает unlockApp() (src/10-vault.js) после входа —
+   initPhotoSync(), которую вызывает unlockApp() (src/01-gate.js) после входа —
    Firebase-приложение и Google-вход к этому моменту уже готовы (гейт,
    src/01-gate.js), здесь просто поднимается клиент облака и стартует первая
    сверка. */

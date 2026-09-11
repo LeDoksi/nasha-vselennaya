@@ -1,6 +1,6 @@
 /* ===== Наша вселенная — приложение =====
    app.js собирается из src/*.js: node build.js
-   Порядок модулей: 00-core → 10-vault → … → 90-effects-init. */
+   Порядок модулей: 00-core → 01-gate → … → 96-push (по имени файла). */
 'use strict';
 
 const START_DATE = '2026-03-30';
@@ -133,9 +133,10 @@ function defaultDB() {
     labels: [],
     backupDate: null,
     moods: [],
-    // Push-подписки (PushManager.subscribe().toJSON()) обоих партнёров — живут
-    // внутри сейфа, а не отдельно в открытом виде: оба и так расшифровывают
-    // одним мастер-ключом, так что это не новая утечка. См. src/96-push.js.
+    // Push-подписки (PushManager.subscribe().toJSON()) обоих партнёров. В
+    // облаке живут в couples/main/meta/settings.pushSubs под тем же правилом
+    // доступа по email, что и остальные данные; каждое устройство пишет
+    // ТОЛЬКО своё поле, иначе затирало бы подписку партнёра. См. src/96-push.js.
     pushSubs: {}
   };
 }
@@ -499,6 +500,9 @@ async function gateSignOut() {
   } catch (e) {}
   gateUser = null;
   store.remove(KEY_CACHE);
+  // Отписываемся до перезагрузки: сейчас её хватило бы и так, но подписки,
+  // пережившие выход из аккаунта, писали бы в db уже вышедшего человека.
+  stopLiveUpdates();
   location.reload();
 }
 
@@ -506,6 +510,34 @@ const gateSignInBtnEl = $('#gateSignInBtn');
 if (gateSignInBtnEl) gateSignInBtnEl.addEventListener('click', gateSignIn);
 const gateSignOutBtnEl = $('#gateSignOutBtn');
 if (gateSignOutBtnEl) gateSignOutBtnEl.addEventListener('click', gateSignOut);
+
+/* ===== Экраны входа и открытия приложения =====
+   Жили в src/10-vault.js, пока тот был модулем сейфа с паролями. Сейфа
+   больше нет (данные в Firestore, вход через Google), от файла остались
+   только эти функции — переехали сюда, к гейту, которому они и служат. */
+function showAuth(which) {
+  $('#gateScreen').hidden = which !== 'gate';
+}
+function unlockApp() {
+  authLocked = false;
+  document.body.classList.remove('auth');
+  setTheme(getTheme());
+  renderSettings();
+  go('home');
+  maybeShowDateInvitePopup(); // неотвеченные приглашения на свидание — сразу видно, не только листая вниз
+  // Облако фото (Yandex Object Storage, см. src/95-photos-cloud.js): после
+  // входа выгружаем свои фото / скачиваем недостающие. Данные (события,
+  // заметки и т.п.) синхронизировать не нужно — они читаются/пишутся прямо
+  // в Firestore каждым экраном, отдельного шага при входе не требуют.
+  if (typeof initPhotoSync === 'function') initPhotoSync();
+}
+// Публичный API: сам app.js её не вызывает (UI смотрит на authLocked
+// напрямую), но тесты дёргают через s.isLocked — держим как явную точку
+// входа для будущего кода/тестов.
+// eslint-disable-next-line no-unused-vars
+function isLocked() {
+  return authLocked;
+}
 
 /* ===== Старт приложения =====
    Вызов boot() стоит в конце 95-photos-cloud.js (последний модуль сборки) —
@@ -1703,30 +1735,6 @@ async function hydratePhotoImgs(scope) {
     // URL не нашёлся (фото ещё качается из облака) — data-photo-src остаётся,
     // следующий hydratePhotoImgs после докачки подхватит его сам.
   }
-}
-/* ===== Замок: экран гейта (см. src/01-gate.js) ===== */
-function showAuth(which) {
-  $('#gateScreen').hidden = which !== 'gate';
-}
-function unlockApp() {
-  authLocked = false;
-  document.body.classList.remove('auth');
-  setTheme(getTheme());
-  renderSettings();
-  go('home');
-  maybeShowDateInvitePopup(); // неотвеченные приглашения на свидание — сразу видно, не только листая вниз
-  // Облако фото (Yandex Object Storage, см. src/95-photos-cloud.js): после
-  // входа выгружаем свои фото / скачиваем недостающие. Данные (события,
-  // заметки и т.п.) синхронизировать не нужно — они читаются/пишутся прямо
-  // в Firestore каждым экраном, отдельного шага при входе не требуют.
-  if (typeof initPhotoSync === 'function') initPhotoSync();
-}
-// Публичный API: сам app.js её не вызывает (UI смотрит на authLocked
-// напрямую), но тесты дёргают через s.isLocked — держим как явную точку
-// входа для будущего кода/тестов.
-// eslint-disable-next-line no-unused-vars
-function isLocked() {
-  return authLocked;
 }
 /* ===== Тема ===== */
 const THEME_KEY = 'universe_theme';
@@ -5929,7 +5937,7 @@ spawnHeart();
    версии и миниатюры по-прежнему синхронизируются через Yandex Object Storage
    (см. YANDEX_CLOUD_CONFIG и makeCloudStorage ниже) — бакет публичный на
    чтение (без секретных ключей на клиенте), см. README. Запускается из
-   initPhotoSync(), которую вызывает unlockApp() (src/10-vault.js) после входа —
+   initPhotoSync(), которую вызывает unlockApp() (src/01-gate.js) после входа —
    Firebase-приложение и Google-вход к этому моменту уже готовы (гейт,
    src/01-gate.js), здесь просто поднимается клиент облака и стартует первая
    сверка. */

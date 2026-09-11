@@ -213,6 +213,9 @@ async function gateSignOut() {
   } catch (e) {}
   gateUser = null;
   store.remove(KEY_CACHE);
+  // Отписываемся до перезагрузки: сейчас её хватило бы и так, но подписки,
+  // пережившие выход из аккаунта, писали бы в db уже вышедшего человека.
+  stopLiveUpdates();
   location.reload();
 }
 
@@ -220,6 +223,34 @@ const gateSignInBtnEl = $('#gateSignInBtn');
 if (gateSignInBtnEl) gateSignInBtnEl.addEventListener('click', gateSignIn);
 const gateSignOutBtnEl = $('#gateSignOutBtn');
 if (gateSignOutBtnEl) gateSignOutBtnEl.addEventListener('click', gateSignOut);
+
+/* ===== Экраны входа и открытия приложения =====
+   Жили в src/10-vault.js, пока тот был модулем сейфа с паролями. Сейфа
+   больше нет (данные в Firestore, вход через Google), от файла остались
+   только эти функции — переехали сюда, к гейту, которому они и служат. */
+function showAuth(which) {
+  $('#gateScreen').hidden = which !== 'gate';
+}
+function unlockApp() {
+  authLocked = false;
+  document.body.classList.remove('auth');
+  setTheme(getTheme());
+  renderSettings();
+  go('home');
+  maybeShowDateInvitePopup(); // неотвеченные приглашения на свидание — сразу видно, не только листая вниз
+  // Облако фото (Yandex Object Storage, см. src/95-photos-cloud.js): после
+  // входа выгружаем свои фото / скачиваем недостающие. Данные (события,
+  // заметки и т.п.) синхронизировать не нужно — они читаются/пишутся прямо
+  // в Firestore каждым экраном, отдельного шага при входе не требуют.
+  if (typeof initPhotoSync === 'function') initPhotoSync();
+}
+// Публичный API: сам app.js её не вызывает (UI смотрит на authLocked
+// напрямую), но тесты дёргают через s.isLocked — держим как явную точку
+// входа для будущего кода/тестов.
+// eslint-disable-next-line no-unused-vars
+function isLocked() {
+  return authLocked;
+}
 
 /* ===== Старт приложения =====
    Вызов boot() стоит в конце 95-photos-cloud.js (последний модуль сборки) —

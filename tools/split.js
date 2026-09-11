@@ -10,7 +10,6 @@ const lines = src.split('\n');
 
 // Границы модулей: каждый модуль начинается со своего заголовка секции.
 const bounds = [
-  { name: 'Хранилище',        file: '10-vault.js' },
   { name: 'Тема',             file: '20-theme-nav.js' },
   { name: 'Главная',          file: '30-home.js' },
   { name: 'Календарь',        file: '40-calendar.js' },

@@ -3,7 +3,7 @@
    Модули — классические скрипты с общей областью видимости: при конкатенации
    top-level let/const и function-объявления ведут себя так же, как в монолите,
    поэтому index.html (просто <script src="app.js">) и тесты работают как раньше.
-   Порядок файлов — по имени (00-core, 10-vault, ...). Запуск: node build.js */
+   Порядок файлов — по имени (00-core, 01-gate, ...). Запуск: node build.js */
 'use strict';
 const fs = require('fs');
 const path = require('path');

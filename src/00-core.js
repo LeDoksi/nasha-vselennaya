@@ -1,6 +1,6 @@
 /* ===== Наша вселенная — приложение =====
    app.js собирается из src/*.js: node build.js
-   Порядок модулей: 00-core → 10-vault → … → 90-effects-init. */
+   Порядок модулей: 00-core → 01-gate → … → 96-push (по имени файла). */
 'use strict';
 
 const START_DATE = '2026-03-30';
@@ -133,9 +133,10 @@ function defaultDB() {
     labels: [],
     backupDate: null,
     moods: [],
-    // Push-подписки (PushManager.subscribe().toJSON()) обоих партнёров — живут
-    // внутри сейфа, а не отдельно в открытом виде: оба и так расшифровывают
-    // одним мастер-ключом, так что это не новая утечка. См. src/96-push.js.
+    // Push-подписки (PushManager.subscribe().toJSON()) обоих партнёров. В
+    // облаке живут в couples/main/meta/settings.pushSubs под тем же правилом
+    // доступа по email, что и остальные данные; каждое устройство пишет
+    // ТОЛЬКО своё поле, иначе затирало бы подписку партнёра. См. src/96-push.js.
     pushSubs: {}
   };
 }
