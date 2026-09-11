@@ -105,6 +105,7 @@ function xmlList(prefix, token) {
     '</ListBucketResult>'
   );
 }
+let listUnreachable = false; // см. сценарий «хранилище недоступно» в конце файла
 async function fetchMock(url, opts) {
   const method = (opts && opts.method) || 'GET';
   const full = String(url).replace(/^https?:\/\/[^/]+/, '');
@@ -121,6 +122,9 @@ async function fetchMock(url, opts) {
     return { ok: true, status: 200, json: () => Promise.resolve({ url: target }) };
   }
   if (pathname === '/' && full.indexOf('list-type=2') !== -1) {
+    // Хранилище недоступно (нет сети, VPN без маршрута до бакета) — браузер
+    // отдаёт именно отказ fetch, а не пустой список.
+    if (listUnreachable) throw new TypeError('Failed to fetch');
     const m = /prefix=([^&]+)/.exec(full);
     const prefix = m ? decodeURIComponent(m[1]) : '';
     const tm = /continuation-token=([^&]+)/.exec(full);
@@ -439,6 +443,22 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
     ['q1', 'q2', 'q3', 'q4', 'q5'].every(n => paged[n] && paged[n].thumb),
     'постраничный список (лимит 2 на страницу) всё равно собирает все 5 ключей через continuation-token'
   );
+
+  // 12. Хранилище недоступно (вживую: на ПК стоял VPN без маршрута до бакета,
+  // listAll падал с Failed to fetch). Раньше ошибка листинга глушилась, и
+  // недоступное облако выглядело как ПУСТОЕ: фото партнёра «нечего скачивать»
+  // (плитка вечно серая), а свои локальные фото уходили на повторную выгрузку
+  // в никуда. Теперь сверка честно прекращается, ничего не трогая.
+  const bucketBefore = JSON.stringify(Object.keys(mockBucket).sort());
+  delete mockBucket['/photos/thumb/pN']; // как будто часть фото в облаке ещё нет
+  listUnreachable = true;
+  await w('(s)=>s.syncPhotos()');
+  listUnreachable = false;
+  assert(!mockBucket['/photos/thumb/pN'], 'недоступное хранилище не принимается за пустое: повторной выгрузки нет');
+  assert(w('(s)=>s.photoSyncing') === false, 'при недоступном хранилище syncPhotos завершается штатно (флаг сброшен)');
+  assert((await w('(s)=>s.photoStore.getMeta("pN")')) !== null, 'локальные фото при недоступном хранилище не трогаются');
+  mockBucket['/photos/thumb/pN'] = 'restored';
+  assert(JSON.stringify(Object.keys(mockBucket).sort()) === bucketBefore, 'состав облака после неудачной сверки не изменился');
 
   console.log('OK: ' + results.length + ' photo-sync checks passed');
 })().catch(e => {

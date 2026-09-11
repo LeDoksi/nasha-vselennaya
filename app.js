@@ -5995,6 +5995,7 @@ const PHOTO_PARTS = ['orig', 'full', 'thumb'];
 let syncStorage = null; // Yandex Object Storage (S3)
 let photoSyncTimer = null; // debounce после операций с фото
 let photoSyncing = false; // защита от параллельных сверок
+let cloudDownNotified = false; // «хранилище недоступно» говорим один раз, а не каждый повтор
 
 /* ===== Запуск: вызывается из unlockApp() после входа =====
    Google-вход и Firebase-приложение (fbApp, см. src/01-gate.js) уже готовы к
@@ -6163,15 +6164,17 @@ function schedulePhotoSync() {
 }
 
 // Что сейчас лежит в облаке: { id: { orig: true, full: true, thumb: true } }
+// Ошибку листинга намеренно НЕ глушим: «в облаке пусто» и «не смогли
+// спросить» — разные вещи, а раньше они были неотличимы. Недоступное
+// хранилище (VPN без нужного маршрута, провайдер, упавший бакет) выглядело
+// как пустое облако: фото партнёра «нечего скачивать», плитка висела серой
+// навсегда, sync молча крутился с трёхсекундным повтором, и ни одного слова
+// человеку. Пусть лучше бросит — вызывающий покажет причину.
 async function listCloudPhotos() {
   const out = {};
   for (const part of PHOTO_PARTS) {
-    try {
-      const res = await syncStorage.ref('photos/' + part).listAll();
-      for (const it of res.items || []) (out[it.name] = out[it.name] || {})[part] = true;
-    } catch (e) {
-      console.warn('[photo-sync] не удалось прочитать облако photos/' + part, e);
-    }
+    const res = await syncStorage.ref('photos/' + part).listAll();
+    for (const it of res.items || []) (out[it.name] = out[it.name] || {})[part] = true;
   }
   return out;
 }
@@ -6320,7 +6323,19 @@ async function syncPhotos() {
   try {
     const localList = await photoStore.listIds();
     const localMap = new Map(localList.map(l => [l.id, l]));
-    const cloud = await listCloudPhotos();
+    let cloud;
+    try {
+      cloud = await listCloudPhotos();
+    } catch (e) {
+      console.warn('[photo-sync] хранилище фото недоступно', e);
+      if (!cloudDownNotified) {
+        cloudDownNotified = true;
+        notify('Фото не синхронизируются: хранилище недоступно. Проверь интернет или VPN 💜', true);
+      }
+      stats.retry = true;
+      return; // finally поставит повтор — сеть может вернуться сама
+    }
+    cloudDownNotified = false;
     // Фото хотелок в галерею (db.photos) не входят (осознанно, чтобы не
     // засорять «Наши моменты» скриншотами подарков), но синхронизировать их
     // между устройствами всё равно нужно — иначе партнёр не увидит фото
