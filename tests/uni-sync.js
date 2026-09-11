@@ -318,6 +318,19 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   await w('(s)=>s.ensureMasterKey()');
   assert(!!mock._store['couples/main/meta/settings'] && !!mock._store['couples/main/meta/settings'].photoKey, 'После генерации ключ опубликован в Firestore');
 
+  // 5. Расхождение кэшей: на устройстве лежит СТАРЫЙ ключ, а в Firestore —
+  // общий ключ пары. Так было вживую: у одного партнёра фото читались, у
+  // другого при каждом входе вылезала ошибка «фото с другим паролем», и
+  // устройства не сходились никогда, потому что кэш имел приоритет над
+  // облаком. Побеждать обязано облако, а кэш — перезаписываться.
+  const staleKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+  const staleB64 = Buffer.from(await crypto.subtle.exportKey('raw', staleKey)).toString('base64');
+  sandbox._store = { universe_mk: staleB64 };
+  mock._store['couples/main/meta/settings'] = { photoKey: firstPhotoKey };
+  await w('(s)=>s.ensureMasterKey()');
+  assert(sandbox._store.universe_mk === firstPhotoKey, 'ключ из Firestore побеждает расходящийся локальный кэш');
+  assert(mock._store['couples/main/meta/settings'].photoKey === firstPhotoKey, 'облачный ключ при этом не перезаписан локальным');
+
   console.log('OK: ' + results.length + ' sync checks passed');
 })().catch(e => {
   console.log('FAIL: sync: ' + (e && e.message));

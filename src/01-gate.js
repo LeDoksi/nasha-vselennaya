@@ -72,7 +72,36 @@ async function publishPhotoKey(key) {
   }
 }
 
+// Читает общий ключ пары из Firestore. null — если его там нет или база
+// недоступна (офлайн, таймаут).
+async function fetchPhotoKeyRaw() {
+  if (!fsReady) return null;
+  try {
+    const snap = await withTimeout(fsDoc().collection('meta').doc('settings').get(), 10000);
+    const raw = snap.exists ? snap.data().photoKey : null;
+    return typeof raw === 'string' && raw ? raw : null;
+  } catch (e) {
+    console.warn('[gate] ключ фото из Firestore недоступен', e);
+    return null;
+  }
+}
+
+/* Источник истины по ключу — ВСЕГДА Firestore, а локальный кэш — только
+   офлайн-подстраховка. Порядок важен: пока кэш стоял первым, устройства,
+   у которых кэши однажды разошлись (например, одно завело свой ключ, пока
+   база была недоступна), не сходились уже никогда — каждое верило своему
+   localStorage и считало фото партнёра «чужими». Теперь расхождение
+   лечится само при первом же входе с сетью. */
 async function ensureMasterKey() {
+  const cloudB64 = await fetchPhotoKeyRaw();
+  if (cloudB64) {
+    if (cloudB64 !== store.get(KEY_CACHE)) store.set(KEY_CACHE, cloudB64);
+    try {
+      return await importRawKey(cloudB64);
+    } catch (e) {
+      console.warn('[gate] ключ фото из Firestore не импортируется', e);
+    }
+  }
   const cachedB64 = store.get(KEY_CACHE);
   if (cachedB64) {
     try {
@@ -81,43 +110,17 @@ async function ensureMasterKey() {
       store.remove(KEY_CACHE);
     }
   }
-  if (fsReady) {
-    try {
-      const snap = await withTimeout(fsDoc().collection('meta').doc('settings').get(), 10000);
-      const raw = snap.exists ? snap.data().photoKey : null;
-      if (typeof raw === 'string' && raw) {
-        store.set(KEY_CACHE, raw);
-        return await importRawKey(raw);
-      }
-    } catch (e) {
-      console.warn('[gate] ключ фото из Firestore недоступен', e);
-    }
-  }
-  // Ни локально, ни в Firestore ключа нет — совсем первый запуск пары.
-  // Заводим новый, но перед публикацией перечитаем Firestore ещё раз:
-  // если за время генерации другое устройство уже опубликовало ключ,
-  // возьмём его вместо своего. Это не полная защита от race condition
-  // (нужна транзакция для гарантии), но закрывает реальный сценарий:
-  // два человека заходят с разницей в секунды, а не в миллисекунды.
+  // Ни в Firestore, ни локально ключа нет — совсем первый запуск пары.
+  // Заводим новый, но перед публикацией перечитаем базу ещё раз: если за
+  // время генерации ключ успело опубликовать другое устройство, возьмём его.
+  // Это не полная защита от гонки (для гарантии нужна транзакция), но
+  // закрывает реальный сценарий: два человека заходят с разницей в секунды.
   const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
-
-  // Перечитаем Firestore перед публикацией
-  if (fsReady) {
-    try {
-      const snap = await withTimeout(fsDoc().collection('meta').doc('settings').get(), 10000);
-      const raw = snap.exists ? snap.data().photoKey : null;
-      if (typeof raw === 'string' && raw) {
-        // Другое устройство успело опубликовать ключ — возьмём его
-        store.set(KEY_CACHE, raw);
-        return await importRawKey(raw);
-      }
-    } catch (e) {
-      console.warn('[gate] не удалось перепроверить ключ фото перед публикацией', e);
-      // Если перечитание упало, публикуем свой ключ (fallback)
-    }
+  const raceB64 = await fetchPhotoKeyRaw();
+  if (raceB64) {
+    store.set(KEY_CACHE, raceB64);
+    return await importRawKey(raceB64);
   }
-
-  // Firestore всё ещё пуст или недоступен — публикуем наш сгенерированный ключ
   await publishPhotoKey(key);
   return key;
 }

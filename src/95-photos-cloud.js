@@ -431,8 +431,10 @@ async function syncPhotos() {
     const probe = Object.keys(toProbe).length ? await probeCloudKeys(toProbe) : { foreign: new Map(), unknown: new Map() };
     const isSkipped = id => probe.foreign.has(id) || probe.unknown.has(id);
     if (probe.foreign.size) {
+      // Тоста намеренно нет: «чужие» файлы в бакете — это обычно остатки от
+      // прежнего ключа, человеку с ними делать нечего, а всплывающая ошибка
+      // при каждом входе только пугает. Молча пропускаем, след — в консоли.
       console.warn('[photo-sync] в облаке фото с другим ключом (' + probe.foreign.size + ' шт) — их не трогаю, свои фото синхронизирую');
-      notify('В облаке есть фото с другим паролем — я их не трогаю, но свои фото выгружаю 💜', true);
     }
     if (probe.unknown.size) stats.retry = true; // сеть/формат — повторим позже
     // 1. Локальный мусор: блоб без фото в db (фото удалено) — чистим store
