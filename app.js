@@ -1811,6 +1811,10 @@ function runViewTransition(apply) {
     if (t) {
       if (t.finished && typeof t.finished.catch === 'function') t.finished.catch(() => {});
       if (t.updateCallbackDone && typeof t.updateCallbackDone.catch === 'function') t.updateCallbackDone.catch(() => {});
+      // ready реджектится с AbortError «Transition was skipped», когда переход
+      // отменяется новым (например, быстрый повторный клик) — без catch здесь
+      // это всплывало необработанным отклонением и шумело в консоли (NV-10).
+      if (t.ready && typeof t.ready.catch === 'function') t.ready.catch(() => {});
     }
     return true;
   } catch (e) {
