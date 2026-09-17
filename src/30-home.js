@@ -200,7 +200,9 @@ function renderDates() {
             const from = d.from;
             // Пригласивший уже согласился — ему кнопки «Да/Нет» не нужны
             const status = p => (from === p ? (p === 'gosha' ? '💌 позвал' : '💌 позвала') : fmtResp(resp[p]));
-            const canAnswer = !from || from === 'both' || from !== who;
+            // canAnswer: не только «не я позвал», но и «ещё не ответил» — иначе
+            // кнопки Да/Нет остаются после ответа и по ним можно кликать бесконечно (NV-11)
+            const canAnswer = (!from || from === 'both' || from !== who) && !resp[who];
             const bothYes = resp.gosha === 'yes' && resp.dasha === 'yes';
             const whenTag = o.days === 0 ? '<span class="tag tag-today">сегодня</span>' : o.days === 1 ? '<span class="tag">завтра</span>' : '';
             return `<div class="date-card">
@@ -226,11 +228,6 @@ function renderDates() {
           </div>`
               : ''
           }
-          <div class="date-btns">
-            <button class="mini-x" data-edit-date="${d.id}" title="Изменить">${navIconHtml('pencil')}</button>
-            <button class="mini-x" data-done-date="${d.id}" title="Свидание прошло">💗</button>
-            <button class="mini-x" data-del-date="${d.id}" title="Удалить">✕</button>
-          </div>
         </div>
       </div>`;
           })

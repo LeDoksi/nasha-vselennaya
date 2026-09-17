@@ -238,7 +238,6 @@ h3{font-weight:800}
 .date-info{flex:1;display:flex;flex-direction:column;gap:2px;font-size:var(--text-base);min-width:0}
 .date-info b{font-weight:800}
 .date-info span{color:var(--muted);font-size:var(--text-base);overflow-wrap:break-word}
-.date-btns{display:flex;gap:8px;flex:none}
 .date-side{display:flex;flex-direction:column;gap:6px;flex:none;align-items:flex-end}
 .resp-row{display:flex;gap:10px;font-size:var(--text-sm);color:var(--muted);font-weight:700}
 .resp-me{color:var(--pink-ink);font-weight:800}
