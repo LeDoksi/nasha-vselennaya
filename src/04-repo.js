@@ -123,7 +123,15 @@ async function loadMorePhotos() {
    говорит репозиторию, что именно изменилось.
 
    Ждать эти промисы не обязательно: Firestore применяет запись к локальному
-   кэшу сразу, а отправку и повторы берёт на себя — в том числе когда сети нет. */
+   кэшу сразу, а отправку и повторы берёт на себя — в том числе когда сети нет.
+   НО ни один вызывающий код (во всём src/*.js) эти промисы не ждёт и не
+   ловит — значит, если запись всё-таки не доехала (реального сбоя сети в
+   момент сохранения, отказа в доступе, недоступного офлайн-кэша), об этом
+   не узнавал никто: экран уже показал «сохранено», и партнёр либо никогда
+   не получал свидание/событие, либо оно у автора само пропадало из вида на
+   другом устройстве. Раньше это лечили точечно (ключ фото, гонка при его
+   генерации) — теперь один guard здесь, а не в каждом из ~40 мест вызова:
+   падение больше не тонет тихо, человек хотя бы видит, что не сохранилось. */
 
 function stripId(obj) {
   const copy = { ...obj };
@@ -131,16 +139,35 @@ function stripId(obj) {
   return copy;
 }
 
+// Не чаще раза в 5 секунд — иначе пачка (repoBatch на сотни строк, разом
+// упавших офлайн) высыпала бы столько же alert()'ов подряд.
+let lastRepoFailureAlertAt = 0;
+function reportRepoFailure(e) {
+  console.warn('[repo] запись не дошла до Firestore', e);
+  const now = Date.now();
+  if (now - lastRepoFailureAlertAt < 5000) return;
+  lastRepoFailureAlertAt = now;
+  if (typeof alert === 'function') alert('Не сохранилось: пропала сеть или отказал доступ. Проверь соединение и повтори действие 💜');
+}
+
 async function repoSet(coll, obj) {
   const id = obj.id || uid();
   if (!fsReady) return id;
-  await fsCol(coll).doc(id).set(stripId(obj));
+  try {
+    await fsCol(coll).doc(id).set(stripId(obj));
+  } catch (e) {
+    reportRepoFailure(e);
+  }
   return id;
 }
 
 async function repoDelete(coll, id) {
   if (!fsReady) return;
-  await fsCol(coll).doc(id).delete();
+  try {
+    await fsCol(coll).doc(id).delete();
+  } catch (e) {
+    reportRepoFailure(e);
+  }
 }
 
 // Пачкой — для массовых изменений вроде нового порядка после перетаскивания.
@@ -153,7 +180,11 @@ async function repoBatch(coll, objs) {
     for (const obj of objs.slice(i, i + 400)) {
       batch.set(fsCol(coll).doc(obj.id || uid()), stripId(obj));
     }
-    await batch.commit();
+    try {
+      await batch.commit();
+    } catch (e) {
+      reportRepoFailure(e);
+    }
   }
 }
 
@@ -172,9 +203,17 @@ async function repoMeta(patch) {
     // код молча попытается создать документ пустым set() и лишний раз
     // записать — то есть замаскирует ошибку лишней операцией. Пересоздаём
     // только когда это точно «документа нет».
-    if (!(e && e.code === 'not-found')) throw e;
-    await ref.set({}, { merge: true });
-    await ref.update(patch);
+    if (!(e && e.code === 'not-found')) {
+      reportRepoFailure(e);
+      throw e;
+    }
+    try {
+      await ref.set({}, { merge: true });
+      await ref.update(patch);
+    } catch (e2) {
+      reportRepoFailure(e2);
+      throw e2;
+    }
   }
 }
 

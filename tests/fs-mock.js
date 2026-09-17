@@ -11,6 +11,7 @@ function makeFsMock() {
   let commitCount = 0; // сколько раз реально вызвали batch().commit() — тест проверяет, что нарезка по 400 действительно происходит
   let colGetCount = 0; // сколько раз реально выполнили запрос коллекции (colRef.get()) — тест на гонку loadMorePhotos проверяет, что параллельные вызовы не читают одну и ту же страницу дважды
   let forcedUpdateError = null; // { path, code } — одноразовая подмена ошибки update(), чтобы проверить проброс НЕ-not-found ошибок из repoMeta
+  let forcedWriteError = null; // { path, code } — то же самое для set()/delete() (repoSet/repoDelete/repoBatch), NV-12
 
   const clone = v => JSON.parse(JSON.stringify(v));
   const notify = () => listeners.forEach(l => l.fire());
@@ -32,6 +33,12 @@ function makeFsMock() {
       path,
       id: path.split('/').pop(),
       async set(data, opts) {
+        if (forcedWriteError && forcedWriteError.path === path) {
+          const err = new Error('forced test error: ' + forcedWriteError.code);
+          err.code = forcedWriteError.code;
+          forcedWriteError = null;
+          throw err;
+        }
         store[path] = opts && opts.merge ? { ...(store[path] || {}), ...clone(data) } : clone(data);
         notify();
       },
@@ -53,6 +60,12 @@ function makeFsMock() {
         notify();
       },
       async delete() {
+        if (forcedWriteError && forcedWriteError.path === path) {
+          const err = new Error('forced test error: ' + forcedWriteError.code);
+          err.code = forcedWriteError.code;
+          forcedWriteError = null;
+          throw err;
+        }
         delete store[path];
         notify();
       },
@@ -176,6 +189,9 @@ function makeFsMock() {
     },
     _failNextUpdate(path, code) {
       forcedUpdateError = { path, code };
+    },
+    _failNextWrite(path, code) {
+      forcedWriteError = { path, code };
     }
   };
 }

@@ -135,7 +135,10 @@ const sandbox = {
       delete sandbox._ss[k];
     }
   },
-  alert() {},
+  _alerts: [],
+  alert(msg) {
+    sandbox._alerts.push(msg);
+  },
   confirm() {
     return true;
   },
@@ -189,6 +192,10 @@ function __TEST__(s){
   s.monthKey = monthKey; s.monthRange = monthRange;
   s.loadHotSet = loadHotSet; s.loadMonth = loadMonth; s.loadMorePhotos = loadMorePhotos;
   s.repoSet = repoSet; s.repoDelete = repoDelete; s.repoBatch = repoBatch; s.repoMeta = repoMeta;
+  // Тестовый сброс антиспам-таймера алертов о провале записи (NV-12) — без
+  // него порядок тестов в этом файле влияет на то, покажется ли alert (окно
+  // 5с), а тест обязан проверять сам факт уведомления, а не гонку по времени.
+  Object.defineProperty(s, 'lastRepoFailureAlertAt', { get: () => lastRepoFailureAlertAt, set: v => { lastRepoFailureAlertAt = v; }, configurable: true });
   s.exportData = exportData; s.importData = importData;
   s.startLiveUpdates = startLiveUpdates; s.stopLiveUpdates = stopLiveUpdates;
   s.defaultDB = defaultDB;
@@ -640,6 +647,26 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(mock._store['couples/main/labels/blb1'].name === 'Бэкап-лейбл', 'лейбл доехал при импорте');
   assert(mock._store['couples/main/photos/bp1'].url === 'x', 'фото доехало при импорте');
   assert(mock._store['couples/main/meta/settings'].pushSubs.gosha.endpoint === 'backup-endpoint', 'push-подписки доехали при импорте (meta/settings)');
+
+  // NV-12: «у меня нет свиданий и событий, у неё есть» оказалось не багом
+  // чтения, а тихим провалом ЗАПИСИ — ни один вызывающий код (~40 мест по
+  // всему src/*.js) не ждёт и не ловит промис repoSet/repoDelete/repoBatch,
+  // поэтому реальный сбой сети/доступа в момент сохранения раньше проходил
+  // незамеченным: экран уже показывал «сохранено», а до Firestore ничего не
+  // доезжало. Проверяем, что теперь падение хотя бы не тонет тихо —
+  // reportRepoFailure() в src/04-repo.js добирается до видимого alert().
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  w('(s)=>{ s.lastRepoFailureAlertAt = 0; return 1; }');
+  mock._failNextWrite('couples/main/events/failEv', 'unavailable');
+  const alertsBeforeSet = sandbox._alerts.length;
+  await w('(s)=>s.repoSet("events", {id:"failEv", title:"Провал записи", date:"2026-01-01"})');
+  assert(sandbox._alerts.length > alertsBeforeSet, 'падение repoSet на сети/доступе видимо предупреждает, а не тонет тихо');
+  assert(mock._store['couples/main/events/failEv'] === undefined, 'документ не появился в Firestore при форсированной ошибке записи');
+
+  mock._store['couples/main/dates/failDt'] = { place: 'Кафе' };
+  mock._failNextWrite('couples/main/dates/failDt', 'unavailable');
+  await w('(s)=>s.repoDelete("dates", "failDt")');
+  assert(mock._store['couples/main/dates/failDt'] !== undefined, 'документ уцелел, когда repoDelete упал (не подчистился наполовину)');
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {
