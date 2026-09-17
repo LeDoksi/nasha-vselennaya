@@ -647,6 +647,19 @@ function docsToArray(snap) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
+// Firestore не гарантирует порядок документов ни между вызовами .get(), ни
+// между срабатываниями onSnapshot — без этого элементы вроде лейблов или
+// списков прыгают местами от захода к заходу и при каждом live-обновлении
+// (NV-9). order — источник истины там, где он есть (lists), id — вторичный
+// устойчивый признак для всех остальных.
+function sortDocs(arr) {
+  return arr.sort((a, b) => {
+    const ao = a.order === undefined ? Infinity : a.order;
+    const bo = b.order === undefined ? Infinity : b.order;
+    return ao - bo || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  });
+}
+
 // Горячий набор при входе: всё, что нужно первому экрану и ближайшей навигации.
 // Десятки-сотни килобайт; при повторных заходах отдаётся из офлайн-кэша мгновенно.
 async function loadHotSet() {
@@ -671,20 +684,14 @@ async function loadHotSet() {
     fsCol('photos').orderBy('order', 'asc').limit(PHOTO_PAGE).get()
   ]);
 
-  db.labels = docsToArray(labels);
+  db.labels = sortDocs(docsToArray(labels));
   db.notes = docsToArray(notes);
-  // lists читаем без orderBy (тот же .get(), что и раньше) — Firestore не
-  // гарантирует порядок документов между вызовами. order — источник истины
-  // для позиции карточки (проставлен backfill'ом в migrateDB), а id — вторичный
-  // устойчивый признак для списков без order, чтобы такой список вставал на
-  // одно и то же место при каждой загрузке, а не скакал. Дозапись order в базу
-  // здесь не делаем — лишняя запись на каждом входе ради ситуации, которая
-  // пользователям не встретится (order проставлен при миграции).
-  db.lists = docsToArray(lists).sort((a, b) => {
-    const ao = a.order === undefined ? Infinity : a.order;
-    const bo = b.order === undefined ? Infinity : b.order;
-    return ao - bo || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  });
+  // lists читаем без orderBy (тот же .get(), что и раньше). order — источник
+  // истины для позиции карточки (проставлен backfill'ом в migrateDB); sortDocs
+  // добавляет id как вторичный устойчивый признак для списков без order.
+  // Дозапись order в базу здесь не делаем — лишняя запись на каждом входе ради
+  // ситуации, которая пользователям не встретится (order проставлен при миграции).
+  db.lists = sortDocs(docsToArray(lists));
   db.wishlist = docsToArray(wishes);
   db.dates = docsToArray(dates);
   db.events = mergeById(docsToArray(repeats), docsToArray(events));
@@ -864,7 +871,7 @@ function startLiveUpdates() {
   if (!fsReady || fsUnsubs.length) return;
   for (const [coll, field, rerender] of LIVE_COLLECTIONS) {
     const unsub = fsCol(coll).onSnapshot(snap => {
-      db[field] = docsToArray(snap);
+      db[field] = sortDocs(docsToArray(snap));
       if (!authLocked) rerender();
     });
     fsUnsubs.push(unsub);
