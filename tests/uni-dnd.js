@@ -428,6 +428,7 @@ const suffix = `
 function __TEST__(s){
   Object.defineProperty(s, 'db', { get: () => db, set: v => { db = v; }, configurable: true });
   Object.defineProperty(s, 'currentLabel', { get: () => currentLabel, set: v => { currentLabel = v; }, configurable: true });
+  Object.defineProperty(s, 'repoBatch', { get: () => repoBatch, set: v => { repoBatch = v; }, configurable: true });
   s.renderNotes = renderNotes; s.renderPhotos = renderPhotos; s.renderLabels = renderLabels;
   s.renderLists = renderLists;
   s.go = go; s.migrateDB = migrateDB;
@@ -752,5 +753,24 @@ assert(photo('p1').classList.contains('drag-over'), 'чип-драг: подсв
 chipEl.dispatchEvent('keydown', { bubbles: true, key: 'Escape' }); // keydown висит на #labelBar (фолбэк для тестов), не на body
 assert(!sandbox.db.photos.find(p => p.id === 'p1').labels.includes('lTrip'), 'чип-драг: Esc отменяет — лейбл не навешен');
 assert(!photo('p1').classList.contains('drag-over'), 'чип-драг: Esc снимает подсветку');
+
+// 6) chipDragEnd синхронизирует применённый лейбл через repoBatch('photos', …) —
+//    раньше это нигде не проверялось (NV-8): предыдущие assert'ы смотрели только
+//    на db.photos.labels (результат applyLabelToPhotos), не на сам факт записи и
+//    её содержимое. repoBatch подменяем на шпион тем же приёмом, что db/currentLabel
+//    выше (общее замыкание исходников, см. suffix).
+sandbox.db.photos.forEach(p => {
+  p.labels = [];
+});
+sandbox.selectedPhotos.clear();
+sandbox.selectedPhotos.add('p1'); // «отмеченное» фото — тоже должно попасть в батч
+const repoBatchCalls = [];
+sandbox.repoBatch = (coll, objs) => repoBatchCalls.push({ coll, ids: objs.map(o => o.id) });
+startDrag(chipEl, 5, 5);
+moveDrag(400, 20, photo('p2')); // бросаем на p2 — курсор под фото
+endDrag(400, 20, photo('p2'));
+assert(repoBatchCalls.length === 1, 'chipDragEnd: repoBatch вызван ровно один раз');
+assert(repoBatchCalls[0].coll === 'photos', 'chipDragEnd: repoBatch пишет в коллекцию photos');
+assert(JSON.stringify(repoBatchCalls[0].ids.slice().sort()) === '["p1","p2"]', 'chipDragEnd: repoBatch получает и перетащенное фото (p2), и отмеченное (p1)');
 
 console.log('OK: ' + checks + ' dnd checks passed');
