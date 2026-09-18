@@ -129,38 +129,44 @@ function makeCloudStorage() {
     return res;
   }
 
-  async function presignedFetch(method, part, id, body) {
-    if (!cfg.signFnUrl) throw new Error('YANDEX_CLOUD_CONFIG.signFnUrl не задан — запись фото невозможна');
-    // photo-sign проверяет Firebase ID-токен перед выдачей подписи (иначе
-    // подписать мог бы кто угодно, кто откроет devtools — URL функции не
-    // секрет). Токен берём у уже выполненного Google-входа (src/01-gate.js) —
-    // fbApp, единственное Firebase-приложение на весь сайт (гейт + фото).
-    // Заголовок называется X-Firebase-Token, а не Authorization: Yandex
-    // Cloud перехватывает Authorization на уровне своей платформы (пытается
-    // прочитать его как СВОЙ IAM-токен) ещё до кода функции — с этим именем
-    // валидный Firebase-токен долетал бы до кода, но платформа режет запрос
-    // раньше 403-м, даже не заглянув внутрь (проверено 12.08.2026).
-    let authHeaders = {};
+  // Общий заголовок авторизации для любого вызова photo-sign (GET/PUT/DELETE/
+  // LIST/batch) — вынесено, чтобы не дублировать в каждом из четырёх мест
+  // (NV-7: раньше было одно место записи, теперь ещё три — чтение, листинг,
+  // batch). Токен берём у уже выполненного Google-входа (src/01-gate.js) —
+  // fbApp, единственное Firebase-приложение на весь сайт (гейт + фото).
+  async function firebaseAuthHeader() {
     try {
       const user = fbApp && firebase.auth(fbApp).currentUser;
-      if (user) authHeaders = { 'X-Firebase-Token': await user.getIdToken() };
+      if (user) return { 'X-Firebase-Token': await user.getIdToken() };
     } catch (e) {
       console.warn('[photo-sync] не удалось получить ID-токен для photo-sign', e);
     }
-    const signRes = await fetch(cfg.signFnUrl + '?method=' + method + '&part=' + encodeURIComponent(part) + '&id=' + encodeURIComponent(id), { headers: authHeaders });
+    return {};
+  }
+
+  // Один запрос подписи (GET/PUT/DELETE одного объекта, или LIST) — только
+  // ссылка, без похода за байтами. query — объект строковых параметров
+  // (method, part, id — для объекта; method=LIST, prefix, continuation-token
+  // — для листинга).
+  async function presignFn(query) {
+    if (!cfg.signFnUrl) throw new Error('YANDEX_CLOUD_CONFIG.signFnUrl не задан — доступ к фото невозможен');
+    const authHeaders = await firebaseAuthHeader();
+    const qs = new URLSearchParams(query).toString();
+    const signRes = await fetch(cfg.signFnUrl + '?' + qs, { headers: authHeaders });
     if (!signRes.ok) throw new Error('sign-fn ' + signRes.status);
     const { url } = await signRes.json();
     if (!url) throw new Error('sign-fn: пустая ссылка');
+    return url;
+  }
+
+  async function presignedFetch(method, part, id, body) {
+    const url = await presignFn({ method, part, id });
     const res = await fetch(url, { method, body: body ?? undefined });
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
       throw new Error('S3 ' + res.status + ' photos/' + part + '/' + id + (txt ? ': ' + txt.slice(0, 200) : ''));
     }
     return res;
-  }
-
-  function objectPath(part, id) {
-    return '/photos/' + part + '/' + encodeURIComponent(id);
   }
 
   return {
@@ -171,7 +177,6 @@ function makeCloudStorage() {
       if (seg.length >= 3) {
         const part = seg[1],
           id = seg.slice(2).join('/');
-        const p = objectPath(part, id);
         return {
           name: id,
           fullPath: seg.join('/'),
@@ -181,7 +186,7 @@ function makeCloudStorage() {
           },
           async getBlob() {
             try {
-              const res = await s3Fetch('GET', p, null);
+              const res = await presignedFetch('GET', part, id, null);
               return await res.blob();
             } catch (e) {
               if (/404/.test(String(e))) return null;

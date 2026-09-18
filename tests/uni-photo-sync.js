@@ -360,6 +360,10 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
     idsA.some(i => i.id === 'pA' && i.hasOrig && i.hasFull && i.hasThumb),
     'скачаны все три части фото'
   );
+  assert(
+    signCalls.some(c => c.method === 'GET' && c.part === 'thumb' && c.id === 'pA'),
+    'скачивание миниатюры теперь запрашивает подписанную ссылку у photo-sign, а не читает бакет анонимно (NV-7)'
+  );
 
   // 4. Фото, загруженное партнёром (в облаке есть pB, локально нет) — докачивается.
   await w('(s)=>s.photoStore.put("pB", new Blob(["FULL-B"]), new Blob(["THUMB-B"]), {type:"image/png",thumbType:"image/webp",title:"Фото Б"}, new Blob(["ORIG-B"]))');
