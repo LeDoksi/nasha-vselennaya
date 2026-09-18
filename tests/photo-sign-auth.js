@@ -164,6 +164,51 @@ function makeToken(payloadOverrides, headerOverrides) {
   assert(resListPage.statusCode === 200, 'handler(LIST) принимает continuation-token');
   assert(JSON.parse(resListPage.body).url.includes('continuation-token=tok123'), 'handler(LIST) подписывает continuation-token, иначе подпись S3 не сойдётся');
 
+  // --- handler(): POST — batch-подпись пачки объектов одним запросом ---
+  const evBatch = {
+    httpMethod: 'POST',
+    headers: { 'X-Firebase-Token': good },
+    body: JSON.stringify({
+      items: [
+        { part: 'thumb', id: 'photo1' },
+        { part: 'thumb', id: 'photo2' }
+      ]
+    })
+  };
+  const resBatch = await fn.handler(evBatch);
+  assert(resBatch.statusCode === 200, 'handler(POST batch) отвечает 200');
+  const batchBody = JSON.parse(resBatch.body);
+  assert(Array.isArray(batchBody.results) && batchBody.results.length === 2, 'batch возвращает по одной записи на item');
+  assert(batchBody.results[0].id === 'photo1' && batchBody.results[0].url.includes('/photos/thumb/photo1'), 'batch: первый item подписан верно');
+  assert(batchBody.results[1].id === 'photo2' && batchBody.results[1].url.includes('/photos/thumb/photo2'), 'batch: второй item подписан верно');
+
+  // --- handler(): batch без валидного токена — 401, до тела запроса дело не доходит ---
+  const evBatchNoAuth = { httpMethod: 'POST', headers: {}, body: JSON.stringify({ items: [{ part: 'thumb', id: 'photo1' }] }) };
+  const resBatchNoAuth = await fn.handler(evBatchNoAuth);
+  assert(resBatchNoAuth.statusCode === 401, 'handler(POST batch) без токена — 401');
+
+  // --- handler(): один невалидный item не роняет остальные ---
+  const evBatchMixed = {
+    httpMethod: 'POST',
+    headers: { 'X-Firebase-Token': good },
+    body: JSON.stringify({
+      items: [
+        { part: 'thumb', id: 'photo1' },
+        { part: 'bogus', id: 'photo2' }
+      ]
+    })
+  };
+  const resBatchMixed = await fn.handler(evBatchMixed);
+  assert(resBatchMixed.statusCode === 200, 'handler(POST batch) с одним плохим item всё равно отвечает 200');
+  const mixedBody = JSON.parse(resBatchMixed.body);
+  assert(mixedBody.results[0].url && !mixedBody.results[0].error, 'batch: валидный item получает url');
+  assert(mixedBody.results[1].error && !mixedBody.results[1].url, 'batch: невалидный item получает error, а не url');
+
+  // --- handler(): батч больше 100 элементов отклоняется целиком ---
+  const tooMany = { items: Array.from({ length: 101 }, (_, i) => ({ part: 'thumb', id: 'p' + i })) };
+  const resTooMany = await fn.handler({ httpMethod: 'POST', headers: { 'X-Firebase-Token': good }, body: JSON.stringify(tooMany) });
+  assert(resTooMany.statusCode === 400, 'handler(POST batch) с 101 элементом отклоняется целиком (лимит 100)');
+
   if (failed) process.exit(1);
   console.log('OK: photo-sign auth — валидный/просроченный/чужой/поддельный/неавторизованный токены обработаны верно');
 })().catch(e => {

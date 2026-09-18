@@ -34,7 +34,14 @@
    раньше, чем успевает сработать проверка ниже. Кастомный заголовок
    X-Firebase-Token этим механизмом не перехватывается.
 
-   Переменные окружения (задать в консоли при создании функции):
+   NV-7: функция теперь подписывает не только запись, но и чтение — GET
+   (один объект), LIST (листинг бакета, для сверки) и batch (POST с телом
+   {items:[{part,id}]}, до 100 штук за раз — фоновая очередь миниатюр не
+   делает по одному HTTP-запросу на подпись на каждое фото). Бакет закрыт от
+   анонимного чтения точно так же, как раньше была закрыта запись — см.
+   README, раздел B2. */
+
+/* Переменные окружения (задать в консоли при создании функции):
      YC_S3_KEY        — статический ключ доступа сервисного аккаунта с ролью
                         storage.editor на бакете (НЕ коммитить, только в консоли)
      YC_S3_SECRET     — секретный ключ к нему
@@ -55,6 +62,7 @@ const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'nasha-vselennaya
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://ledoksi.github.io';
 const EXPIRES_SECONDS = 60; // ссылка живёт минуту — достаточно, чтобы сразу ей воспользоваться
 const GET_EXPIRES_SECONDS = 300; // чтение (в т.ч. пачка миниатюр) может идти дольше на слабой сети
+const MAX_BATCH_ITEMS = 100;
 // Гейт: сайт закрыт Google-входом на 2 email (src/01-gate.js, ALLOWED_EMAILS).
 // Раньше сюда пускал любой валидный (в т.ч. анонимный) Firebase-токен — теперь
 // проверяем ещё и email из самого токена, иначе анонимный вход (если его не
@@ -181,10 +189,33 @@ function handleList(q, cors) {
   return { statusCode: 200, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) };
 }
 
+function presignBatchItem(item) {
+  const part = String((item && item.part) || '');
+  const id = String((item && item.id) || '');
+  if (part !== 'orig' && part !== 'full' && part !== 'thumb') return { id, part, error: 'invalid part' };
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) return { id, part, error: 'invalid id' };
+  const objectPath = '/photos/' + part + '/' + encodeURIComponent(id);
+  return { id, part, url: presign('GET', objectPath, undefined, GET_EXPIRES_SECONDS) };
+}
+
+function handleBatch(body) {
+  let parsed;
+  try {
+    parsed = JSON.parse(body || '{}');
+  } catch (e) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'invalid JSON body' }) };
+  }
+  const items = Array.isArray(parsed.items) ? parsed.items : null;
+  if (!items) return { statusCode: 400, body: JSON.stringify({ error: 'items must be an array' }) };
+  if (items.length > MAX_BATCH_ITEMS) return { statusCode: 400, body: JSON.stringify({ error: 'too many items (max ' + MAX_BATCH_ITEMS + ')' }) };
+  const results = items.map(presignBatchItem);
+  return { statusCode: 200, body: JSON.stringify({ results }) };
+}
+
 module.exports.handler = async event => {
   const cors = {
     'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     // Не Authorization: Yandex Cloud перехватывает этот заголовок на уровне
     // своей платформы как попытку IAM-авторизации ещё до кода функции (см.
     // комментарий в шапке файла) — X-Firebase-Token этим не перехватывается,
@@ -203,6 +234,10 @@ module.exports.handler = async event => {
     await verifyFirebaseIdToken(token);
   } catch (e) {
     return { statusCode: 401, headers: cors, body: JSON.stringify({ error: 'unauthorized: ' + e.message }) };
+  }
+  if (event.httpMethod === 'POST') {
+    const r = handleBatch(event.body);
+    return { statusCode: r.statusCode, headers: { ...cors, 'Content-Type': 'application/json' }, body: r.body };
   }
   const q = event.queryStringParameters || {};
   const method = String(q.method || '').toUpperCase();
