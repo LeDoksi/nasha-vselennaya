@@ -149,6 +149,21 @@ function makeToken(payloadOverrides, headerOverrides) {
   const putBody = JSON.parse(resPutStillWorks.body);
   assert(putBody.url.includes('X-Amz-Expires=60'), 'presign: PUT/DELETE используют EXPIRES_SECONDS=60, а не GET_EXPIRES_SECONDS');
 
+  // --- handler(): method=LIST подписывает листинг бакета (было анонимно) ---
+  const evList = { httpMethod: 'GET', headers: { 'X-Firebase-Token': good }, queryStringParameters: { method: 'LIST', prefix: 'photos/thumb/' } };
+  const resList = await fn.handler(evList);
+  assert(resList.statusCode === 200, 'handler подписывает LIST (листинг бакета)');
+  const listBody = JSON.parse(resList.body);
+  assert(listBody.url.includes('list-type=2'), 'handler(LIST) возвращает ссылку на ListObjectsV2');
+  assert(listBody.url.includes('prefix=photos%2Fthumb%2F'), 'handler(LIST) прокидывает prefix в подписанный запрос');
+  assert(!listBody.url.includes('/photos/thumb/?'), 'handler(LIST) подписывает корень бакета, а не объект');
+
+  // --- handler(): LIST с continuation-token (пагинация) ---
+  const evListPage = { httpMethod: 'GET', headers: { 'X-Firebase-Token': good }, queryStringParameters: { method: 'LIST', prefix: 'photos/thumb/', 'continuation-token': 'tok123' } };
+  const resListPage = await fn.handler(evListPage);
+  assert(resListPage.statusCode === 200, 'handler(LIST) принимает continuation-token');
+  assert(JSON.parse(resListPage.body).url.includes('continuation-token=tok123'), 'handler(LIST) подписывает continuation-token, иначе подпись S3 не сойдётся');
+
   if (failed) process.exit(1);
   console.log('OK: photo-sign auth — валидный/просроченный/чужой/поддельный/неавторизованный токены обработаны верно');
 })().catch(e => {

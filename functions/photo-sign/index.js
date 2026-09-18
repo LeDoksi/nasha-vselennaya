@@ -169,6 +169,18 @@ function presign(method, objectPath, extraQuery, expiresSeconds) {
   return 'https://' + host + objectPath + '?' + canonicalQuery + '&X-Amz-Signature=' + signature;
 }
 
+function handleList(q, cors) {
+  const prefix = String(q.prefix || '');
+  if (!/^photos\/(orig|full|thumb)\/?$/.test(prefix)) {
+    return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'invalid prefix' }) };
+  }
+  const extraQuery = { 'list-type': '2', prefix };
+  const token = q['continuation-token'];
+  if (token) extraQuery['continuation-token'] = String(token);
+  const url = presign('GET', '/', extraQuery, GET_EXPIRES_SECONDS);
+  return { statusCode: 200, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) };
+}
+
 module.exports.handler = async event => {
   const cors = {
     'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
@@ -194,10 +206,11 @@ module.exports.handler = async event => {
   }
   const q = event.queryStringParameters || {};
   const method = String(q.method || '').toUpperCase();
+  if (method === 'LIST') return handleList(q, cors);
   const part = String(q.part || '');
   const id = String(q.id || '');
   if (method !== 'PUT' && method !== 'DELETE' && method !== 'GET') {
-    return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'method must be PUT, DELETE or GET' }) };
+    return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'method must be PUT, DELETE, GET or LIST' }) };
   }
   if (part !== 'orig' && part !== 'full' && part !== 'thumb') {
     return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'invalid part' }) };
