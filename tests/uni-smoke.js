@@ -295,6 +295,7 @@ const wrapped = new Function(
   'setInterval',
   'addEventListener',
   'firebase',
+  'fetch',
   // sourceURL — не для отладки, а чтобы npm run coverage (c8) отличал строки
   // app.js от собственного кода этого файла: без него весь код внутри
   // new Function() всплывает как анонимный eval, c8 не может сопоставить
@@ -316,7 +317,15 @@ wrapped(
   sandbox.setTimeout,
   sandbox.setInterval,
   sandbox.addEventListener,
-  firebase
+  firebase,
+  // Этот тест не проверяет облако (см. tests/uni-photo-sync.js) — сценарии
+  // здесь никогда не настраивают реальные облачные данные, поэтому «сети
+  // нет» и есть корректная симуляция. Без этой заглушки photoUrl() →
+  // ensureCloudPart() (NV-7, Task 10) резолвил бы глобальный fetch Node и
+  // реально стучался в прод Yandex Cloud Function (см. YANDEX_CLOUD_CONFIG
+  // в src/95-photos-cloud.js) — ensureCloudPart и так ловит любой отказ
+  // fetch и тихо возвращает false, поэтому просто отклоняем.
+  () => Promise.reject(new Error('fetch not available in uni-smoke.js sandbox'))
 );
 
 const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
