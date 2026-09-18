@@ -130,9 +130,18 @@ function makeToken(payloadOverrides, headerOverrides) {
   assert(typeof body.url === 'string' && body.url.includes('/photos/orig/photo1'), 'handler возвращает подписанную ссылку на нужный объект');
 
   // --- handler(): невалидные method/part/id всё ещё отклоняются ПОСЛЕ авторизации ---
-  const evBadMethod = { httpMethod: 'GET', headers: { 'X-Firebase-Token': good }, queryStringParameters: { method: 'GET', part: 'orig', id: 'photo1' } };
+  const evBadMethod = { httpMethod: 'GET', headers: { 'X-Firebase-Token': good }, queryStringParameters: { method: 'PATCH', part: 'orig', id: 'photo1' } };
   const resBadMethod = await fn.handler(evBadMethod);
   assert(resBadMethod.statusCode === 400, 'handler всё ещё валидирует method после авторизации');
+
+  // --- handler(): method=GET теперь подписывается (было 400 — чтение уходит
+  // с анонимного доступа на подписанные ссылки, см. NV-7) ---
+  const evGet = { httpMethod: 'GET', headers: { 'X-Firebase-Token': good }, queryStringParameters: { method: 'GET', part: 'thumb', id: 'photo1' } };
+  const resGet = await fn.handler(evGet);
+  assert(resGet.statusCode === 200, 'handler подписывает GET (чтение объекта) как PUT/DELETE');
+  const getBody = JSON.parse(resGet.body);
+  assert(getBody.url.includes('/photos/thumb/photo1'), 'handler(GET) возвращает подписанную ссылку на нужный объект');
+  assert(getBody.url.includes('X-Amz-Expires=300'), 'handler(GET) использует GET_EXPIRES_SECONDS, а не 60-секундный срок записи');
 
   // --- presign(): доп. query-параметры и срок жизни не ломают обычный PUT/DELETE ---
   const resPutStillWorks = await fn.handler({ httpMethod: 'GET', headers: { 'X-Firebase-Token': good }, queryStringParameters: { method: 'DELETE', part: 'thumb', id: 'photo9' } });

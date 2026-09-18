@@ -54,7 +54,6 @@ const SECRET_KEY = process.env.YC_S3_SECRET;
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'nasha-vselennaya';
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://ledoksi.github.io';
 const EXPIRES_SECONDS = 60; // ссылка живёт минуту — достаточно, чтобы сразу ей воспользоваться
-// eslint-disable-next-line no-unused-vars
 const GET_EXPIRES_SECONDS = 300; // чтение (в т.ч. пачка миниатюр) может идти дольше на слабой сети
 // Гейт: сайт закрыт Google-входом на 2 email (src/01-gate.js, ALLOWED_EMAILS).
 // Раньше сюда пускал любой валидный (в т.ч. анонимный) Firebase-токен — теперь
@@ -197,8 +196,8 @@ module.exports.handler = async event => {
   const method = String(q.method || '').toUpperCase();
   const part = String(q.part || '');
   const id = String(q.id || '');
-  if (method !== 'PUT' && method !== 'DELETE') {
-    return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'method must be PUT or DELETE' }) };
+  if (method !== 'PUT' && method !== 'DELETE' && method !== 'GET') {
+    return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'method must be PUT, DELETE or GET' }) };
   }
   if (part !== 'orig' && part !== 'full' && part !== 'thumb') {
     return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'invalid part' }) };
@@ -207,7 +206,7 @@ module.exports.handler = async event => {
     return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'invalid id' }) };
   }
   const objectPath = '/photos/' + part + '/' + encodeURIComponent(id);
-  const url = presign(method, objectPath);
+  const url = presign(method, objectPath, undefined, method === 'GET' ? GET_EXPIRES_SECONDS : EXPIRES_SECONDS);
   return {
     statusCode: 200,
     headers: { ...cors, 'Content-Type': 'application/json' },
