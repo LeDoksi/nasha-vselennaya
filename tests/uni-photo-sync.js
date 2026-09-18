@@ -115,9 +115,19 @@ async function fetchMock(url, opts) {
     // Мок функции подписи: не проверяет секрет (его тут и нет), просто
     // возвращает «подписанную» ссылку на тот же мок-бакет — signature фиктивна,
     // мок PUT/DELETE её не проверяет (проверка подписи — забота реального S3,
-    // а не нашего кода; здесь тестируем контракт «функция → presigned URL → PUT»).
+    // а не нашего кода; здесь тестируем контракт «функция → presigned URL → операция»).
     const qs = new URLSearchParams(full.slice(qIdx + 1));
-    signCalls.push({ method: qs.get('method'), part: qs.get('part'), id: qs.get('id') });
+    const method = qs.get('method');
+    signCalls.push({ method, part: qs.get('part'), id: qs.get('id') });
+    if (method === 'LIST') {
+      const listQs = new URLSearchParams();
+      listQs.set('list-type', '2');
+      listQs.set('prefix', qs.get('prefix') || '');
+      const token = qs.get('continuation-token');
+      if (token) listQs.set('continuation-token', token);
+      const target = 'https://nasha-vselennaya.storage.yandexcloud.net/?' + listQs.toString() + '&X-Amz-Signature=mock';
+      return { ok: true, status: 200, json: () => Promise.resolve({ url: target }) };
+    }
     const target = 'https://nasha-vselennaya.storage.yandexcloud.net/photos/' + qs.get('part') + '/' + qs.get('id') + '?X-Amz-Signature=mock';
     return { ok: true, status: 200, json: () => Promise.resolve({ url: target }) };
   }
@@ -363,6 +373,10 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(
     signCalls.some(c => c.method === 'GET' && c.part === 'thumb' && c.id === 'pA'),
     'скачивание миниатюры теперь запрашивает подписанную ссылку у photo-sign, а не читает бакет анонимно (NV-7)'
+  );
+  assert(
+    signCalls.some(c => c.method === 'LIST'),
+    'листинг бакета теперь запрашивает подписанную ссылку у photo-sign, а не читает бакет анонимно (NV-7)'
   );
 
   // 4. Фото, загруженное партнёром (в облаке есть pB, локально нет) — докачивается.

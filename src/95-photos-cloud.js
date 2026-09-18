@@ -118,16 +118,6 @@ function stopPhotoSync() {
 function makeCloudStorage() {
   const cfg = YANDEX_CLOUD_CONFIG;
   if (!cfg.bucket) return null;
-  const endpoint = 'https://' + cfg.bucket + '.storage.yandexcloud.net';
-
-  async function s3Fetch(method, path, body) {
-    const res = await fetch(endpoint + path, { method, body: body ?? undefined });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      throw new Error('S3 ' + res.status + ' ' + path + (txt ? ': ' + txt.slice(0, 200) : ''));
-    }
-    return res;
-  }
 
   // Общий заголовок авторизации для любого вызова photo-sign (GET/PUT/DELETE/
   // LIST/batch) — вынесено, чтобы не дублировать в каждом из четырёх мест
@@ -202,7 +192,7 @@ function makeCloudStorage() {
           }
         };
       }
-      const fp = '/?list-type=2&prefix=' + encodeURIComponent(seg.join('/') + '/');
+      const prefix = seg.join('/') + '/';
       return {
         // ListObjectsV2 отдаёт максимум 1000 ключей за раз (IsTruncated +
         // NextContinuationToken) — без пагинации при библиотеке за ~300 фото
@@ -213,8 +203,9 @@ function makeCloudStorage() {
           let token = null;
           try {
             do {
-              const q = fp + (token ? '&continuation-token=' + encodeURIComponent(token) : '');
-              const res = await s3Fetch('GET', q, null);
+              const url = await presignFn({ method: 'LIST', prefix, ...(token ? { 'continuation-token': token } : {}) });
+              const res = await fetch(url, { method: 'GET' });
+              if (!res.ok) throw new Error('S3 ' + res.status + ' LIST ' + prefix);
               const txt = await res.text();
               const keys = [...txt.matchAll(/<Key>([^<]+)<\/Key>/g)].map(m => m[1]);
               for (const k of keys) {
