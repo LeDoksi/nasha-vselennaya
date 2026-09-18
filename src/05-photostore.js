@@ -607,8 +607,22 @@ async function photoUrl(p, useThumb = true) {
         try {
           blob = await photoStore.getThumb(p.id);
         } catch (e) {}
+        // NV-7: фоновая очередь качает миниатюры с задержкой — если эта
+        // конкретная ещё не долетела, просим её по требованию.
+        if (!blob && (await ensureCloudPart(p.id, 'thumb'))) {
+          try {
+            blob = await photoStore.getThumb(p.id);
+          } catch (e) {}
+        }
       }
       if (!blob) blob = await photoStore.getFull(p.id);
+      // NV-7: full больше не докачивается фоновой очередью — докачиваем по
+      // требованию прямо здесь. Светбокс тем временем уже показывает
+      // миниатюру из кэша (см. src/85-lightbox.js, lbRender), пока этот
+      // промис в полёте — пользователь не смотрит на пустоту.
+      if (!blob && (await ensureCloudPart(p.id, 'full'))) {
+        blob = await photoStore.getFull(p.id);
+      }
       if (blob) {
         const url = await blobToDataUrl(blob);
         cache.set(p.id, url);
@@ -629,7 +643,13 @@ async function photoOrigUrl(p) {
   if (photoStore && p.id) {
     try {
       let blob = await photoStore.getOrig(p.id).catch(() => null);
+      if (!blob && (await ensureCloudPart(p.id, 'orig'))) {
+        blob = await photoStore.getOrig(p.id).catch(() => null);
+      }
       if (!blob) blob = await photoStore.getFull(p.id).catch(() => null);
+      if (!blob && (await ensureCloudPart(p.id, 'full'))) {
+        blob = await photoStore.getFull(p.id).catch(() => null);
+      }
       if (blob) {
         const url = await blobToDataUrl(blob);
         origCache.set(p.id, url);

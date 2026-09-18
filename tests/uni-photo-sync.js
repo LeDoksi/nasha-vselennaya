@@ -210,7 +210,20 @@ const sandbox = {
     },
     revokeObjectURL() {}
   },
-  FileReader: function () {},
+  // readAsDataURL — нужен photoUrl()/photoOrigUrl() (Task 10): раньше эти
+  // функции в тесте не вызывались, поэтому заглушка была пустой.
+  FileReader: function () {
+    this.readAsDataURL = blob => {
+      try {
+        const b64 = Buffer.from(blob._text || '', 'binary').toString('base64');
+        this.result = 'data:' + (blob.type || 'application/octet-stream') + ';base64,' + b64;
+        if (this.onload) this.onload();
+      } catch (e) {
+        this.error = e;
+        if (this.onerror) this.onerror();
+      }
+    };
+  },
   Blob: function (parts, opts) {
     this.type = (opts && opts.type) || '';
     const chunks = [];
@@ -272,6 +285,7 @@ function __TEST__(s){
   s.syncPhotos = syncPhotos; s.schedulePhotoSync = schedulePhotoSync; s.listCloudPhotos = listCloudPhotos;
   s.probeCloudKeys = probeCloudKeys;
   s.ensureCloudPart = ensureCloudPart;
+  s.photoUrl = photoUrl; s.photoOrigUrl = photoOrigUrl;
 }
 `;
 
@@ -420,6 +434,18 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(!getCalls.some(p => p.indexOf('/pB') !== -1), 'ensureCloudPart не перезапрашивает часть, которая уже локально');
   const missingPart = await w('(s)=>s.ensureCloudPart("no-such-id", "orig")');
   assert(missingPart === false, 'ensureCloudPart на несуществующее в облаке фото возвращает false, не бросает исключение');
+
+  // 4c. photoUrl()/photoOrigUrl() — реальная точка входа светбокса
+  // (src/85-lightbox.js) — сами лениво докачивают недостающую часть, если её
+  // нет локально (NV-7). pC: в облаке есть full+thumb, локально — ничего.
+  await w('(s)=>s.photoStore.put("pC", new Blob(["FULL-C"]), new Blob(["THUMB-C"]), {type:"image/jpeg",thumbType:"image/webp",title:"C"}, null)');
+  w('(s)=>{s.db.photos.unshift({id:"pC",title:"C",labels:[],pinned:false,ts:6,order:0});return 1;}');
+  await w('(s)=>s.syncPhotos()'); // выгружаем full+thumb в облако как «чужое устройство»
+  await w('(s)=>{s.photoStore.delete("pC"); return 1;}'); // а теперь у нас локально пусто — как будто это второе устройство
+  const urlFull = await w('(s)=>s.photoUrl({id:"pC"}, false)'); // useThumb=false — как в светбоксе
+  assert(typeof urlFull === 'string' && urlFull.length > 0, 'photoUrl(useThumb=false) на отсутствующий локально full лениво докачивает и возвращает data-URL');
+  const origBlobAfter = await w('(s)=>s.photoStore.getFull("pC")');
+  assert(!!origBlobAfter, 'photoUrl закэшировал докачанный full локально (повторный вызов не пойдёт в сеть)');
 
   // 5. Бэкфилл: старое фото без оригинала — уходят только показ-версия и миниатюра
   await w('(s)=>s.photoStore.put("pOld", new Blob(["FULL-OLD"]), new Blob(["THUMB-OLD"]), {type:"image/jpeg"}, null)');

@@ -288,10 +288,7 @@ async function fetchCloudPart(id, part) {
 // (syncPhotos качает эagerно только thumb, см. Task 8), а в момент, когда
 // она реально понадобилась: photoUrl()/photoOrigUrl() (src/05-photostore.js)
 // зовут это, когда локального блоба нет. Возвращает true, если часть теперь
-// доступна локально (уже была или только что докачана). Пока не вызывается
-// из app.js (это Task 9, photoUrl()/photoOrigUrl()) — как и stopPhotoSync
-// выше, глушим no-unused-vars явно.
-// eslint-disable-next-line no-unused-vars
+// доступна локально (уже была или только что докачана).
 async function ensureCloudPart(id, part) {
   if (!photoStore || !id) return false;
   const getter = 'getEncrypted' + part[0].toUpperCase() + part.slice(1);
