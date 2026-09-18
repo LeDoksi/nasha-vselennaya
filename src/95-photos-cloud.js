@@ -28,14 +28,13 @@ let FIREBASE_CONFIG = {
 }; // ← config из Firebase Console (фаза B1). let — чтобы тесты могли подставить мок.
 
 /* Фото-облако: Yandex Object Storage вместо Firebase Storage (Storage — только
-   на платном Blaze-плане, из России не оплатить). Чтение — анонимное и без
-   ключей (бакет публичен для префикса photos/, README → «Настройка бакета
-   Yandex Object Storage»). Запись — через Cloud Function `photo-sign`
-   (functions/photo-sign/): Yandex Object Storage не даёт анонимно писать в
-   бакет, даже если политика это разрешает, поэтому секретный ключ живёт
-   только в переменных окружения функции, а клиент получает у неё короткоживущую
-   подписанную ссылку и сам грузит/удаляет файл по ней. `signFnUrl` — не
-   секрет, просто публичный адрес функции. */
+   на платном Blaze-плане, из России не оплатить). И чтение, и запись идут
+   через Cloud Function `photo-sign` (functions/photo-sign/): Yandex Object
+   Storage не даёт анонимно ни читать, ни писать в бакет (см. README → раздел
+   B2/B3), поэтому секретный ключ живёт только в переменных окружения
+   функции, а клиент получает у неё короткоживущую подписанную ссылку и сам
+   грузит/скачивает/удаляет файл по ней. `signFnUrl` — не секрет, просто
+   публичный адрес функции. */
 let YANDEX_CLOUD_CONFIG = {
   bucket: 'nasha-vselennaya', // имя бакета (не секрет)
   region: 'ru-central1', // регион Yandex Cloud
@@ -64,8 +63,8 @@ function withTimeout(promise, ms) {
    (AES-GCM мастер-ключом) — сервер видит только шифртекст, прочитать фото без
    пароля нельзя (zero-knowledge), а на другом устройстве они расшифровываются тем
    же мастер-ключом. Реализация — адаптер makeCloudStorage() ниже: интерфейс
-   { put, getBlob, delete, listAll }, читает анонимно напрямую, пишет через
-   Cloud Function photo-sign (см. комментарий над makeCloudStorage).
+   { put, getBlob, delete, listAll }, и чтение, и запись идут через presigned
+   ссылки от Cloud Function photo-sign (см. комментарий над makeCloudStorage).
 
    Модель — полная сверка (reconciliation): после каждой операции с фото
    (добавление, удаление) с задержкой сравниваем три списка: локальный
@@ -81,6 +80,27 @@ const PHOTO_PARTS = ['orig', 'full', 'thumb'];
 // не сужается — свои новые фото уходят в облако всеми тремя частями сразу,
 // они и так уже есть локально в момент добавления.
 const EAGER_DOWNLOAD_PARTS = ['thumb'];
+
+// Сериализует read-modify-write в photoStore.putEncrypted по одному и тому
+// же id — без этого два конкурентных докачивания разных частей одного фото
+// (ensureCloudPart из светбокса + фоновая downloadThumbsBatch, или два
+// параллельных ensureCloudPart на orig/full при зуме) читают "до"-состояние
+// синхронно, и последняя запись затирает часть, которую только что сохранил
+// первый вызов. Хвост цепочки на id живёт в photoWriteLocks только пока есть
+// что ждать — удаляется, как только его цепочка отработала и ничего нового
+// не встало следом (иначе за долгую сессию накопился бы мусор на каждый id).
+const photoWriteLocks = new Map(); // id -> хвост цепочки промисов для этого id
+function withPhotoWriteLock(id, fn) {
+  const prev = photoWriteLocks.get(id) || Promise.resolve();
+  const tail = prev.then(fn, fn);
+  const settled = tail.catch(() => {});
+  photoWriteLocks.set(id, settled);
+  settled.then(() => {
+    if (photoWriteLocks.get(id) === settled) photoWriteLocks.delete(id);
+  });
+  return tail;
+}
+
 let syncStorage = null; // Yandex Object Storage (S3)
 let photoSyncTimer = null; // debounce после операций с фото
 let photoSyncing = false; // защита от параллельных сверок
@@ -109,17 +129,17 @@ function stopPhotoSync() {
 }
 
 /* ===== Адаптер для Yandex Object Storage =====
-   Чтение (GetObject/ListBucket) — анонимно и напрямую в бакет: политика
-   бакета разрешает это для префикса photos/ (см. README). Yandex Object
-   Storage НЕ поддерживает анонимную запись (PutObject/DeleteObject), даже
-   если политика формально её разрешает — на практике сервер всё равно
-   отвечает 403 (проверено). Поэтому запись идёт в два шага:
-   1) короткий GET на Cloud Function `photo-sign` (см. functions/photo-sign/) —
-      она держит секретный ключ и отдаёт подписанную (presigned) ссылку на
-      PUT/DELETE с временем жизни 60 секунд;
-   2) сам PUT/DELETE клиент делает напрямую в бакет по этой ссылке — тело
-      файла через функцию не идёт. YANDEX_CLOUD_CONFIG.signFnUrl — не секрет,
-      просто публичный адрес функции (сам секрет — только в её env). */
+   Бакет закрыт от анонимного доступа целиком (см. README, раздел B2) —
+   Yandex Object Storage не поддерживает анонимный GetObject/ListBucket ни
+   PutObject/DeleteObject, даже если политика формально это разрешает — на
+   практике сервер отвечает 403 (проверено). Поэтому и чтение, и запись идут
+   в два шага:
+   1) короткий запрос на Cloud Function `photo-sign` (см. functions/photo-sign/,
+      раздел README B3) — она держит секретный ключ и отдаёт подписанную
+      (presigned) ссылку на GET/LIST/PUT/DELETE с коротким временем жизни;
+   2) сам GET/LIST/PUT/DELETE клиент делает напрямую в бакет по этой ссылке —
+      тело файла через функцию не идёт. YANDEX_CLOUD_CONFIG.signFnUrl — не
+      секрет, просто публичный адрес функции (сам секрет — только в её env). */
 
 function makeCloudStorage() {
   const cfg = YANDEX_CLOUD_CONFIG;
@@ -298,13 +318,19 @@ async function ensureCloudPart(id, part) {
   try {
     const r = await fetchCloudPart(id, part);
     if (!r) return false;
-    const meta = (await photoStore.getMeta(id).catch(() => null)) || {};
-    const meta2 = mergeCloudMeta(meta, r.meta);
-    const exFull = part === 'full' ? r.enc : await photoStore.getEncryptedFull(id).catch(() => null);
-    const exThumb = part === 'thumb' ? r.enc : await photoStore.getEncryptedThumb(id).catch(() => null);
-    const exOrig = part === 'orig' ? r.enc : await photoStore.getEncryptedOrig(id).catch(() => null);
-    await photoStore.putEncrypted(id, exFull, exThumb, meta2, exOrig);
-    return true;
+    // await, не bare return: если fn внутри лока бросит, ошибка должна
+    // всплыть здесь и попасть в catch ниже (bare "return promise" в async-
+    // функции не проходит через окружающий try/catch — исполнение к этому
+    // моменту уже покинуло тело функции).
+    return await withPhotoWriteLock(id, async () => {
+      const meta = (await photoStore.getMeta(id).catch(() => null)) || {};
+      const meta2 = mergeCloudMeta(meta, r.meta);
+      const exFull = part === 'full' ? r.enc : await photoStore.getEncryptedFull(id).catch(() => null);
+      const exThumb = part === 'thumb' ? r.enc : await photoStore.getEncryptedThumb(id).catch(() => null);
+      const exOrig = part === 'orig' ? r.enc : await photoStore.getEncryptedOrig(id).catch(() => null);
+      await photoStore.putEncrypted(id, exFull, exThumb, meta2, exOrig);
+      return true;
+    });
   } catch (e) {
     console.warn('[photo-sync] не удалось докачать часть фото по требованию', id, part, e);
     return false;
@@ -395,11 +421,13 @@ async function downloadThumbsBatch(ids) {
         const txt = await res.text();
         const decoded = decodeCloudPartBody(txt);
         if (!decoded) throw new Error('незнакомый формат облачного файла');
-        const meta = (await photoStore.getMeta(r.id).catch(() => null)) || {};
-        const meta2 = mergeCloudMeta(meta, decoded.meta);
-        const exFull = await photoStore.getEncryptedFull(r.id).catch(() => null);
-        const exOrig = await photoStore.getEncryptedOrig(r.id).catch(() => null);
-        await photoStore.putEncrypted(r.id, exFull, decoded.enc, meta2, exOrig);
+        await withPhotoWriteLock(r.id, async () => {
+          const meta = (await photoStore.getMeta(r.id).catch(() => null)) || {};
+          const meta2 = mergeCloudMeta(meta, decoded.meta);
+          const exFull = await photoStore.getEncryptedFull(r.id).catch(() => null);
+          const exOrig = await photoStore.getEncryptedOrig(r.id).catch(() => null);
+          await photoStore.putEncrypted(r.id, exFull, decoded.enc, meta2, exOrig);
+        });
         try {
           const t = await photoStore.getThumb(r.id);
           if (t) setThumbUrl(r.id, await blobToDataUrl(t));
@@ -501,13 +529,17 @@ async function syncPhotos() {
     };
     // Проверяем расшифровку не для ВСЕХ облачных фото, а только для тех, что
     // ещё не доказаны своими: если id уже в db.photos (want) и все части,
-    // которые есть в облаке, уже лежат у нас локально — мы их когда-то сами
+    // которые мы вообще качаем эagerно (EAGER_DOWNLOAD_PARTS — сейчас только
+    // thumb, см. Task 8), уже лежат у нас локально — мы их когда-то сами
     // расшифровали (создали или уже скачали), повторный запрос+расшифровка
-    // ничего нового не скажут. Проверяем только новое/неполное — кандидатов
-    // на скачивание и на возможную чистку «мусора».
+    // ничего нового не скажут. full/orig сюда не входят намеренно: их эта
+    // ветка больше не качает эagerно вообще, поэтому требовать их локального
+    // наличия означало бы вечный re-probe фото партнёра (см. регрессию C1).
+    // Проверяем только новое/неполное — кандидатов на скачивание и на
+    // возможную чистку «мусора».
     const toProbe = {};
     for (const id of Object.keys(cloud)) {
-      const fullyLocalAndWanted = want.has(id) && PHOTO_PARTS.every(part => !cloud[id][part] || hasPart(id, part));
+      const fullyLocalAndWanted = want.has(id) && EAGER_DOWNLOAD_PARTS.every(part => !cloud[id][part] || hasPart(id, part));
       if (!fullyLocalAndWanted) toProbe[id] = cloud[id];
     }
     // Чужое (другой ключ) НЕ блокирует синхронизацию остальных: свои фото

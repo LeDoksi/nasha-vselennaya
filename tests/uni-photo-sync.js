@@ -418,6 +418,16 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   const origBMissing = await w('(s)=>s.photoStore.getOrig("pB")');
   assert(!origBMissing, 'оригинал pB НЕ докачан эagerно (докачивается по требованию, см. ensureCloudPart)');
 
+  // 4a. C1: pB сейчас в обычном стационарном состоянии фото партнёра — thumb
+  // локально, full/orig только в облаке (и так навсегда, пока фото не
+  // откроют). Раньше probeCloudKeys() требовала ВСЕ PHOTO_PARTS локально,
+  // поэтому такое фото никогда не считалось «доказанным своим» и
+  // перерасшифровывалось заново при КАЖДОЙ сверке — постоянный лишний GET +
+  // decrypt. Повторная сверка не должна больше трогать облачный thumb pB.
+  getCalls.length = 0;
+  await w('(s)=>s.syncPhotos()');
+  assert(!getCalls.some(p => p.indexOf('/pB') !== -1), 'частично докачанное фото партнёра (только thumb) не перепроверяется заново при повторной сверке (C1)');
+
   // 4b. ensureCloudPart: докачка ОДНОЙ части по требованию (NV-7) — не через
   // полную сверку syncPhotos(), а как это будет вызываться из photoUrl()
   // при открытии фото, локально которого ещё нет (фоновая очередь качает
@@ -535,6 +545,22 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert((await w('(s)=>s.photoStore.getMeta("pN")')) !== null, 'локальные фото при недоступном хранилище не трогаются');
   mockBucket['/photos/thumb/pN'] = 'restored';
   assert(JSON.stringify(Object.keys(mockBucket).sort()) === bucketBefore, 'состав облака после неудачной сверки не изменился');
+
+  // 13. I2: гонка двух конкурентных ensureCloudPart на РАЗНЫЕ части ОДНОГО и
+  // того же фото (например photoUrl(full) + photoOrigUrl(orig) сразу после
+  // зума). Оба читают photoStore.putEncrypted-состояние независимо и потом
+  // пишут обратно — без сериализации по id последняя запись затирает часть,
+  // которую только что сохранил первый вызов. pX: full+orig в облаке, ничего
+  // локально — ровно ситуация «второе устройство открывает фото партнёра».
+  await w('(s)=>s.photoStore.put("pX", new Blob(["FULL-X"]), new Blob(["THUMB-X"]), {type:"image/jpeg",thumbType:"image/webp",title:"X"}, new Blob(["ORIG-X"]))');
+  w('(s)=>{s.db.photos.unshift({id:"pX",title:"X",labels:[],pinned:false,ts:7,order:0});return 1;}');
+  await w('(s)=>s.syncPhotos()'); // выгружаем все три части как «первое устройство»
+  await w('(s)=>{s.photoStore.delete("pX"); return 1;}'); // локально пусто — «второе устройство»
+  const [gotFullX, gotOrigX] = await w('(s)=>Promise.all([s.ensureCloudPart("pX","full"), s.ensureCloudPart("pX","orig")])');
+  assert(gotFullX === true && gotOrigX === true, 'обе конкурентные докачки отчитались об успехе');
+  const fullXAfter = await w('(s)=>s.photoStore.getFull("pX")');
+  const origXAfter = await w('(s)=>s.photoStore.getOrig("pX")');
+  assert(!!fullXAfter && !!origXAfter, 'конкурентные ensureCloudPart на разные части одного фото не затирают друг друга (I2): обе части сохранились локально');
 
   console.log('OK: ' + results.length + ' photo-sync checks passed');
 })().catch(e => {

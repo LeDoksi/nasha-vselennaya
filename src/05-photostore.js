@@ -620,7 +620,11 @@ async function photoUrl(p, useThumb = true) {
       // требованию прямо здесь. Светбокс тем временем уже показывает
       // миниатюру из кэша (см. src/85-lightbox.js, lbRender), пока этот
       // промис в полёте — пользователь не смотрит на пустоту.
-      if (!blob && (await ensureCloudPart(p.id, 'full'))) {
+      // !useThumb: этот фоллбэк — только для светбокса. В режиме грида
+      // (useThumb=true) миниатюра, которую ещё не докачала фоновая очередь,
+      // НЕ должна тянуть за собой full-разрешение на маленькую плитку — это
+      // именно тот эagerный трафик, ради устранения которого вся эта ветка.
+      if (!useThumb && !blob && (await ensureCloudPart(p.id, 'full'))) {
         blob = await photoStore.getFull(p.id);
       }
       if (blob) {
