@@ -362,14 +362,16 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{s.db.photos = s.db.photos.filter(p => p.id !== "pRace"); return 1;}');
   await w('(s)=>s.syncPhotos()'); // чистим за собой, чтобы не мешать следующим сценариям
 
-  // 3. «Второе устройство»: стор пуст, облако уже знает фото — скачиваем всё назад
+  // 3. «Второе устройство»: стор пуст, облако уже знает фото — эagerно
+  // скачивается ТОЛЬКО миниатюра (модель iCloud, NV-7); full/orig качаются
+  // лениво по требованию (см. Task 7, ensureCloudPart, и Task 9, photoUrl).
   await w('(s)=>{s.photoStore.clear(); return 1;}');
   await w('(s)=>s.syncPhotos()');
   assert((await w('(s)=>s.photoStore.getMeta("pA")')) !== null, 'фото скачано из облака в store');
   const idsA = await w('(s)=>s.photoStore.listIds()');
   assert(
-    idsA.some(i => i.id === 'pA' && i.hasOrig && i.hasFull && i.hasThumb),
-    'скачаны все три части фото'
+    idsA.some(i => i.id === 'pA' && i.hasThumb && !i.hasFull && !i.hasOrig),
+    'фоновая сверка качает только миниатюру — full/orig НЕ докачиваются эagerно (NV-7)'
   );
   assert(
     signCalls.some(c => c.method === 'GET' && c.part === 'thumb' && c.id === 'pA'),
@@ -380,15 +382,19 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
     'листинг бакета теперь запрашивает подписанную ссылку у photo-sign, а не читает бакет анонимно (NV-7)'
   );
 
-  // 4. Фото, загруженное партнёром (в облаке есть pB, локально нет) — докачивается.
+  // 4. Фото, загруженное партнёром (в облаке есть pB, локально нет) —
+  // эagerно докачивается только миниатюра (NV-7); полный тест ensureCloudPart
+  // (докачка orig по требованию) — сценарий 4b ниже.
   await w('(s)=>s.photoStore.put("pB", new Blob(["FULL-B"]), new Blob(["THUMB-B"]), {type:"image/png",thumbType:"image/webp",title:"Фото Б"}, new Blob(["ORIG-B"]))');
   w('(s)=>{s.db.photos.unshift({id:"pB",title:"Фото Б",labels:[],pinned:false,ts:2,order:1});return 1;}');
   await w('(s)=>s.syncPhotos()');
   await w('(s)=>{s.photoStore.delete("pB"); return 1;}');
   await w('(s)=>s.syncPhotos()');
-  assert((await w('(s)=>s.photoStore.getMeta("pB")')) !== null, 'фото pB скачано из облака');
-  const origB = await w('(s)=>s.photoStore.getOrig("pB")');
-  assert(origB && origB.type === 'image/png', 'оригинал pB сохранил свой тип после кругосветки');
+  assert((await w('(s)=>s.photoStore.getMeta("pB")')) !== null, 'фото pB: сведения о нём появились локально (thumb скачан)');
+  const thumbB = await w('(s)=>s.photoStore.getThumb("pB")');
+  assert(!!thumbB, 'миниатюра pB докачана эagerно');
+  const origBMissing = await w('(s)=>s.photoStore.getOrig("pB")');
+  assert(!origBMissing, 'оригинал pB НЕ докачан эagerно (докачивается по требованию, см. ensureCloudPart)');
 
   // 4b. ensureCloudPart: докачка ОДНОЙ части по требованию (NV-7) — не через
   // полную сверку syncPhotos(), а как это будет вызываться из photoUrl()

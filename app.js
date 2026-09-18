@@ -6047,6 +6047,12 @@ function withTimeout(promise, ms) {
    нескольких фото идёт параллельно (см. mapLimit) — иначе первый вход на новом
    устройстве с большой галереей тянул бы фото одно за другим. */
 const PHOTO_PARTS = ['orig', 'full', 'thumb'];
+// Фоновая очередь (syncPhotos) качает эagerно ТОЛЬКО миниатюры — модель
+// iCloud (NV-7): full/orig докачиваются по требованию через ensureCloudPart
+// (см. Task 7), когда фото реально открывают. Выгрузка (uploadCloudPhoto)
+// не сужается — свои новые фото уходят в облако всеми тремя частями сразу,
+// они и так уже есть локально в момент добавления.
+const EAGER_DOWNLOAD_PARTS = ['thumb'];
 let syncStorage = null; // Yandex Object Storage (S3)
 let photoSyncTimer = null; // debounce после операций с фото
 let photoSyncing = false; // защита от параллельных сверок
@@ -6324,10 +6330,10 @@ async function uploadCloudPhoto(id, cloud, local) {
 // Скачивание недостающих частей фото из облака (без повторного шифрования).
 // Части (orig/full/thumb) качаются параллельно, а не по очереди — раньше
 // одно фото ждало трёх последовательных запросов, теперь одного «раунда».
-async function downloadCloudPhoto(id, cloud, local) {
+async function downloadCloudPhoto(id, cloud, local, parts = PHOTO_PARTS) {
   try {
     const meta = (local && (await photoStore.getMeta(id).catch(() => null))) || {};
-    const need = PHOTO_PARTS.filter(part => {
+    const need = parts.filter(part => {
       const hasCloud = cloud[id] && cloud[id][part];
       const hasLocal = local && local['has' + part[0].toUpperCase() + part.slice(1)];
       return hasCloud && !hasLocal;
@@ -6500,7 +6506,7 @@ async function syncPhotos() {
     //    параллельно, не более SYNC_CONCURRENCY фото одновременно.
     const toDownload = [...want].filter(id => {
       if (isSkipped(id)) return false;
-      return PHOTO_PARTS.some(part => cloud[id] && cloud[id][part] && !hasPart(id, part));
+      return EAGER_DOWNLOAD_PARTS.some(part => cloud[id] && cloud[id][part] && !hasPart(id, part));
     });
     // Гонка с другим устройством: запись о фото (в базе) обычно долетает
     // быстрее, чем сам файл (сама запись — маленький документ Firestore, а
@@ -6519,7 +6525,7 @@ async function syncPhotos() {
     });
     if (pendingElsewhere) stats.retrySoon = true;
     await mapLimit(toDownload, SYNC_CONCURRENCY, async id => {
-      const res = await downloadCloudPhoto(id, cloud, localMap.get(id));
+      const res = await downloadCloudPhoto(id, cloud, localMap.get(id), EAGER_DOWNLOAD_PARTS);
       if (res && res.ok) stats.downloaded++;
       else {
         stats.failed++;
