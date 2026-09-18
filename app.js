@@ -6202,6 +6202,69 @@ function photoRef(part, id) {
   return syncStorage.ref('photos/' + part + '/' + id);
 }
 
+// Разбирает тело части фото из облака: новый формат {e: шифртекст, m: meta}
+// и легаси {i, d} (само тело — шифртекст без обёртки meta) — оба формата уже
+// умел различать downloadCloudPhoto, здесь это вынесено в общий хелпер, т.к.
+// теперь тем же кодом пользуется и ensureCloudPart (NV-7).
+function decodeCloudPartBody(txt) {
+  const parsed = JSON.parse(txt);
+  const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
+  return enc ? { enc, meta: parsed.m || null } : null;
+}
+
+// Накладывает несекретные MIME/размер из облачной обёртки поверх локального
+// meta (см. payload в uploadCloudPhoto) — тоже общее место для
+// downloadCloudPhoto и ensureCloudPart.
+function mergeCloudMeta(meta, cloudMeta) {
+  const out = { ...meta };
+  if (cloudMeta) {
+    if (cloudMeta.t) out.origType = cloudMeta.t;
+    if (cloudMeta.ft) out.type = cloudMeta.ft;
+    if (cloudMeta.st) out.thumbType = cloudMeta.st;
+    if (cloudMeta.s) out.size = cloudMeta.s;
+  }
+  return out;
+}
+
+// Скачивает и разбирает ОДНУ часть фото из облака (без сохранения в store —
+// это забота вызывающего). null — части нет или формат не распознан.
+async function fetchCloudPart(id, part) {
+  const data = await photoRef(part, id).getBlob();
+  if (!data) return null;
+  const txt = typeof data === 'string' ? data : await data.text();
+  return decodeCloudPartBody(txt);
+}
+
+// Докачивает ОДНУ часть фото по требованию — не из фоновой очереди
+// (syncPhotos качает эagerно только thumb, см. Task 8), а в момент, когда
+// она реально понадобилась: photoUrl()/photoOrigUrl() (src/05-photostore.js)
+// зовут это, когда локального блоба нет. Возвращает true, если часть теперь
+// доступна локально (уже была или только что докачана). Пока не вызывается
+// из app.js (это Task 9, photoUrl()/photoOrigUrl()) — как и stopPhotoSync
+// выше, глушим no-unused-vars явно.
+// eslint-disable-next-line no-unused-vars
+async function ensureCloudPart(id, part) {
+  if (!photoStore || !id) return false;
+  const getter = 'getEncrypted' + part[0].toUpperCase() + part.slice(1);
+  const already = await photoStore[getter](id).catch(() => null);
+  if (already) return true;
+  if (!syncStorage || !masterKey) return false;
+  try {
+    const r = await fetchCloudPart(id, part);
+    if (!r) return false;
+    const meta = (await photoStore.getMeta(id).catch(() => null)) || {};
+    const meta2 = mergeCloudMeta(meta, r.meta);
+    const exFull = part === 'full' ? r.enc : await photoStore.getEncryptedFull(id).catch(() => null);
+    const exThumb = part === 'thumb' ? r.enc : await photoStore.getEncryptedThumb(id).catch(() => null);
+    const exOrig = part === 'orig' ? r.enc : await photoStore.getEncryptedOrig(id).catch(() => null);
+    await photoStore.putEncrypted(id, exFull, exThumb, meta2, exOrig);
+    return true;
+  } catch (e) {
+    console.warn('[photo-sync] не удалось докачать часть фото по требованию', id, part, e);
+    return false;
+  }
+}
+
 // Запуск сверки фото (debounce 1.2 с — было 2.5, снижено вместе с
 // оптимизацией самой сверки: listIds() больше не читает блобы, а probe не
 // перепроверяет уже свои фото, так что каждый прогон стал заметно дешевле):
@@ -6271,33 +6334,23 @@ async function downloadCloudPhoto(id, cloud, local) {
     });
     const fetched = await Promise.all(
       need.map(async part => {
-        const data = await photoRef(part, id).getBlob();
-        const txt = typeof data === 'string' ? data : await data.text();
-        const parsed = JSON.parse(txt);
-        // Новый формат { e: шифртекст, m: {t,ft,st,s} } и старый { i, d } — оба понимаем
-        const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
-        return { part, enc, m: parsed && parsed.m };
+        const r = await fetchCloudPart(id, part).catch(() => null);
+        return { part, r };
       })
     );
     const got = {};
     let gotMeta = null;
     for (const f of fetched) {
-      if (!f.enc) continue;
-      got[f.part] = f.enc;
-      if (f.m && !gotMeta) gotMeta = f.m;
+      if (!f.r) continue;
+      got[f.part] = f.r.enc;
+      if (f.r.meta && !gotMeta) gotMeta = f.r.meta;
     }
     if (!got.orig && !got.full && !got.thumb) return { ok: false, err: new Error('в облаке нет частей для скачивания') };
     // Сохраняем всё разом, чтобы не потерять уже имеющиеся локальные части
     const exOrig = local && local.hasOrig ? await photoStore.getEncryptedOrig(id) : null;
     const exFull = local && local.hasFull ? await photoStore.getEncryptedFull(id) : null;
     const exThumb = local && local.hasThumb ? await photoStore.getEncryptedThumb(id) : null;
-    const meta2 = { ...meta };
-    if (gotMeta) {
-      if (gotMeta.t) meta2.origType = gotMeta.t;
-      if (gotMeta.ft) meta2.type = gotMeta.ft;
-      if (gotMeta.st) meta2.thumbType = gotMeta.st;
-      if (gotMeta.s) meta2.size = gotMeta.s;
-    }
+    const meta2 = mergeCloudMeta(meta, gotMeta);
     await photoStore.putEncrypted(id, got.full || exFull, got.thumb || exThumb, meta2, got.orig || exOrig);
     // Приехала миниатюра — прогреваем кэш, фото сразу показывается в галерее
     try {

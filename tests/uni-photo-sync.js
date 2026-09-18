@@ -264,6 +264,7 @@ function __TEST__(s){
   s.initPhotoSync = initPhotoSync; s.stopPhotoSync = stopPhotoSync;
   s.syncPhotos = syncPhotos; s.schedulePhotoSync = schedulePhotoSync; s.listCloudPhotos = listCloudPhotos;
   s.probeCloudKeys = probeCloudKeys;
+  s.ensureCloudPart = ensureCloudPart;
 }
 `;
 
@@ -388,6 +389,23 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert((await w('(s)=>s.photoStore.getMeta("pB")')) !== null, 'фото pB скачано из облака');
   const origB = await w('(s)=>s.photoStore.getOrig("pB")');
   assert(origB && origB.type === 'image/png', 'оригинал pB сохранил свой тип после кругосветки');
+
+  // 4b. ensureCloudPart: докачка ОДНОЙ части по требованию (NV-7) — не через
+  // полную сверку syncPhotos(), а как это будет вызываться из photoUrl()
+  // при открытии фото, локально которого ещё нет (фоновая очередь качает
+  // только thumb, full/orig — по требованию).
+  await w('(s)=>{s.photoStore.delete("pB"); return 1;}'); // pB сейчас есть в облаке (см. сценарий 4) — убираем локально
+  const gotOrig = await w('(s)=>s.ensureCloudPart("pB", "orig")');
+  assert(gotOrig === true, 'ensureCloudPart скачивает недостающую часть и возвращает true');
+  const origAfter = await w('(s)=>s.photoStore.getOrig("pB")');
+  assert(origAfter && origAfter.type === 'image/png', 'ensureCloudPart сохранил часть с верным типом');
+  const alreadyHave = await w('(s)=>s.ensureCloudPart("pB", "orig")');
+  assert(alreadyHave === true, 'ensureCloudPart на уже докачанную часть возвращает true без повторного похода в облако');
+  getCalls.length = 0;
+  await w('(s)=>s.ensureCloudPart("pB", "orig")');
+  assert(!getCalls.some(p => p.indexOf('/pB') !== -1), 'ensureCloudPart не перезапрашивает часть, которая уже локально');
+  const missingPart = await w('(s)=>s.ensureCloudPart("no-such-id", "orig")');
+  assert(missingPart === false, 'ensureCloudPart на несуществующее в облаке фото возвращает false, не бросает исключение');
 
   // 5. Бэкфилл: старое фото без оригинала — уходят только показ-версия и миниатюра
   await w('(s)=>s.photoStore.put("pOld", new Blob(["FULL-OLD"]), new Blob(["THUMB-OLD"]), {type:"image/jpeg"}, null)');
