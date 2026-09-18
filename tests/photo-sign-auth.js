@@ -134,6 +134,12 @@ function makeToken(payloadOverrides, headerOverrides) {
   const resBadMethod = await fn.handler(evBadMethod);
   assert(resBadMethod.statusCode === 400, 'handler всё ещё валидирует method после авторизации');
 
+  // --- presign(): доп. query-параметры и срок жизни не ломают обычный PUT/DELETE ---
+  const resPutStillWorks = await fn.handler({ httpMethod: 'GET', headers: { 'X-Firebase-Token': good }, queryStringParameters: { method: 'DELETE', part: 'thumb', id: 'photo9' } });
+  assert(resPutStillWorks.statusCode === 200, 'presign: DELETE по-прежнему подписывается с дефолтным EXPIRES_SECONDS (регресс после рефакторинга presign)');
+  const putBody = JSON.parse(resPutStillWorks.body);
+  assert(putBody.url.includes('X-Amz-Expires=60'), 'presign: PUT/DELETE используют EXPIRES_SECONDS=60, а не GET_EXPIRES_SECONDS');
+
   if (failed) process.exit(1);
   console.log('OK: photo-sign auth — валидный/просроченный/чужой/поддельный/неавторизованный токены обработаны верно');
 })().catch(e => {

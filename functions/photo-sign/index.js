@@ -54,6 +54,8 @@ const SECRET_KEY = process.env.YC_S3_SECRET;
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'nasha-vselennaya';
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://ledoksi.github.io';
 const EXPIRES_SECONDS = 60; // ссылка живёт минуту — достаточно, чтобы сразу ей воспользоваться
+// eslint-disable-next-line no-unused-vars
+const GET_EXPIRES_SECONDS = 300; // чтение (в т.ч. пачка миниатюр) может идти дольше на слабой сети
 // Гейт: сайт закрыт Google-входом на 2 email (src/01-gate.js, ALLOWED_EMAILS).
 // Раньше сюда пускал любой валидный (в т.ч. анонимный) Firebase-токен — теперь
 // проверяем ещё и email из самого токена, иначе анонимный вход (если его не
@@ -132,7 +134,7 @@ function sha256hex(msg) {
 
 // AWS SigV4, вариант с подписью в query-параметрах (presigned URL), а не в
 // заголовке Authorization — так браузер может использовать ссылку напрямую.
-function presign(method, objectPath) {
+function presign(method, objectPath, extraQuery, expiresSeconds) {
   const host = BUCKET + '.storage.yandexcloud.net';
   const now = new Date();
   const amzDate = now
@@ -144,10 +146,11 @@ function presign(method, objectPath) {
   const credential = ACCESS_KEY + '/' + scope;
 
   const qp = {
+    ...extraQuery,
     'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
     'X-Amz-Credential': credential,
     'X-Amz-Date': amzDate,
-    'X-Amz-Expires': String(EXPIRES_SECONDS),
+    'X-Amz-Expires': String(expiresSeconds || EXPIRES_SECONDS),
     'X-Amz-SignedHeaders': 'host'
   };
   const canonicalQuery = Object.keys(qp)
