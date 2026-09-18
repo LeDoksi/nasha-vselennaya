@@ -81,6 +81,7 @@ const firebase = {
 const mockBucket = {};
 const SIGN_FN_URL = 'https://functions.yandexcloud.net/mock-photo-sign';
 const signCalls = []; // для проверки, что запись реально идёт через функцию
+const batchCalls = []; // POST-батчи presign для фоновой очереди миниатюр (NV-7, Task 9)
 const getCalls = []; // GET-запросы к конкретным объектам (не список) — для проверки, что уже свои фото не перепроверяются заново
 const timeoutCalls = []; // задержки setTimeout из sync-модуля — проверить, что «висящее» фото планирует быстрый повтор (3с), а не 20с
 let paginateLimit = null; // не null в тесте пагинации — режет список на страницы по N ключей
@@ -112,6 +113,12 @@ async function fetchMock(url, opts) {
   const qIdx = full.indexOf('?');
   const pathname = qIdx === -1 ? full : full.slice(0, qIdx);
   if (String(url).indexOf(SIGN_FN_URL) === 0) {
+    if ((opts && opts.method) === 'POST') {
+      batchCalls.push(JSON.parse(opts.body));
+      const items = JSON.parse(opts.body).items;
+      const results = items.map(it => ({ id: it.id, part: it.part, url: 'https://nasha-vselennaya.storage.yandexcloud.net/photos/' + it.part + '/' + it.id + '?X-Amz-Signature=mock' }));
+      return { ok: true, status: 200, json: () => Promise.resolve({ results }) };
+    }
     // Мок функции подписи: не проверяет секрет (его тут и нет), просто
     // возвращает «подписанную» ссылку на тот же мок-бакет — signature фиктивна,
     // мок PUT/DELETE её не проверяет (проверка подписи — забота реального S3,
@@ -373,9 +380,10 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
     idsA.some(i => i.id === 'pA' && i.hasThumb && !i.hasFull && !i.hasOrig),
     'фоновая сверка качает только миниатюру — full/orig НЕ докачиваются эagerно (NV-7)'
   );
+  assert(batchCalls.length >= 1, 'фоновая очередь миниатюр запрашивает пачку подписей одним POST-вызовом, а не по одному GET на фото (NV-7)');
   assert(
-    signCalls.some(c => c.method === 'GET' && c.part === 'thumb' && c.id === 'pA'),
-    'скачивание миниатюры теперь запрашивает подписанную ссылку у photo-sign, а не читает бакет анонимно (NV-7)'
+    batchCalls[0].items.some(it => it.id === 'pA' && it.part === 'thumb'),
+    'batch-запрос содержит нужную миниатюру'
   );
   assert(
     signCalls.some(c => c.method === 'LIST'),

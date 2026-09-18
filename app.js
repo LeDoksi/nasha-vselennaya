@@ -6200,6 +6200,21 @@ function makeCloudStorage() {
           return { items, prefixes: [] };
         }
       };
+    },
+    // Пачка presigned GET-ссылок одним HTTP-запросом — используется фоновой
+    // очередью миниатюр (NV-7), чтобы не делать по одному запросу подписи на
+    // каждое фото. items: [{part, id}]. Возвращает [{id,part,url}|{id,part,error}].
+    async batchPresignGet(items) {
+      if (!cfg.signFnUrl || !items.length) return [];
+      const authHeaders = await firebaseAuthHeader();
+      const res = await fetch(cfg.signFnUrl, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items })
+      });
+      if (!res.ok) throw new Error('sign-fn batch ' + res.status);
+      const { results } = await res.json();
+      return results || [];
     }
   };
 }
@@ -6209,9 +6224,9 @@ function photoRef(part, id) {
 }
 
 // Разбирает тело части фото из облака: новый формат {e: шифртекст, m: meta}
-// и легаси {i, d} (само тело — шифртекст без обёртки meta) — оба формата уже
-// умел различать downloadCloudPhoto, здесь это вынесено в общий хелпер, т.к.
-// теперь тем же кодом пользуется и ensureCloudPart (NV-7).
+// и легаси {i, d} (само тело — шифртекст без обёртки meta) — оба формата
+// нужно различать и в фоновой докачке миниатюр (downloadThumbsBatch), и в
+// ensureCloudPart (NV-7), поэтому вынесено в общий хелпер.
 function decodeCloudPartBody(txt) {
   const parsed = JSON.parse(txt);
   const enc = parsed && parsed.e && typeof parsed.e.d === 'string' ? parsed.e : parsed && typeof parsed.d === 'string' ? parsed : null;
@@ -6220,7 +6235,7 @@ function decodeCloudPartBody(txt) {
 
 // Накладывает несекретные MIME/размер из облачной обёртки поверх локального
 // meta (см. payload в uploadCloudPhoto) — тоже общее место для
-// downloadCloudPhoto и ensureCloudPart.
+// downloadThumbsBatch и ensureCloudPart.
 function mergeCloudMeta(meta, cloudMeta) {
   const out = { ...meta };
   if (cloudMeta) {
@@ -6327,47 +6342,51 @@ async function uploadCloudPhoto(id, cloud, local) {
   }
 }
 
-// Скачивание недостающих частей фото из облака (без повторного шифрования).
-// Части (orig/full/thumb) качаются параллельно, а не по очереди — раньше
-// одно фото ждало трёх последовательных запросов, теперь одного «раунда».
-async function downloadCloudPhoto(id, cloud, local, parts = PHOTO_PARTS) {
-  try {
-    const meta = (local && (await photoStore.getMeta(id).catch(() => null))) || {};
-    const need = parts.filter(part => {
-      const hasCloud = cloud[id] && cloud[id][part];
-      const hasLocal = local && local['has' + part[0].toUpperCase() + part.slice(1)];
-      return hasCloud && !hasLocal;
-    });
-    const fetched = await Promise.all(
-      need.map(async part => {
-        const r = await fetchCloudPart(id, part).catch(() => null);
-        return { part, r };
-      })
-    );
-    const got = {};
-    let gotMeta = null;
-    for (const f of fetched) {
-      if (!f.r) continue;
-      got[f.part] = f.r.enc;
-      if (f.r.meta && !gotMeta) gotMeta = f.r.meta;
-    }
-    if (!got.orig && !got.full && !got.thumb) return { ok: false, err: new Error('в облаке нет частей для скачивания') };
-    // Сохраняем всё разом, чтобы не потерять уже имеющиеся локальные части
-    const exOrig = local && local.hasOrig ? await photoStore.getEncryptedOrig(id) : null;
-    const exFull = local && local.hasFull ? await photoStore.getEncryptedFull(id) : null;
-    const exThumb = local && local.hasThumb ? await photoStore.getEncryptedThumb(id) : null;
-    const meta2 = mergeCloudMeta(meta, gotMeta);
-    await photoStore.putEncrypted(id, got.full || exFull, got.thumb || exThumb, meta2, got.orig || exOrig);
-    // Приехала миниатюра — прогреваем кэш, фото сразу показывается в галерее
+// Эagerная докачка миниатюр пачками (NV-7): вместо downloadCloudPhoto по
+// одному id (который сам по себе дёргает presign на каждую часть) — один
+// batch-запрос подписи на BATCH_SIZE миниатюр сразу, потом сами байты
+// параллельно (mapLimit, тот же SYNC_CONCURRENCY, что и раньше).
+const THUMB_BATCH_SIZE = 100; // совпадает с MAX_BATCH_ITEMS на стороне функции
+async function downloadThumbsBatch(ids) {
+  const stats = { downloaded: 0, failed: 0 };
+  for (let i = 0; i < ids.length; i += THUMB_BATCH_SIZE) {
+    const chunk = ids.slice(i, i + THUMB_BATCH_SIZE);
+    let results;
     try {
-      const t = await photoStore.getThumb(id);
-      if (t) setThumbUrl(id, await blobToDataUrl(t));
-    } catch (e) {}
-    return { ok: true };
-  } catch (e) {
-    console.warn('[photo-sync] не удалось скачать фото ' + id, e);
-    return { ok: false, err: e };
+      results = await syncStorage.batchPresignGet(chunk.map(id => ({ part: 'thumb', id })));
+    } catch (e) {
+      console.warn('[photo-sync] batch-подпись миниатюр не удалась', e);
+      stats.failed += chunk.length;
+      continue;
+    }
+    await mapLimit(results, SYNC_CONCURRENCY, async r => {
+      if (!r || r.error || !r.url) {
+        stats.failed++;
+        return;
+      }
+      try {
+        const res = await fetch(r.url);
+        if (!res.ok) throw new Error('S3 ' + res.status + ' thumb/' + r.id);
+        const txt = await res.text();
+        const decoded = decodeCloudPartBody(txt);
+        if (!decoded) throw new Error('незнакомый формат облачного файла');
+        const meta = (await photoStore.getMeta(r.id).catch(() => null)) || {};
+        const meta2 = mergeCloudMeta(meta, decoded.meta);
+        const exFull = await photoStore.getEncryptedFull(r.id).catch(() => null);
+        const exOrig = await photoStore.getEncryptedOrig(r.id).catch(() => null);
+        await photoStore.putEncrypted(r.id, exFull, decoded.enc, meta2, exOrig);
+        try {
+          const t = await photoStore.getThumb(r.id);
+          if (t) setThumbUrl(r.id, await blobToDataUrl(t));
+        } catch (e) {}
+        stats.downloaded++;
+      } catch (e) {
+        console.warn('[photo-sync] не удалось докачать миниатюру ' + r.id, e);
+        stats.failed++;
+      }
+    });
   }
+  return stats;
 }
 
 // Параллельно выполняет fn по items, не более limit одновременно — чтобы
@@ -6524,14 +6543,12 @@ async function syncPhotos() {
       return !hasAnyLocal && !hasAnyCloud;
     });
     if (pendingElsewhere) stats.retrySoon = true;
-    await mapLimit(toDownload, SYNC_CONCURRENCY, async id => {
-      const res = await downloadCloudPhoto(id, cloud, localMap.get(id), EAGER_DOWNLOAD_PARTS);
-      if (res && res.ok) stats.downloaded++;
-      else {
-        stats.failed++;
-        stats.retry = true;
-      }
-    });
+    const thumbStats = await downloadThumbsBatch(toDownload);
+    stats.downloaded += thumbStats.downloaded;
+    if (thumbStats.failed) {
+      stats.failed += thumbStats.failed;
+      stats.retry = true;
+    }
     // 4. Выгружаем недостающее в облако (новые фото + бэкфилл старых) —
     //    тоже параллельно.
     const toUpload = [...want].filter(id => {
