@@ -40,3 +40,4 @@ app.min.js
 
 # Отчёт покрытия тестов (Фаза 5, npm run coverage) — генерируется заново
 coverage/
+docs/superpowers/baseline/lh-*.json
