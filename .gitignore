@@ -10,13 +10,16 @@ Desktop.ini
 # Скриншоты ручных проверок из браузера
 browser_*.png
 
-# Dev-инструменты (не нужны в репозитории)
+# Dev-инструменты. Черновые остаются локальными, инфраструктура редизайна —
+# в репозитории: без стенда и съёмщика редизайн нечем проверить, а без
+# fetch-fonts.js через год никто не вспомнит, откуда взялись woff2 в fonts/.
 tools/*.png
-tools/browser-check.js
-tools/browser-check-results.txt
 tools/patch-dnd.js
 tools/serve.js
+tools/browser-check-results.txt
 
+# Скриншоты прогонов — локальные. В git уходят только выводы (README, metrics).
+docs/superpowers/baseline/**/*.png
 
 # Temporary debug scripts (not for the repo)
 tmp-*.js
