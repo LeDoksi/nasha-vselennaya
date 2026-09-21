@@ -192,8 +192,6 @@ main{max-width:1100px;margin:0 auto;padding:28px 20px 90px}
   box-shadow:0 8px 20px rgba(236,72,153,.25);
 }
 .btn:hover{transform:translateY(-2px)}
-.btn-plain{background:transparent;color:var(--violet2);box-shadow:none;padding:8px 4px;width:100%;justify-content:center}
-[data-theme="dark"] .btn-plain{color:#c4b5fd}
 .btn-danger{background:linear-gradient(135deg,#dc2626,#be185d)}
 .file-btn{position:relative;overflow:hidden;cursor:pointer}
 input[type=text],input[type=date],input[type=time],input[type=password],textarea,select{
@@ -544,15 +542,6 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 [data-theme="dark"] .dp-foot{border-color:#4c3d6a}
 /* Озвучка даты для скринридера: визуально скрыто, но читается (role=status) */
 .dp-live{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);border:0;white-space:nowrap}
-.modal-center{text-align:center;align-items:center}
-.user-sub{color:var(--muted);font-size:var(--text-base)}
-.user-btns{display:flex;gap:14px;margin-top:6px;justify-content:center}
-.user-btn{
-  width:112px;padding:20px 10px;border-radius:var(--radius-lg);border:2px solid var(--border);
-  background:linear-gradient(160deg,#fdfaff,#f3e8ff);font-size:var(--text-lg);font-weight:800;color:var(--ink);
-  cursor:pointer;transition:.25s;line-height:1.4;
-}
-.user-btn:hover{transform:translateY(-4px);border-color:var(--pink2);box-shadow:0 10px 24px rgba(236,72,153,.25)}
 /* Ниже остальных .overlay (те держат общий z-index:100): любая модалка,
    открытая ИЗ лайтбокса поверх уже открытого фото (например «Лейблы» по
    кнопке 🏷), обязана лечь выше него. При равном z-index выигрывает тот, кто
@@ -837,8 +826,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 [data-theme="dark"] .note-editor{background:var(--card);color:var(--ink)}
 [data-theme="dark"] .btn-sm{background:var(--grad);color:#fff}
 [data-theme="dark"] .ev-thumb{border-color:#3d2a50}
-[data-theme="dark"] .note.pinned,[data-theme="dark"] .user-btn{background:linear-gradient(160deg,#3d2a50,#2a1f3a);color:var(--ink)}
-[data-theme="dark"] .user-btn:hover{border-color:var(--pink2)}
+[data-theme="dark"] .note.pinned{background:linear-gradient(160deg,#3d2a50,#2a1f3a);color:var(--ink)}
 [data-theme="dark"] .resp-btn{background:var(--card);color:var(--ink)}
 [data-theme="dark"] .dates-empty{background:var(--card)}
 [data-theme="dark"] .compliment-card{background:linear-gradient(160deg,#3d2a50,#2a1f3a)}
@@ -869,16 +857,10 @@ body:not(.auth) .auth-screen{display:none}
 .auth-logo{font-size:44px;line-height:1}
 .auth-card h1{font-family:var(--font-display);font-size:28px;font-weight:400;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
 .auth-sub{color:var(--muted);font-size:var(--text-base);margin:-4px 0 6px;line-height:1.5}
-.auth-who{display:flex;gap:14px;justify-content:center;margin:6px 0}
-.auth-user{width:auto;flex:1;padding:16px 8px;border-radius:var(--radius-md)}
-.auth-user.auth-on{border-color:var(--violet2);box-shadow:0 8px 22px rgba(236,72,153,.3);transform:translateY(-3px)}
-.auth-label{font-weight:800;font-size:var(--text-sm);color:var(--muted);text-align:left;margin-top:4px}
 .auth-card input[type=password],.auth-card select{width:100%;text-align:center;font-size:var(--text-md);letter-spacing:2px}
 .auth-card select{letter-spacing:normal;text-align:left}
 .auth-err{color:#dc2626;font-weight:700;font-size:var(--text-sm);min-height:18px}
-.auth-hint{color:var(--muted);font-size:var(--text-sm);line-height:1.5}
 [data-theme="dark"] .auth-err{color:#fca5a5}
-[data-theme="dark"] .auth-user{background:linear-gradient(160deg,#3d2a50,#2a1f3a);color:var(--ink)}
 [data-theme="dark"] .auth-card{background:var(--card)}
 
 /* ===== Доступность: видимый фокус для клавиатуры =====
@@ -1061,8 +1043,6 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 [data-theme="dark"] .empty-state,[data-theme="dark"] .dates-empty,[data-theme="dark"] .rem-empty{
   background:var(--glass-bg);border-color:var(--violet2)
 }
-.empty-state .es-emoji{display:block;font-size:var(--text-2xl);margin-bottom:6px}
-
 /* ===== Фаза D: микро-анимации ===== */
 @keyframes cardIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
 .view.active .note,.view.active .list-card,.view.active .wish{animation:cardIn .38s ease both}

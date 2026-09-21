@@ -1,0 +1,910 @@
+[
+  {
+    "selector": "/* ===== Наша вселенная — styles.css ===== */\n/* Фаза D: локальный вариативный шрифт Nunito (woff2 в репозитории).\n   Кириллица и латиница — двумя файлами; весь диапазон весов (100–900) в одном файле. */\n@font-face",
+    "line": 1
+  },
+  {
+    "selector": "@font-face",
+    "line": 11
+  },
+  {
+    "selector": "/* Фаза 4: второй, характерный шрифт для заголовков и крупных чисел — тёплая\n   декоративная антиква (не нейтральный Nunito) для мест, где уместен акцент:\n   H1, «Наша память»/аналогичные заголовки разделов, «N лет/дней вместе».\n   Один статичный начерк (400) — display-гарнитуры обычно и используются одним\n   весом на крупном размере, вариативность тут не нужна. */\n@font-face",
+    "line": 19
+  },
+  {
+    "selector": "@font-face",
+    "line": 32
+  },
+  {
+    "selector": ".container",
+    "line": 114
+  },
+  {
+    "selector": "0%,100%",
+    "line": 158
+  },
+  {
+    "selector": ".nav-btn:hover",
+    "line": 175
+  },
+  {
+    "selector": ".btn:hover",
+    "line": 193
+  },
+  {
+    "selector": "input:focus,textarea:focus",
+    "line": 200
+  },
+  {
+    "selector": "0%,100%",
+    "line": 227
+  },
+  {
+    "selector": ".btn-date:hover",
+    "line": 227
+  },
+  {
+    "selector": ".date-card.done",
+    "line": 232
+  },
+  {
+    "selector": ".date-card.done .date-info b",
+    "line": 233
+  },
+  {
+    "selector": ".resp-btn:hover",
+    "line": 243
+  },
+  {
+    "selector": ".resp-btn.on",
+    "line": 244
+  },
+  {
+    "selector": ".resp-btn.no.on",
+    "line": 245
+  },
+  {
+    "selector": ".tag",
+    "line": 247
+  },
+  {
+    "selector": ".tag-today",
+    "line": 248
+  },
+  {
+    "selector": "/* ===== Модалка «свидание» ===== */\n.two-col",
+    "line": 249
+  },
+  {
+    "selector": ".two-col .field",
+    "line": 252
+  },
+  {
+    "selector": ".two-col .field input",
+    "line": 253
+  },
+  {
+    "selector": ".modal textarea",
+    "line": 254
+  },
+  {
+    "selector": "/* Завершённое свидание в календаре */\n.date-evt.date-done",
+    "line": 255
+  },
+  {
+    "selector": ".date-evt.date-done span",
+    "line": 258
+  },
+  {
+    "selector": ".cal-nav:hover",
+    "line": 275
+  },
+  {
+    "selector": ".cal-jump:hover",
+    "line": 281
+  },
+  {
+    "selector": ".cal-cell:not(.selected):hover",
+    "line": 303
+  },
+  {
+    "selector": ".cal-cell.in-span",
+    "line": 305
+  },
+  {
+    "selector": ".cal-cell.in-span .cal-num",
+    "line": 306
+  },
+  {
+    "selector": ".cal-cell.selected",
+    "line": 308
+  },
+  {
+    "selector": ".cal-cell.selected .cal-num",
+    "line": 309
+  },
+  {
+    "selector": ".cal-dot-more",
+    "line": 317
+  },
+  {
+    "selector": ".day-sub",
+    "line": 319
+  },
+  {
+    "selector": ".date-evt",
+    "line": 320
+  },
+  {
+    "selector": ".day-head",
+    "line": 322
+  },
+  {
+    "selector": ".day-event",
+    "line": 323
+  },
+  {
+    "selector": ".day-event > span",
+    "line": 324
+  },
+  {
+    "selector": ".ev-range",
+    "line": 325
+  },
+  {
+    "selector": ".day-event .ev-thumbs",
+    "line": 326
+  },
+  {
+    "selector": ".ev-thumb",
+    "line": 327
+  },
+  {
+    "selector": ".day-add",
+    "line": 328
+  },
+  {
+    "selector": ".day-add input",
+    "line": 329
+  },
+  {
+    "selector": ".mini-x:hover",
+    "line": 335
+  },
+  {
+    "selector": ".note:hover",
+    "line": 345
+  },
+  {
+    "selector": "/* перетаскиваемую карточку прячем под призраком (старые классы — чип↔фото,\n   05-dnd.js; sortable-* — то же самое, но от SortableJS: реордер заметок/\n   списков/подзадач/фото, см. src/50-notes.js, 60-lists-wishes.js, 70-photos.js) */\n.note.dragging,.note.sortable-ghost",
+    "line": 351
+  },
+  {
+    "selector": ".list-card.dragging,.list-card.sortable-ghost",
+    "line": 355
+  },
+  {
+    "selector": ".photo.dragging,.photo.sortable-ghost",
+    "line": 356
+  },
+  {
+    "selector": ".items li.sortable-ghost",
+    "line": 357
+  },
+  {
+    "selector": "/* sortable-fallback — плавающий клон под курсором в forceFallback-режиме\n   (тач и мышь без нативного HTML5 DnD) — тот же вид, что был у .drag-ghost */\n.sortable-fallback",
+    "line": 358
+  },
+  {
+    "selector": ".drag-handle:hover",
+    "line": 371
+  },
+  {
+    "selector": ".drag-handle:active",
+    "line": 372
+  },
+  {
+    "selector": ".list-name-editor",
+    "line": 377
+  },
+  {
+    "selector": "/* top:8px;left:8px — тот же угол, что у .sel-photo: ручка и кружок выбора\n   теперь взаимоисключающие (режимы «Порядок»/«Выбрать» не активны разом),\n   один и тот же слот на карточке никогда не занят обоими сразу. */\n.photo .drag-handle",
+    "line": 378
+  },
+  {
+    "selector": ".drag-ghost",
+    "line": 385
+  },
+  {
+    "selector": "body.uni-dragging",
+    "line": 390
+  },
+  {
+    "selector": "body.uni-dragging .note:hover,body.uni-dragging .list-card:hover",
+    "line": 391
+  },
+  {
+    "selector": ".photo.drag-over",
+    "line": 392
+  },
+  {
+    "selector": ".note-editor",
+    "line": 393
+  },
+  {
+    "selector": ".note-edit-btns",
+    "line": 394
+  },
+  {
+    "selector": ".btn-sm",
+    "line": 395
+  },
+  {
+    "selector": ".items li:hover",
+    "line": 412
+  },
+  {
+    "selector": ".check:hover",
+    "line": 418
+  },
+  {
+    "selector": ".items li.just-toggled .check",
+    "line": 423
+  },
+  {
+    "selector": ".empty-li",
+    "line": 424
+  },
+  {
+    "selector": "/* Миниатюра ещё не докачана/расшифрована (data-photo-src ждёт hydratePhotoImgs,\n   см. src/05-photostore.js) — до этого у <img> нет src вообще. Без этого\n   правила такой <img> всё равно рисуется браузером как «битый»: рамка +\n   имя файла из alt поверх пустого места (особенно заметно на тёмной теме).\n   visibility:hidden прячет именно это, а не сам тайл — фон карточки\n   (.photo/.note/.wish и т.п.) остаётся виден как нейтральный «загрузка»,\n   и как только hydratePhotoImgs проставит src и снимет атрибут — правило\n   перестаёт совпадать, картинка появляется сама, без доп. JS-логики. */\nimg[data-photo-src]",
+    "line": 432
+  },
+  {
+    "selector": "/* Skeleton-шиммер (Фаза 6), пока миниатюра ждёт data-photo-src выше: вместо\n   голого нейтрального фона — движущийся блик, как в Google/Apple Photos,\n   сразу читается как «загружается», а не «пусто». :has() — на .photo, не на\n   сам <img> (тот visibility:hidden и ничего не красит, фон родителя виден\n   насквозь). Уважает общее глушение анимаций — reduced-motion гасит все\n   keyframes глобально ([data-motion=\"reduced\"] * и prefers-reduced-motion),\n   отдельный оверрайд не нужен, см. .heart/.invitePulse рядом. */\n.photo:has(img[data-photo-src])",
+    "line": 441
+  },
+  {
+    "selector": ".photo:hover img",
+    "line": 454
+  },
+  {
+    "selector": ".modal-x:hover",
+    "line": 485
+  },
+  {
+    "selector": ".modal label",
+    "line": 486
+  },
+  {
+    "selector": ".modal .check",
+    "line": 487
+  },
+  {
+    "selector": ".modal input[type=checkbox]",
+    "line": 488
+  },
+  {
+    "selector": "/* Модалка «добавить дату» — в стиле сайта: градиентная шапка + аккуратные поля */\n.event-modal",
+    "line": 489
+  },
+  {
+    "selector": ".ev-head",
+    "line": 491
+  },
+  {
+    "selector": ".ev-head h3",
+    "line": 492
+  },
+  {
+    "selector": ".ev-head-sub",
+    "line": 493
+  },
+  {
+    "selector": ".event-modal .modal-x",
+    "line": 494
+  },
+  {
+    "selector": ".event-modal .modal-x:hover",
+    "line": 495
+  },
+  {
+    "selector": ".ev-body",
+    "line": 496
+  },
+  {
+    "selector": ".ev-grid",
+    "line": 497
+  },
+  {
+    "selector": ".ev-col",
+    "line": 498
+  },
+  {
+    "selector": ".ev-col label",
+    "line": 499
+  },
+  {
+    "selector": ".ev-note",
+    "line": 500
+  },
+  {
+    "selector": ".ev-photo-count",
+    "line": 501
+  },
+  {
+    "selector": ".ev-save",
+    "line": 502
+  },
+  {
+    "selector": ".event-modal .list-add",
+    "line": 503
+  },
+  {
+    "selector": ".event-modal .file-btn",
+    "line": 504
+  },
+  {
+    "selector": ".event-modal input[type=date]",
+    "line": 505
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .event-modal input[type=date]",
+    "line": 506
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .ev-head",
+    "line": 507
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .ev-note",
+    "line": 508
+  },
+  {
+    "selector": ".ev-grid",
+    "line": 510
+  },
+  {
+    "selector": "/* Кастомный date-picker (вместо системного календаря браузера) */\ninput[type=date]::-webkit-calendar-picker-indicator",
+    "line": 510
+  },
+  {
+    "selector": "input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-button",
+    "line": 512
+  },
+  {
+    "selector": ".dp-head",
+    "line": 518
+  },
+  {
+    "selector": ".dp-nav",
+    "line": 519
+  },
+  {
+    "selector": ".dp-nav:hover",
+    "line": 520
+  },
+  {
+    "selector": ".dp-jump",
+    "line": 521
+  },
+  {
+    "selector": ".dp-select",
+    "line": 522
+  },
+  {
+    "selector": ".dp-select:hover",
+    "line": 523
+  },
+  {
+    "selector": ".dp-grid",
+    "line": 524
+  },
+  {
+    "selector": ".dp-dow",
+    "line": 525
+  },
+  {
+    "selector": ".dp-day",
+    "line": 526
+  },
+  {
+    "selector": ".dp-day:hover",
+    "line": 527
+  },
+  {
+    "selector": ".dp-day.empty",
+    "line": 528
+  },
+  {
+    "selector": ".dp-day.today",
+    "line": 529
+  },
+  {
+    "selector": ".dp-day.picked",
+    "line": 530
+  },
+  {
+    "selector": ".dp-foot",
+    "line": 531
+  },
+  {
+    "selector": ".dp-mini",
+    "line": 532
+  },
+  {
+    "selector": ".dp-mini:hover",
+    "line": 533
+  },
+  {
+    "selector": ".dp-mini.clear",
+    "line": 534
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .dp-nav,[data-theme=\"dark\"] .dp-select,[data-theme=\"dark\"] .dp-mini",
+    "line": 536
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .dp-nav:hover,[data-theme=\"dark\"] .dp-select:hover,[data-theme=\"dark\"] .dp-mini:hover",
+    "line": 537
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .dp-day",
+    "line": 538
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .dp-day:hover",
+    "line": 539
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .dp-day.today",
+    "line": 540
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .dp-foot",
+    "line": 541
+  },
+  {
+    "selector": "/* Озвучка даты для скринридера: визуально скрыто, но читается (role=status) */\n.dp-live",
+    "line": 542
+  },
+  {
+    "selector": ".lb-stage",
+    "line": 553
+  },
+  {
+    "selector": ".lb-stage img",
+    "line": 554
+  },
+  {
+    "selector": ".lb-btn",
+    "line": 559
+  },
+  {
+    "selector": ".lb-btn:hover",
+    "line": 565
+  },
+  {
+    "selector": ".lb-arrow",
+    "line": 566
+  },
+  {
+    "selector": ".lb-arrow:hover",
+    "line": 567
+  },
+  {
+    "selector": ".lb-prev",
+    "line": 568
+  },
+  {
+    "selector": ".lb-next",
+    "line": 569
+  },
+  {
+    "selector": "/* Ряд действий снизу справа — flex вместо индивидуального right-офсета на\n   каждую кнопку: раньше каждая новая кнопка (закрепить/удалить, добавлены\n   позже) требовала пересчитывать чужие отступы (14/70/126px…), flex считает\n   сам, независимо от того, сколько кнопок сейчас в ряду. */\n.lb-actions",
+    "line": 570
+  },
+  {
+    "selector": ".lb-actions .lb-btn",
+    "line": 575
+  },
+  {
+    "selector": ".lb-label",
+    "line": 576
+  },
+  {
+    "selector": ".lb-pin.active",
+    "line": 577
+  },
+  {
+    "selector": ".lb-counter",
+    "line": 578
+  },
+  {
+    "selector": ".lb-close",
+    "line": 584
+  },
+  {
+    "selector": ".lb-close:hover",
+    "line": 585
+  },
+  {
+    "selector": "/* ===== Конфетти ===== */\n.confetti",
+    "line": 596
+  },
+  {
+    "selector": ".wish:hover",
+    "line": 611
+  },
+  {
+    "selector": ".wish-link:hover",
+    "line": 616
+  },
+  {
+    "selector": ".album-chip:hover",
+    "line": 625
+  },
+  {
+    "selector": "/* Подсветка кнопки лейбла, когда тащишь на неё фото */\n.album-chip.drag-over",
+    "line": 628
+  },
+  {
+    "selector": ".album-chip:active",
+    "line": 631
+  },
+  {
+    "selector": ".label-apply-chip",
+    "line": 632
+  },
+  {
+    "selector": "/* ===== Модалка «Лейблы»: список для переименования/цвета/удаления ===== */\n.label-row",
+    "line": 636
+  },
+  {
+    "selector": ".label-row:last-child",
+    "line": 639
+  },
+  {
+    "selector": ".label-dot-btn",
+    "line": 640
+  },
+  {
+    "selector": ".label-row-name",
+    "line": 641
+  },
+  {
+    "selector": ".label-row-count",
+    "line": 642
+  },
+  {
+    "selector": ".label-name-editor",
+    "line": 643
+  },
+  {
+    "selector": ".label-color-picker",
+    "line": 644
+  },
+  {
+    "selector": ".label-swatch",
+    "line": 645
+  },
+  {
+    "selector": ".label-swatch.active",
+    "line": 646
+  },
+  {
+    "selector": ".label-apply-list",
+    "line": 647
+  },
+  {
+    "selector": ".ev-filter-head",
+    "line": 651
+  },
+  {
+    "selector": ".ev-filter-level",
+    "line": 652
+  },
+  {
+    "selector": ".ev-filter-level:empty",
+    "line": 653
+  },
+  {
+    "selector": ".ev-btn",
+    "line": 654
+  },
+  {
+    "selector": ".ev-btn:hover",
+    "line": 655
+  },
+  {
+    "selector": ".ev-btn.active",
+    "line": 656
+  },
+  {
+    "selector": ".ev-btn .cnt",
+    "line": 657
+  },
+  {
+    "selector": ".ev-btn.active .cnt",
+    "line": 658
+  },
+  {
+    "selector": ".ev-reset-btn",
+    "line": 659
+  },
+  {
+    "selector": ".ev-reset-btn:hover",
+    "line": 660
+  },
+  {
+    "selector": ".ev-album-hint",
+    "line": 661
+  },
+  {
+    "selector": ".photo-caption",
+    "line": 662
+  },
+  {
+    "selector": ".sel-photo",
+    "line": 667
+  },
+  {
+    "selector": ".sel-photo:hover",
+    "line": 672
+  },
+  {
+    "selector": ".sel-photo.active",
+    "line": 673
+  },
+  {
+    "selector": ".photo.selected",
+    "line": 674
+  },
+  {
+    "selector": ".photo-label-del:hover",
+    "line": 689
+  },
+  {
+    "selector": ".sel-bar .btn",
+    "line": 701
+  },
+  {
+    "selector": ".sel-count",
+    "line": 702
+  },
+  {
+    "selector": ".sel-count b",
+    "line": 703
+  },
+  {
+    "selector": ".hp-badge",
+    "line": 743
+  },
+  {
+    "selector": ".sel-photo,.photo .drag-handle",
+    "line": 749
+  },
+  {
+    "selector": ".bottom-nav-btn:hover",
+    "line": 774
+  },
+  {
+    "selector": ".bottom-nav-btn.active:hover",
+    "line": 776
+  },
+  {
+    "selector": ".two-col",
+    "line": 791
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .cal-cell:not(.selected):hover",
+    "line": 817
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .cal-cell.in-span",
+    "line": 818
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .cal-cell.in-span .cal-num",
+    "line": 819
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .cal-dot-more",
+    "line": 822
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .note-editor",
+    "line": 825
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .btn-sm",
+    "line": 826
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .ev-thumb",
+    "line": 827
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .dates-empty",
+    "line": 830
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .items li:hover",
+    "line": 832
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .ev-btn",
+    "line": 835
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .ev-btn.active",
+    "line": 836
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .ev-reset-btn",
+    "line": 837
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .ev-reset-btn:hover",
+    "line": 838
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .sel-photo",
+    "line": 839
+  },
+  {
+    "selector": ".auth-screen[hidden]",
+    "line": 849
+  },
+  {
+    "selector": ".auth-card input[type=password],.auth-card select",
+    "line": 859
+  },
+  {
+    "selector": ".auth-card select",
+    "line": 860
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .auth-err",
+    "line": 862
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .auth-card",
+    "line": 863
+  },
+  {
+    "selector": "/* ===== Доступность: видимый фокус для клавиатуры =====\n   outline:none выше убирает фокус-кольцо по умолчанию; возвращаем его только\n   для клавиатурной навигации (:focus-visible), мышь кольцо не получает. */\n:focus-visible",
+    "line": 864
+  },
+  {
+    "selector": "input[type=text]:focus-visible,input[type=date]:focus-visible,input[type=time]:focus-visible,\ninput[type=password]:focus-visible,textarea:focus-visible,select:focus-visible",
+    "line": 869
+  },
+  {
+    "selector": ".dp-select:focus-visible,.dp-nav:focus-visible",
+    "line": 873
+  },
+  {
+    "selector": "[data-theme=\"dark\"] :focus-visible",
+    "line": 874
+  },
+  {
+    "selector": ".motion-toggle:hover",
+    "line": 890
+  },
+  {
+    "selector": "/* ===== Уменьшенное движение =====\n   Переключатель в настройках ставит data-motion на <html>:\n   \"reduced\" — анимаций нет всегда, \"full\" — анимации всегда (перекрывает систему).\n   Без атрибута уважаем системный prefers-reduced-motion. */\n[data-motion=\"reduced\"] *,\n[data-motion=\"reduced\"] *::before,\n[data-motion=\"reduced\"] *::after",
+    "line": 893
+  },
+  {
+    "selector": "[data-motion=\"reduced\"] .heart,[data-motion=\"reduced\"] .confetti",
+    "line": 903
+  },
+  {
+    "selector": "html:not([data-motion=\"full\"]) *,\n  html:not([data-motion=\"full\"]) *::before,\n  html:not([data-motion=\"full\"]) *::after",
+    "line": 905
+  },
+  {
+    "selector": "html:not([data-motion=\"full\"]) .heart,\n  html:not([data-motion=\"full\"]) .confetti",
+    "line": 910
+  },
+  {
+    "selector": ".history-photo:hover",
+    "line": 945
+  },
+  {
+    "selector": "0%,100%",
+    "line": 947
+  },
+  {
+    "selector": ".hs-shuffle:hover",
+    "line": 962
+  },
+  {
+    "selector": ".hs-shuffle:active",
+    "line": 963
+  },
+  {
+    "selector": ".hs-shuffle:focus-visible",
+    "line": 964
+  },
+  {
+    "selector": "/* Бейдж «✨ В этот день» на коллаже */\n.hp-badge",
+    "line": 966
+  },
+  {
+    "selector": "/* «В этот день» — события прошлых лет чипами в блоке «Наша история» */\n.history-otd",
+    "line": 969
+  },
+  {
+    "selector": ".history-otd-label",
+    "line": 972
+  },
+  {
+    "selector": ".hs-otd-chip",
+    "line": 973
+  },
+  {
+    "selector": ".hs-otd-chip small",
+    "line": 974
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .hs-otd-chip",
+    "line": 975
+  },
+  {
+    "selector": ".rem-empty",
+    "line": 979
+  },
+  {
+    "selector": ".tl-photos",
+    "line": 991
+  },
+  {
+    "selector": ".tl-photos img",
+    "line": 992
+  },
+  {
+    "selector": ".tl-photos img:hover",
+    "line": 993
+  },
+  {
+    "selector": ".tl-item-photos",
+    "line": 997
+  },
+  {
+    "selector": ".tl-item-photos img",
+    "line": 998
+  },
+  {
+    "selector": ".tl-more-btn",
+    "line": 999
+  },
+  {
+    "selector": ".tl-more-btn:hover",
+    "line": 1000
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .auth-card",
+    "line": 1024
+  },
+  {
+    "selector": "[data-theme=\"dark\"] .empty-state,[data-theme=\"dark\"] .dates-empty,[data-theme=\"dark\"] .rem-empty",
+    "line": 1042
+  },
+  {
+    "selector": "/* ===== Фаза D: микро-анимации ===== */\n@keyframes cardIn",
+    "line": 1045
+  },
+  {
+    "selector": ".note.dragging,.list-card.dragging",
+    "line": 1049
+  },
+  {
+    "selector": ".btn:active,.nav-btn:active,.cal-nav:active,.dp-nav:active",
+    "line": 1050
+  },
+  {
+    "selector": "::view-transition-old(root),::view-transition-new(root)",
+    "line": 1059
+  }
+]
