@@ -223,7 +223,6 @@ function __TEST__(s){
   s.openDatePop = openDatePop; s.closeDatePop = closeDatePop;
   Object.defineProperty(s, 'dpFocus', { get: () => dpFocus, set: v => { dpFocus = v; }, configurable: true });
   s.datePopKeydown = datePopKeydown;
-  s.getMotion = getMotion; s.applyMotion = applyMotion; s.setMotion = setMotion; s.motionReduced = motionReduced;
   Object.defineProperty(s, 'photosRenderQueued', { get: () => photosRenderQueued, set: v => { photosRenderQueued = v; }, configurable: true });
   s.selectedPhotos = selectedPhotos; s.renderLabels = renderLabels;
   s.toggleSelectedPin = toggleSelectedPin;
@@ -1043,20 +1042,6 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>s.renderSettings()');
   w('(s)=>{s.gateUser = {email:"shakov.georgy@gmail.com"}; s.renderSettings(); return 1;}');
   assert(registry['#gateAccountInfo'].textContent === 'shakov.georgy@gmail.com (Гоша)', 'в разделе «Доступ» видно вошедший Google-аккаунт');
-
-  // --- Настройки: переключатель «Отключить анимации» ---
-  w('(s)=>{s.localStorage.removeItem("universe_motion");s.applyMotion(null);}');
-  assert(w('(s)=>s.getMotion()') === null, 'анимации: явный выбор не сделан — по умолчанию уважаем систему');
-  assert(w('(s)=>s.motionReduced()') === false, 'в песочнице системного reduced-motion нет');
-  w('(s)=>s.setMotion("reduced")');
-  assert(w('(s)=>s.getMotion()') === 'reduced', 'переключатель запоминает выбор');
-  assert(w('(s)=>{const d=s.document.documentElement;return d.dataset.motion;}') === 'reduced', 'на <html> выставлен data-motion=reduced');
-  assert(w('(s)=>s.motionReduced()') === true, 'motionReduced видит отключённые анимации');
-  assert(registry['#motionToggle'].checked === true, 'чекбокс отмечен при выключенных анимациях');
-  w('(s)=>s.setMotion("full")');
-  assert(w('(s)=>s.getMotion()') === 'full', 'выбор «оставить анимации» сохраняется');
-  assert(w('(s)=>s.motionReduced()') === false, 'явное «full» перекрывает системную настройку');
-  assert(registry['#motionToggle'].checked === false, 'чекбокс снят при включённых анимациях');
 
   // --- Второй Google-аккаунт (Даша) на этом же «устройстве» — тот же общий
   // ключ шифрования фото, та же расшифровка, никакого отдельного пароля не

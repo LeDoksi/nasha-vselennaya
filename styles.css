@@ -198,8 +198,6 @@ body{
   color:var(--ink-2);font-size:var(--text-xs);font-weight:700;white-space:nowrap;
 }
 .offline-badge[hidden]{display:none}
-/* reduced-motion уже гасит все анимации глобально ([data-motion="reduced"] *
-   и системный prefers-reduced-motion), отдельный оверрайд не нужен. */
 .nav{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0}
 .nav-btn{
   border:1px solid var(--line);background:var(--sky-1);color:var(--ink-2);
@@ -479,9 +477,7 @@ img[data-photo-src]{visibility:hidden}
    голого нейтрального фона — движущийся блик, как в Google/Apple Photos,
    сразу читается как «загружается», а не «пусто». :has() — на .photo, не на
    сам <img> (тот visibility:hidden и ничего не красит, фон родителя виден
-   насквозь). Уважает общее глушение анимаций — reduced-motion гасит все
-   keyframes глобально ([data-motion="reduced"] * и prefers-reduced-motion),
-   отдельный оверрайд не нужен, см. .heart/.invitePulse рядом. */
+   насквозь). */
 .photo:has(img[data-photo-src]){
   background:linear-gradient(100deg,var(--sky-1) 30%,var(--sky-2) 50%,var(--sky-1) 70%);
   background-size:200% 100%;
@@ -903,30 +899,16 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .app-toast.toast-error{background:oklch(24% .05 25);border-color:oklch(35% .09 25);color:oklch(85% .07 25)}
 [data-theme="light"] .app-toast.toast-error{background:oklch(96% .02 25);border-color:oklch(88% .06 25);color:oklch(45% .18 25)}
 
-/* ===== Настройки: переключатель «Отключить анимации» ===== */
+/* ===== Переключатель (используется настройками уведомлений) ===== */
 .motion-toggle{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:var(--text-base);font-weight:700;color:var(--ink);padding:10px 16px;border:1px solid var(--line);border-radius:var(--radius-pill);background:var(--sky-1);transition:.2s}
 .motion-toggle:hover{border-color:var(--star);background:var(--sky-2)}
 .motion-toggle input{width:18px;height:18px;accent-color:var(--star);cursor:pointer}
 
-/* ===== Уменьшенное движение =====
-   Переключатель в настройках ставит data-motion на <html>:
-   "reduced" — анимаций нет всегда, "full" — анимации всегда (перекрывает систему).
-   Без атрибута уважаем системный prefers-reduced-motion. */
-[data-motion="reduced"] *,
-[data-motion="reduced"] *::before,
-[data-motion="reduced"] *::after{
-  animation:none !important;transition:none !important
-}
-[data-motion="reduced"] .heart,[data-motion="reduced"] .confetti{display:none}
-@media (prefers-reduced-motion: reduce){
-  html:not([data-motion="full"]) *,
-  html:not([data-motion="full"]) *::before,
-  html:not([data-motion="full"]) *::after{
-    animation:none !important;transition:none !important
-  }
-  html:not([data-motion="full"]) .heart,
-  html:not([data-motion="full"]) .confetti{display:none}
-}
+/* Анимации не отключаются ни тумблером, ни prefers-reduced-motion: решение
+   владельца 21.09.2026, пользователей ровно двое и оба этого хотят. Если
+   когда-нибудь начнёт укачивать — вернуть сюда блок
+   @media (prefers-reduced-motion: reduce){ *{animation:none!important} }.
+   Подробности: docs/superpowers/specs/2026-09-21-redesign-core-audit-design.md, 3.3 */
 
 /* ===== Фаза B: кольцо прогресса, настроение, память ===== */
 
@@ -1059,9 +1041,6 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
    crossfade кнопки навигации «не нажимаются» ~0.3-0.5 с (баг Фазы D). */
 ::view-transition{pointer-events:none}
 ::view-transition-old(root),::view-transition-new(root){pointer-events:none;animation-duration:.32s;animation-timing-function:ease}
-@media (prefers-reduced-motion: reduce){
-  ::view-transition-old(root),::view-transition-new(root){animation:none}
-}
 } /* /components */
 
 

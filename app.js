@@ -415,7 +415,6 @@ async function ensureMasterKey() {
 /* ===== Вход: ключ шифрования фото получен — данные приходят из Firestore ===== */
 async function unlockWithKey(key) {
   masterKey = key;
-  applyMotion(getMotion()); // раньше стояло в удалённом initAuth() — сохранённый выбор анимаций
   await loadHotSet();
   startLiveUpdates();
   await initPhotoStore();
@@ -1818,12 +1817,12 @@ function getTheme() {
   return 'light';
 }
 
-// Общая обёртка View Transitions: если переход уже идёт или не поддержан (или включено
-// «уменьшенное движение») — сразу применяем изменения. Ошибки рендера и отменённые
+// Общая обёртка View Transitions: если переход уже идёт или не поддержан —
+// сразу применяем изменения. Ошибки рендера и отменённые
 // переходы гасим здесь же, чтобы они не превращались в unhandledrejection с ложным
 // тостом «Не удалось сохранить», а быстрый повторный клик переключал вкладку мгновенно.
 function runViewTransition(apply) {
-  if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function' || motionReduced()) return false;
+  if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function') return false;
   try {
     const t = document.startViewTransition(() => {
       try {
@@ -2140,7 +2139,6 @@ setInterval(() => {
 
 /* ===== Конфетти ===== */
 function celebrate() {
-  if (motionReduced()) return; // конфетти — декоративное движение, при reduced-motion пропускаем
   const emojis = ['💜', '💖', '✨', '🎉', '🌸', '💞'];
   for (let i = 0; i < 36; i++) {
     const c = document.createElement('span');
@@ -5594,47 +5592,6 @@ $('#importInput').addEventListener('change', e => {
   };
   fr.readAsText(f);
 });
-/* ===== Настройки: уменьшенное движение =====
-   data-motion на <html>: 'reduced' — анимации всегда выключены, 'full' — всегда
-   включены (перекрывает систему). Без атрибута — уважаем prefers-reduced-motion. */
-const MOTION_KEY = 'universe_motion';
-function getMotion() {
-  const v = store.get(MOTION_KEY);
-  return v === 'reduced' || v === 'full' ? v : null;
-}
-function applyMotion(m) {
-  const doc = document.documentElement;
-  if (!doc || !doc.dataset) return;
-  if (m === 'reduced' || m === 'full') doc.dataset.motion = m;
-  else {
-    try {
-      doc.removeAttribute('data-motion');
-    } catch (e) {}
-    try {
-      delete doc.dataset.motion;
-    } catch (e) {}
-  }
-  const t = $('#motionToggle');
-  if (t) t.checked = m === 'reduced';
-}
-function setMotion(m) {
-  const v = m === 'reduced' ? 'reduced' : 'full';
-  store.set(MOTION_KEY, v);
-  applyMotion(v);
-}
-function motionReduced() {
-  const doc = document.documentElement;
-  if (doc && doc.dataset) {
-    if (doc.dataset.motion === 'reduced') return true;
-    if (doc.dataset.motion === 'full') return false;
-  }
-  try {
-    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
-  } catch (e) {}
-  return false;
-}
-const mt = $('#motionToggle');
-if (mt) mt.addEventListener('change', e => setMotion(e.target.checked ? 'reduced' : 'full'));
 /* ===== Светбокс 2.0: стрелки, свайп, зум, счётчик =====
    Единая точка открытия фото: по id из галереи/календаря/«Памяти» или по
    data-URL напрямую (хотелки). Стрелки ‹ ›, свайп и клавиши ←/→ листают;
@@ -5971,7 +5928,6 @@ if (lbStage) {
 }
 /* ===== Летающие сердечки ===== */
 function spawnHeart() {
-  if (motionReduced()) return; // анимации отключены — сердечки не запускаем
   const h = document.createElement('span');
   h.className = 'heart';
   h.textContent = ['💜', '💖', '💕', '🌸', '✨'][Math.floor(Math.random() * 5)];

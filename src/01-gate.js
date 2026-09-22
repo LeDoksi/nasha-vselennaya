@@ -128,7 +128,6 @@ async function ensureMasterKey() {
 /* ===== Вход: ключ шифрования фото получен — данные приходят из Firestore ===== */
 async function unlockWithKey(key) {
   masterKey = key;
-  applyMotion(getMotion()); // раньше стояло в удалённом initAuth() — сохранённый выбор анимаций
   await loadHotSet();
   startLiveUpdates();
   await initPhotoStore();

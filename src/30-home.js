@@ -135,7 +135,6 @@ setInterval(() => {
 
 /* ===== Конфетти ===== */
 function celebrate() {
-  if (motionReduced()) return; // конфетти — декоративное движение, при reduced-motion пропускаем
   const emojis = ['💜', '💖', '✨', '🎉', '🌸', '💞'];
   for (let i = 0; i < 36; i++) {
     const c = document.createElement('span');

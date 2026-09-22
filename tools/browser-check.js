@@ -125,11 +125,11 @@ async function checkPhotosReorder(page, log) {
 
     // Приглашение на свидание всплывает само (dt-invite в demo-fixtures.js) —
     // закрываем, иначе оно перекрывает клики по нижним вкладкам. Отключаем
-    // View Transitions (data-motion=reduced, см. src/80-settings.js) —
-    // проверке не нужен crossfade между вкладками, только стабильный DOM
-    // сразу после переключения.
+    // View Transitions API — проверке не нужен crossfade между вкладками,
+    // только стабильный DOM сразу после переключения (runViewTransition
+    // в src/20-theme-nav.js без startViewTransition применяет изменения сразу).
     await page.evaluate(() => {
-      document.documentElement.dataset.motion = 'reduced';
+      delete document.startViewTransition;
       const ov = document.getElementById('dateInviteOverlay');
       if (ov) ov.hidden = true;
     });

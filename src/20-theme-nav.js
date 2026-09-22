@@ -10,12 +10,12 @@ function getTheme() {
   return 'light';
 }
 
-// Общая обёртка View Transitions: если переход уже идёт или не поддержан (или включено
-// «уменьшенное движение») — сразу применяем изменения. Ошибки рендера и отменённые
+// Общая обёртка View Transitions: если переход уже идёт или не поддержан —
+// сразу применяем изменения. Ошибки рендера и отменённые
 // переходы гасим здесь же, чтобы они не превращались в unhandledrejection с ложным
 // тостом «Не удалось сохранить», а быстрый повторный клик переключал вкладку мгновенно.
 function runViewTransition(apply) {
-  if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function' || motionReduced()) return false;
+  if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function') return false;
   try {
     const t = document.startViewTransition(() => {
       try {

@@ -1,6 +1,5 @@
 /* ===== Летающие сердечки ===== */
 function spawnHeart() {
-  if (motionReduced()) return; // анимации отключены — сердечки не запускаем
   const h = document.createElement('span');
   h.className = 'heart';
   h.textContent = ['💜', '💖', '💕', '🌸', '✨'][Math.floor(Math.random() * 5)];
