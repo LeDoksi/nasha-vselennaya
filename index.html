@@ -52,11 +52,13 @@
     </defs>
   </svg>
 
-  <!-- Фаза D: aurora-фон — пятна света видны сквозь «стеклянные» карточки -->
-  <div class="aurora" aria-hidden="true">
-    <span class="aurora-blob ab-1"></span>
-    <span class="aurora-blob ab-2"></span>
-    <span class="aurora-blob ab-3"></span>
+  <!-- Слой неба: две звёздные плоскости, двигаются с разной скоростью при
+       прокрутке. Заменил три blur-блоба авроры: те стоили дорого по GPU на
+       телефоне (filter: blur(90px) на 56vw элементе перерисовывается каждый
+       кадр) и были ровно тем розово-фиолетовым дефолтом, от которого ушли. -->
+  <div class="sky" aria-hidden="true">
+    <span class="sky-far"></span>
+    <span class="sky-near"></span>
   </div>
 
   <header class="header">
