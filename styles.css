@@ -95,11 +95,13 @@
   --radius-pill:999px; /* пилюли/бейджи (было вперемешку 99px/999px) */
   --text-xs:11px;    /* мельчайший вспомогательный текст (было 9/10/11px) */
   --text-sm:13px;    /* второстепенный текст, подписи (было 12/13px) */
-  --text-base:14px;  /* обычный текст — самый частый размер (было 14/15px) */
+  --text-base:15px;  /* обычный текст — самый частый размер (было 14px: Onest мельче Nunito в том же кегле) */
   --text-md:16px;    /* чуть крупнее обычного (было 16/17px) */
   --text-lg:19px;    /* заголовки карточек/секций (было 18/19/20px) */
   --text-xl:24px;    /* крупные числа/заголовки (было 22/24/26px) */
   --text-2xl:34px;   /* hero-цифры (было 28/34px; clamp()-заголовки не трогали — уже адаптивные) */
+  --text-display:clamp(28px,7vw,44px); /* фаза 1: дисплейная гарнитура — заголовки разделов, счётчик дней */
+  --text-hero:clamp(72px,22vw,132px);  /* фаза 1: дисплейная гарнитура — крупные тикающие числа таймера */
   --font-ui:'Onest',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   --font-display:'Sofia Sans Extra Condensed','Onest',sans-serif; /* узкая гротескная гарнитура для заголовков/чисел — см. @font-face выше */
 }
@@ -333,7 +335,7 @@ h3{font-weight:800}
 .cal-cell.selected{background:var(--star)}
 .cal-cell.selected .cal-num{color:var(--void)}
 .cal-dow{aspect-ratio:auto;font-size:var(--text-sm);font-weight:800;color:var(--ink-2);text-transform:uppercase;cursor:default;padding:4px 0}
-.cal-num{font-weight:800;font-size:var(--text-base)}
+.cal-num{font-weight:800;font-size:var(--text-base);font-variant-numeric:tabular-nums}
 .cal-dot{
   font-size:var(--text-xs);line-height:1.15;max-width:100%;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;padding:0 4px;border-radius:var(--radius-xs);background:var(--sky-2);color:var(--star);
@@ -686,7 +688,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .photo-caption{position:absolute;left:0;right:0;bottom:0;padding:18px 8px 6px;font-size:var(--text-xs);font-weight:800;color:oklch(100% 0 0);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(180deg,oklch(from var(--void) l c h / 0),oklch(from var(--void) l c h / .62));pointer-events:none}
 
 /* ===== Дополнительно: таймер, бейджи, хотелки, фото ===== */
-.countdown-time{font-size:var(--text-xl);font-weight:900;color:var(--ink);margin-top:6px;letter-spacing:.5px}
+.countdown-time{font-family:var(--font-display);font-size:var(--text-hero);font-weight:900;color:var(--ink);margin-top:6px;letter-spacing:.5px;font-variant-numeric:tabular-nums}
 .both-yes{color:var(--star);font-weight:800;font-size:var(--text-base);margin-top:6px}
 .sel-photo{
   position:absolute;top:8px;left:8px;width:30px;height:30px;border-radius:50%;border:none;cursor:pointer;
@@ -934,8 +936,8 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .ring-center b{font-family:var(--font-display);font-size:var(--text-xl);color:var(--star)}
 .ring-center small{font-size:var(--text-xs);color:var(--ink-2)}
 .ring-info{flex:0 1 auto;min-width:170px}
-.ring-info h4{font-family:var(--font-display);font-weight:400;font-size:var(--text-lg);margin:0 0 2px;color:var(--star)}
-.ring-info p{margin:0;font-weight:700;color:var(--ink)}
+.ring-info h4{font-family:var(--font-display);font-weight:400;font-size:var(--text-display);margin:0 0 2px;color:var(--star)}
+.ring-info p{margin:0;font-family:var(--font-display);font-weight:400;font-size:var(--text-display);color:var(--ink)}
 .ring-info small{color:var(--ink-2)}
 
 /* Коллаж: 2-3 фото с поворотом, разным размером и парением (не ровный ряд) */
@@ -977,7 +979,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .hs-otd-chip small{color:var(--ink-2);font-weight:600}
 
 /* Таймлайн-дерево «Память» */
-.view-title{font-family:var(--font-display);font-weight:400;font-size:var(--text-xl);text-align:center;margin:6px 0 2px;color:var(--star)}
+.view-title{font-family:var(--font-display);font-weight:400;font-size:var(--text-display);text-align:center;margin:6px 0 2px;color:var(--star)}
 .rem-empty{text-align:center;padding:40px 20px;color:var(--ink-2);font-size:var(--text-base)}
 .tl{position:relative;max-width:720px;margin:16px auto 40px;padding:10px 0}
 .tl-stem{position:absolute;left:50%;top:0;bottom:0;width:3px;background:var(--night);border-radius:2px;transform:translateX(-50%)}
