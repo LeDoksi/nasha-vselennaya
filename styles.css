@@ -72,7 +72,6 @@
      фото) — это не «токен темы», а константа поверх системы токенов. */
   --void:oklch(16% .035 275);
   --shadow:0 16px 48px oklch(10% .04 275 / .5);
-  --radius:22px;
   --heart-opacity:.3;
   /* Фаза D — стеклянные карточки: тонировка в --sky-1/--line через
      относительный цвет oklch(from …), не в чёрный/белый хардкод. */
@@ -80,19 +79,30 @@
   --glass-brd:oklch(from var(--line) l c h / .4);
   --glass-strong:oklch(from var(--sky-1) l c h / .82);
   --blur:18px;
-  /* ===== Фаза 2: шкала радиусов и типографики =====
-     Раньше похожие по роли элементы получали случайно разные px (10 и 12,
-     14 и 16, 18 и 20 — без видимой причины, просто на глаз в момент
-     написания конкретного правила). Не завязаны на тему — одни и те же
-     значения в тёмной и светлой, поэтому объявлены один раз здесь, а не
-     дублируются в [data-theme="dark"] ниже (там только цвета). --radius
-     (22px) — существовавший токен, крупные карточки; новые дополняют его. */
-  --radius-xs:8px;    /* мини-кнопки, ручки драга, крестики (было вперемешку 6/8/9px) */
-  --radius-sm:12px;   /* чипы, поля ввода, некрупные кнопки (было 10/12px) */
-  --radius-md:16px;   /* карточки среднего размера: заметка/фото/хотелка (было 14/16/18px) */
-  --radius-lg:var(--radius); /* 22px — крупные карточки: календарь/список/настройки */
-  --radius-xl:28px;   /* hero/auth-карточка (было 24/28px) */
-  --radius-pill:999px; /* пилюли/бейджи (было вперемешку 99px/999px) */
+  /* ===== Фаза 1 (NV-13, задача 9): шкала радиусов =====
+     Было семь токенов (--radius + xs/sm/md/lg/xl/pill), подобранных по
+     близости к существовавшему числу, без единой роли. Теперь пять — по
+     роли элемента, а не по размеру: интерактив всегда пилюля, у карточек
+     один радиус независимо от прежней разбивки «крупная/средняя», у полей
+     и медиа — свой. Не завязаны на тему — значения одни и те же в тёмной
+     и светлой, поэтому объявлены один раз здесь. */
+  --radius-pill:999px; /* всё интерактивное: кнопки, чипы, пилюли */
+  --radius-card:16px;  /* карточки */
+  --radius-field:12px; /* поля ввода */
+  --radius-media:12px; /* фото, миниатюры */
+  --radius-sheet:24px; /* шторки — верхние углы */
+  /* ===== Фаза 1 (NV-13, задача 9): шкала пространства =====
+     Ритм по спеке 1.4: 24 внутри блока, 32 между блоками, 48 между зонами.
+     Токены заводятся сейчас; переписывать существующие отступы на них —
+     задача фаз 4-7 (по экрану), не этой. */
+  --sp-1:4px;
+  --sp-2:8px;
+  --sp-3:12px;
+  --sp-4:16px;
+  --sp-6:24px;
+  --sp-8:32px;
+  --sp-12:48px;
+  --sp-16:64px;
   --text-xs:11px;    /* мельчайший вспомогательный текст (было 9/10/11px) */
   --text-sm:13px;    /* второстепенный текст, подписи (было 12/13px) */
   --text-base:15px;  /* обычный текст — самый частый размер (было 14px: Onest мельче Nunito в том же кегле) */
@@ -143,7 +153,7 @@ body{
    светлая тема пятна приглушает сильнее (у нас нет отдельной «глубокой»
    версии тона — контраст пятна с фоном в светлой теме и так больше). */
 .aurora{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
-.aurora-blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.3;will-change:transform}
+.aurora-blob{position:absolute;border-radius:var(--radius-pill);filter:blur(90px);opacity:.3;will-change:transform}
 .ab-1{width:56vw;height:56vw;left:-14vw;top:-16vh;background:radial-gradient(circle at 30% 30%,var(--night),transparent 72%);animation:aurora1 24s ease-in-out infinite alternate}
 .ab-2{width:50vw;height:50vw;right:-12vw;top:20vh;background:radial-gradient(circle at 60% 40%,var(--star),transparent 72%);animation:aurora2 28s ease-in-out infinite alternate}
 .ab-3{width:48vw;height:48vw;left:16vw;bottom:-20vh;background:radial-gradient(circle at 50% 50%,var(--night),transparent 72%);animation:aurora3 32s ease-in-out infinite alternate}
@@ -209,7 +219,7 @@ main{max-width:1100px;margin:0 auto;padding:28px 20px 90px}
 .view.active{display:block;animation:fadeIn .4s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 .btn{
-  display:inline-flex;align-items:center;gap:8px;padding:11px 20px;border-radius:var(--radius-md);
+  display:inline-flex;align-items:center;gap:8px;padding:11px 20px;border-radius:var(--radius-pill);
   background:var(--star);color:var(--void);border:none;font-weight:800;font-size:var(--text-base);cursor:pointer;
   text-decoration:none;transition:transform .2s,box-shadow .25s;
   box-shadow:0 8px 20px oklch(from var(--star) l c h / .25);
@@ -218,7 +228,7 @@ main{max-width:1100px;margin:0 auto;padding:28px 20px 90px}
 .btn-danger{background:oklch(58% .19 25);color:oklch(100% 0 0)}
 .file-btn{position:relative;overflow:hidden;cursor:pointer}
 input[type=text],input[type=date],input[type=time],input[type=password],textarea,select{
-  background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 14px;
+  background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-field);padding:10px 14px;
   font:inherit;color:var(--ink);outline:none;transition:border-color .2s;
 }
 input:focus,textarea:focus{border-color:var(--star)}
@@ -228,7 +238,7 @@ h3{font-weight:800}
 .hero-card{
   text-align:center;position:relative;overflow:hidden;
   background:var(--sky-1);
-  border:1px solid var(--line);border-radius:var(--radius-xl);
+  border:1px solid var(--line);border-radius:var(--radius-card);
   padding:46px 24px;box-shadow:var(--shadow);
 }
 .hero-card h1{
@@ -251,8 +261,8 @@ h3{font-weight:800}
 .btn-date:hover{transform:translateY(-2px) scale(1.02)}
 .dates{margin-top:28px}
 .dates h3{font-size:var(--text-lg);margin-bottom:12px}
-.dates-empty{background:var(--sky-1);border:1px dashed var(--star);border-radius:var(--radius-md);padding:26px;text-align:center;color:var(--ink-2)}
-.date-card{display:flex;align-items:center;gap:14px;background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-md);padding:14px 18px;margin-bottom:10px;box-shadow:0 6px 18px oklch(from var(--night) l c h / .12)}
+.dates-empty{background:var(--sky-1);border:1px dashed var(--star);border-radius:var(--radius-card);padding:26px;text-align:center;color:var(--ink-2)}
+.date-card{display:flex;align-items:center;gap:14px;background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:14px 18px;margin-bottom:10px;box-shadow:0 6px 18px oklch(from var(--night) l c h / .12)}
 .date-card.done{opacity:.6}
 .date-card.done .date-info b{text-decoration:line-through;color:var(--ink-2)}
 .date-emoji{font-size:var(--text-xl);flex:none}
@@ -296,24 +306,24 @@ h3{font-weight:800}
 .cal-nav-row{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
 .cal-actions{display:flex;gap:10px;flex-wrap:wrap}
 .cal-nav{
-  width:40px;height:40px;border-radius:var(--radius-sm);border:1px solid var(--line);
+  width:40px;height:40px;border-radius:var(--radius-pill);border:1px solid var(--line);
   background:var(--sky-1);font-size:var(--text-lg);cursor:pointer;color:var(--star);transition:.2s;flex:none;
 }
 .cal-nav:hover{background:var(--sky-2);transform:translateY(-2px)}
 .cal-jump-row{display:flex;gap:8px;justify-content:center;flex:1;min-width:0}
 .cal-jump{
-  padding:8px 12px;border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--sky-1);
+  padding:8px 12px;border-radius:var(--radius-pill);border:1px solid var(--line);background:var(--sky-1);
   font-size:var(--text-base);font-weight:700;color:var(--star);cursor:pointer;transition:.2s;font-family:inherit;
 }
 .cal-jump:hover{border-color:var(--star);background:var(--sky-2)}
 /* Подпись после «⏭ К ближайшему событию» — что это за событие */
 .cal-jump-info{
   background:var(--sky-2);border:1px dashed var(--star);
-  border-radius:var(--radius-md);padding:10px 14px;font-weight:700;font-size:var(--text-base);color:var(--star);
+  border-radius:var(--radius-card);padding:10px 14px;font-weight:700;font-size:var(--text-base);color:var(--star);
   margin:-8px 0 14px;
 }
 .cal-jump-info[hidden]{display:none}
-.calendar{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)}
+.calendar{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:14px;box-shadow:var(--shadow)}
 .cal-row{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
 /* Раньше все дни месяца были в ОДНОМ .cal-row (grid сам переносил лишние
    ячейки на новые визуальные строки, вертикальный отступ давал общий gap).
@@ -321,7 +331,7 @@ h3{font-weight:800}
    между строками нужен явный отступ, иначе недели слипаются. */
 .cal-row:not(:last-child){margin-bottom:6px}
 .cal-cell{
-  aspect-ratio:1;border-radius:var(--radius-md);display:flex;flex-direction:column;align-items:center;
+  aspect-ratio:1;border-radius:var(--radius-card);display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:1px;cursor:pointer;transition:background .2s;border:1px solid transparent;
   overflow:hidden; /* .cal-dot внутри и так должен truncate'иться max-width:100%,
     но подстраховка на случай, если браузер посчитает % от ширины иначе —
@@ -338,35 +348,35 @@ h3{font-weight:800}
 .cal-num{font-weight:800;font-size:var(--text-base);font-variant-numeric:tabular-nums}
 .cal-dot{
   font-size:var(--text-xs);line-height:1.15;max-width:100%;white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis;padding:0 4px;border-radius:var(--radius-xs);background:var(--sky-2);color:var(--star);
+  text-overflow:ellipsis;padding:0 4px;border-radius:var(--radius-pill);background:var(--sky-2);color:var(--star);
 }
 .cal-cell.has-date{border-color:var(--star)}
 .cal-dot-more{background:var(--star);color:var(--void)}
 .date-dot{background:var(--sky-2);border-radius:var(--radius-pill);padding:1px 4px;line-height:1.4}
 .day-sub{font-size:var(--text-sm);font-weight:800;color:var(--star);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px}
 .date-evt{background:var(--sky-2);border:1px dashed var(--star)}
-.day-panel{margin-top:16px;background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:0 8px 24px oklch(from var(--night) l c h / .1)}
+.day-panel{margin-top:16px;background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:18px;box-shadow:0 8px 24px oklch(from var(--night) l c h / .1)}
 .day-head{font-size:var(--text-md);margin-bottom:12px}
-.day-event{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--sky-2);border-radius:var(--radius-sm);margin-bottom:8px;font-size:var(--text-base);flex-wrap:wrap}
+.day-event{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--sky-2);border-radius:var(--radius-card);margin-bottom:8px;font-size:var(--text-base);flex-wrap:wrap}
 .day-event > span{flex:1;min-width:120px}
 .ev-range{color:var(--ink-2);font-size:var(--text-sm);font-weight:600;margin-left:6px}
 .day-event .ev-thumbs{flex:1 0 100%;display:flex;gap:4px;align-items:center}
-.ev-thumb{width:56px;height:56px;object-fit:cover;border-radius:var(--radius-sm);cursor:zoom-in;border:1px solid var(--line)}
+.ev-thumb{width:56px;height:56px;object-fit:cover;border-radius:var(--radius-media);cursor:zoom-in;border:1px solid var(--line)}
 .day-add{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
 .day-add input{flex:1;min-width:140px}
 .cal-tip{color:var(--ink-2);font-size:var(--text-base)}
 .mini-x{
-  width:26px;height:26px;border-radius:var(--radius-xs);border:1px solid var(--line);
+  width:26px;height:26px;border-radius:var(--radius-pill);border:1px solid var(--line);
   background:var(--sky-1);cursor:pointer;font-size:var(--text-sm);color:var(--ink-2);transition:.2s;flex:none;
 }
 .mini-x:hover{background:oklch(58% .19 25 / .16);color:oklch(70% .19 25);border-color:oklch(58% .19 25 / .4)}
 
 /* ===== Заметки ===== */
 .note-add{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:flex-start}
-.note-add textarea{flex:1;min-width:240px;padding:14px;border-radius:var(--radius-md);min-height:64px;resize:vertical}
+.note-add textarea{flex:1;min-width:240px;padding:14px;border-radius:var(--radius-field);min-height:64px;resize:vertical}
 .notes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
 .note{
-  background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-md);padding:14px;
+  background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:14px;
   box-shadow:0 8px 20px oklch(from var(--night) l c h / .1);transition:transform .25s,box-shadow .25s;
 }
 .note:hover{transform:translateY(-4px) rotate(-.5deg);box-shadow:0 14px 30px oklch(from var(--night) l c h / .16)}
@@ -391,22 +401,22 @@ h3{font-weight:800}
 /* ===== Драг-ручки и призрак (Pointer Events драг, схема A+D) ===== */
 .drag-handle{
   display:inline-flex;align-items:center;justify-content:center;
-  width:30px;height:30px;border-radius:var(--radius-xs);border:1px solid var(--line);
+  width:30px;height:30px;border-radius:var(--radius-pill);border:1px solid var(--line);
   background:var(--sky-1);color:var(--ink-2);cursor:grab;font-size:var(--text-base);line-height:1;
   flex:none;touch-action:none;user-select:none;-webkit-user-select:none;
 }
 .drag-handle:hover{border-color:var(--star);color:var(--star);background:var(--sky-2)}
 .drag-handle:active{cursor:grabbing}
-.note .drag-handle{width:26px;height:26px;border-radius:var(--radius-xs)}
-.items li .drag-handle{width:26px;height:26px;border-radius:var(--radius-xs);font-size:var(--text-sm)}
+.note .drag-handle{width:26px;height:26px;border-radius:var(--radius-pill)}
+.items li .drag-handle{width:26px;height:26px;border-radius:var(--radius-pill);font-size:var(--text-sm)}
 .list-head{display:flex;align-items:flex-start;gap:10px}
 .list-head h3{flex:1}
-.list-name-editor{flex:1;padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--line);font-family:inherit;font-size:var(--text-md);font-weight:800}
+.list-name-editor{flex:1;padding:6px 10px;border-radius:var(--radius-field);border:1px solid var(--line);font-family:inherit;font-size:var(--text-md);font-weight:800}
 /* top:8px;left:8px — тот же угол, что у .sel-photo: ручка и кружок выбора
    теперь взаимоисключающие (режимы «Порядок»/«Выбрать» не активны разом),
    один и тот же слот на карточке никогда не занят обоими сразу. */
 .photo .drag-handle{
-  position:absolute;top:8px;left:8px;width:30px;height:30px;border-radius:var(--radius-sm);
+  position:absolute;top:8px;left:8px;width:30px;height:30px;border-radius:var(--radius-pill);
   background:oklch(from var(--sky-1) l c h / .92);box-shadow:0 2px 8px oklch(from var(--void) l c h / .18);z-index:2;
 }
 .drag-ghost{
@@ -417,13 +427,13 @@ h3{font-weight:800}
 body.uni-dragging{user-select:none;-webkit-user-select:none}
 body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
 .photo.drag-over{outline:3px solid var(--star);outline-offset:-3px}
-.note-editor{width:100%;min-height:80px;padding:10px;border-radius:var(--radius-sm);border:1px solid var(--line);font-family:inherit;font-size:var(--text-base);resize:vertical}
+.note-editor{width:100%;min-height:80px;padding:10px;border-radius:var(--radius-field);border:1px solid var(--line);font-family:inherit;font-size:var(--text-base);resize:vertical}
 .note-edit-btns{display:flex;align-items:center;gap:8px;margin-top:8px}
-.btn-sm{padding:6px 12px;font-size:var(--text-sm);border-radius:var(--radius-sm);background:var(--star);color:var(--void)}
+.btn-sm{padding:6px 12px;font-size:var(--text-sm);border-radius:var(--radius-pill);background:var(--star);color:var(--void)}
 
 /* ===== Списки ===== */
 .lists-wrap{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-.list-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
+.list-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:20px;box-shadow:var(--shadow)}
 .list-card h3{display:flex;align-items:center;justify-content:space-between;font-size:var(--text-lg);margin-bottom:14px}
 .list-card h3 small{color:var(--ink-2);font-weight:600;font-size:var(--text-sm)}
 .list-add{display:flex;gap:8px;margin-bottom:14px}
@@ -435,11 +445,11 @@ body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
 .list-actions{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)}
 .btn-small{padding:8px 12px;font-size:var(--text-sm)}
 .items{list-style:none}
-.items li{display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:var(--radius-sm);font-size:var(--text-base)}
+.items li{display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:var(--radius-card);font-size:var(--text-base)}
 .items li:hover{background:var(--sky-2)}
 .items li.done span{text-decoration:line-through;color:var(--ink-2)}
 .check{
-  width:28px;height:28px;border-radius:var(--radius-xs);border:1px solid var(--line);background:var(--sky-1);
+  width:28px;height:28px;border-radius:var(--radius-pill);border:1px solid var(--line);background:var(--sky-1);
   cursor:pointer;font-size:var(--text-sm);flex:none;transition:.2s;
 }
 .check:hover{border-color:var(--star)}
@@ -454,7 +464,7 @@ body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
 .photo-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:18px}
 .photo-bar h3{font-size:var(--text-lg)}
 .photos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
-.photo{position:relative;border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--line);box-shadow:0 8px 20px oklch(from var(--night) l c h / .14);background:var(--sky-1)}
+.photo{position:relative;border-radius:var(--radius-media);overflow:hidden;border:1px solid var(--line);box-shadow:0 8px 20px oklch(from var(--night) l c h / .14);background:var(--sky-1)}
 .photo img{width:100%;aspect-ratio:1;object-fit:cover;display:block;cursor:pointer;transition:transform .3s}
 /* Миниатюра ещё не докачана/расшифрована (data-photo-src ждёт hydratePhotoImgs,
    см. src/05-photostore.js) — до этого у <img> нет src вообще. Без этого
@@ -486,7 +496,7 @@ img[data-photo-src]{visibility:hidden}
 .photo-bar-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 
 /* ===== Настройки ===== */
-.settings-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow);margin-bottom:20px}
+.settings-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:24px;box-shadow:var(--shadow);margin-bottom:20px}
 .settings-card h3{font-size:var(--text-lg);margin-bottom:10px}
 .settings-card p{color:var(--ink-2);font-size:var(--text-base);margin-bottom:16px}
 .settings-btns{display:flex;gap:12px;flex-wrap:wrap}
@@ -499,14 +509,14 @@ img[data-photo-src]{visibility:hidden}
 }
 .overlay[hidden]{display:none}
 .modal{
-  background:var(--sky-1);border-radius:var(--radius-xl);padding:28px;width:min(420px,100%);
+  background:var(--sky-1);border-radius:var(--radius-sheet);padding:28px;width:min(420px,100%);
   display:flex;flex-direction:column;gap:12px;position:relative;animation:pop .3s ease;
   max-height:92vh;overflow-y:auto;
 }
 @keyframes pop{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}
 .modal h3{font-size:var(--text-lg)}
 .modal-x{
-  position:absolute;top:12px;right:12px;width:34px;height:34px;border-radius:50%;
+  position:absolute;top:12px;right:12px;width:34px;height:34px;border-radius:var(--radius-pill);
   border:1px solid var(--line);background:var(--sky-2);cursor:pointer;font-size:var(--text-sm);color:var(--ink-2);
 }
 .modal-x:hover{background:oklch(58% .19 25 / .16);color:oklch(70% .19 25)}
@@ -525,7 +535,7 @@ img[data-photo-src]{visibility:hidden}
 .ev-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .ev-col{display:flex;flex-direction:column;gap:6px}
 .ev-col label{font-size:var(--text-sm)}
-.ev-note{background:var(--sky-2);border:1px dashed var(--star);border-radius:var(--radius-sm);padding:10px 12px;font-size:var(--text-sm);color:var(--ink-2);margin-top:-2px}
+.ev-note{background:var(--sky-2);border:1px dashed var(--star);border-radius:var(--radius-card);padding:10px 12px;font-size:var(--text-sm);color:var(--ink-2);margin-top:-2px}
 .ev-photo-count{align-self:center;color:var(--ink-2);font-size:var(--text-sm)}
 .ev-save{width:100%;justify-content:center;padding:13px;font-size:var(--text-base);margin-top:2px}
 .event-modal .list-add{margin-bottom:0}
@@ -537,19 +547,19 @@ img[data-photo-src]{visibility:hidden}
 input[type=date]::-webkit-calendar-picker-indicator{display:none;-webkit-appearance:none}
 input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-button{display:none;-webkit-appearance:none}
 .date-pop{
-  position:fixed;z-index:200;background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-md);
+  position:fixed;z-index:200;background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);
   box-shadow:0 20px 50px oklch(from var(--night) l c h / .28);padding:14px;width:272px;animation:pop .18s ease;
 }
 .date-pop[hidden]{display:none}
 .dp-head{display:flex;align-items:center;gap:6px;margin-bottom:10px}
-.dp-nav{width:30px;height:30px;border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--sky-1);font-size:var(--text-md);cursor:pointer;color:var(--star);transition:.2s;font-family:inherit}
+.dp-nav{width:30px;height:30px;border-radius:var(--radius-pill);border:1px solid var(--line);background:var(--sky-1);font-size:var(--text-md);cursor:pointer;color:var(--star);transition:.2s;font-family:inherit}
 .dp-nav:hover{background:var(--sky-2);border-color:var(--star);transform:translateY(-1px)}
 .dp-jump{display:flex;gap:4px;flex:1;justify-content:center;min-width:0}
-.dp-select{padding:5px 8px;border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--sky-1);font-size:var(--text-sm);font-weight:800;color:var(--star);cursor:pointer;font-family:inherit;outline:none;transition:.2s;max-width:100%}
+.dp-select{padding:5px 8px;border-radius:var(--radius-pill);border:1px solid var(--line);background:var(--sky-1);font-size:var(--text-sm);font-weight:800;color:var(--star);cursor:pointer;font-family:inherit;outline:none;transition:.2s;max-width:100%}
 .dp-select:hover{border-color:var(--star);background:var(--sky-2)}
 .dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:10px}
 .dp-dow{font-size:var(--text-xs);font-weight:800;color:var(--ink-2);text-transform:uppercase;text-align:center;padding:4px 0}
-.dp-day{height:30px;border-radius:var(--radius-sm);border:none;background:none;font-size:var(--text-sm);font-weight:700;color:var(--ink);cursor:pointer;transition:background .15s}
+.dp-day{height:30px;border-radius:var(--radius-pill);border:none;background:none;font-size:var(--text-sm);font-weight:700;color:var(--ink);cursor:pointer;transition:background .15s}
 .dp-day:hover{background:var(--sky-2)}
 .dp-day.empty{pointer-events:none;visibility:hidden}
 .dp-day.today{border:1px solid var(--star)}
@@ -573,12 +583,12 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 #lightbox{background:oklch(from var(--void) l c h / .9);padding:0;z-index:95}
 .lb-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:56px 20px}
 .lb-stage img{
-  max-width:92vw;max-height:88vh;border-radius:var(--radius-md);box-shadow:0 20px 60px oklch(0% 0 0 / .5);
+  max-width:92vw;max-height:88vh;border-radius:var(--radius-media);box-shadow:0 20px 60px oklch(0% 0 0 / .5);
   user-select:none;-webkit-user-select:none;touch-action:pan-y;
   transition:transform .2s ease;
 }
 .lb-btn{
-  border:none;background:oklch(100% 0 0 / .14);color:oklch(100% 0 0);cursor:pointer;border-radius:50%;
+  border:none;background:oklch(100% 0 0 / .14);color:oklch(100% 0 0);cursor:pointer;border-radius:var(--radius-pill);
   backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);font-weight:900;
   display:flex;align-items:center;justify-content:center;
   transition:background .2s,transform .2s;z-index:2;
@@ -620,7 +630,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 @keyframes confettiFall{0%{transform:translateY(0) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
 
 /* ===== Комплимент дня ===== */
-.compliment-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px 24px;margin-top:24px;text-align:center;box-shadow:0 8px 24px oklch(from var(--star) l c h / .12)}
+.compliment-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:20px 24px;margin-top:24px;text-align:center;box-shadow:0 8px 24px oklch(from var(--star) l c h / .12)}
 .compliment-card h4{font-size:var(--text-base);color:var(--ink-2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
 .compliment-text{font-size:var(--text-lg);font-weight:700;color:var(--star);font-style:italic}
 
@@ -628,7 +638,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .wishlist-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:18px}
 .wishlist-bar h3{font-size:var(--text-lg)}
 .wishlist-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
-.wish{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-md);overflow:hidden;box-shadow:0 8px 20px oklch(from var(--night) l c h / .1);transition:transform .25s,box-shadow .25s}
+.wish{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);overflow:hidden;box-shadow:0 8px 20px oklch(from var(--night) l c h / .1);transition:transform .25s,box-shadow .25s}
 .wish:hover{transform:translateY(-4px);box-shadow:0 14px 30px oklch(from var(--night) l c h / .16)}
 .wish-img{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--sky-2)}
 .wish-body{padding:14px}
@@ -655,17 +665,17 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 /* Цветной маркер лейбла — на чипах фильтра, бейджах фото, в модалках.
    Сам цвет — из палитры лейблов (выбор пользователя, inline style в JS),
    не токен темы, поэтому не трогаем; кольцо вокруг — тонировано в --void. */
-.label-dot{width:8px;height:8px;border-radius:50%;flex:none;box-shadow:0 0 0 1px oklch(from var(--void) l c h / .12)}
+.label-dot{width:8px;height:8px;border-radius:var(--radius-pill);flex:none;box-shadow:0 0 0 1px oklch(from var(--void) l c h / .12)}
 
 /* ===== Модалка «Лейблы»: список для переименования/цвета/удаления ===== */
 .label-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
 .label-row:last-child{border-bottom:none}
-.label-dot-btn{width:20px;height:20px;border-radius:50%;border:1px solid var(--line);flex:none;cursor:pointer;padding:0}
+.label-dot-btn{width:20px;height:20px;border-radius:var(--radius-pill);border:1px solid var(--line);flex:none;cursor:pointer;padding:0}
 .label-row-name{flex:1;font-weight:700;cursor:pointer}
 .label-row-count{color:var(--ink-2);font-size:var(--text-sm);font-weight:600;white-space:nowrap}
 .label-name-editor{flex:1}
 .label-color-picker{display:flex;gap:8px;flex-wrap:wrap;padding:4px 0 12px 30px}
-.label-swatch{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
+.label-swatch{width:22px;height:22px;border-radius:var(--radius-pill);border:2px solid transparent;cursor:pointer;padding:0}
 .label-swatch.active{border-color:var(--ink)}
 .label-apply-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
 
@@ -691,7 +701,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .countdown-time{font-family:var(--font-display);font-size:var(--text-hero);font-weight:900;color:var(--ink);margin-top:6px;letter-spacing:.5px;font-variant-numeric:tabular-nums}
 .both-yes{color:var(--star);font-weight:800;font-size:var(--text-base);margin-top:6px}
 .sel-photo{
-  position:absolute;top:8px;left:8px;width:30px;height:30px;border-radius:50%;border:none;cursor:pointer;
+  position:absolute;top:8px;left:8px;width:30px;height:30px;border-radius:var(--radius-pill);border:none;cursor:pointer;
   font-size:var(--text-base);background:oklch(from var(--sky-1) l c h / .92);box-shadow:0 2px 8px oklch(from var(--void) l c h / .18);transition:.2s;
   color:var(--star);font-weight:900;
 }
@@ -720,7 +730,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
    над нижней навигацией: куда ни докрутишь после выбора, панель всегда на виду. */
 .sel-bar{
   display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;
-  background:var(--star);color:var(--void);padding:10px 14px;border-radius:var(--radius-md);
+  background:var(--star);color:var(--void);padding:10px 14px;border-radius:var(--radius-card);
   box-shadow:0 6px 16px oklch(from var(--star) l c h / .25);
   position:sticky;top:64px;z-index:40;
 }
@@ -794,7 +804,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
      кнопки чуть уже (padding/gap), чтобы плотнее сидели на узких экранах. */
   .bottom-nav-btn{
     flex:1;min-width:0;background:none;border:none;color:var(--ink-2);
-    font-size:var(--text-lg);line-height:1;font-weight:800;padding:8px 1px;border-radius:var(--radius-sm);cursor:pointer;
+    font-size:var(--text-lg);line-height:1;font-weight:800;padding:8px 1px;border-radius:var(--radius-pill);cursor:pointer;
     transition:background .2s,color .2s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   }
   .bottom-nav-btn:hover{background:var(--sky-2);color:var(--star)}
@@ -854,7 +864,7 @@ body.auth .header, body.auth main{display:none} /* пока замок закр�
 body:not(.auth) .auth-screen{display:none}
 .auth-card{
   width:min(400px,100%);background:var(--sky-1);border:1px solid var(--line);
-  border-radius:var(--radius-xl);padding:34px 30px;box-shadow:var(--shadow);text-align:center;
+  border-radius:var(--radius-sheet);padding:34px 30px;box-shadow:var(--shadow);text-align:center;
   display:flex;flex-direction:column;gap:12px;animation:pop .4s ease;
 }
 .auth-logo{font-size:44px;line-height:1}
@@ -884,7 +894,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
   position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
   z-index:300;max-width:min(92vw,420px);
   background:var(--sky-1);color:var(--ink);border:1px solid var(--line);
-  border-radius:var(--radius-md);padding:12px 18px;box-shadow:0 12px 34px oklch(from var(--void) l c h / .18);
+  border-radius:var(--radius-card);padding:12px 18px;box-shadow:0 12px 34px oklch(from var(--void) l c h / .18);
   font-size:var(--text-base);font-weight:700;text-align:center;animation:pop .2s ease;
 }
 .app-toast[hidden]{display:none}
@@ -894,7 +904,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 [data-theme="light"] .app-toast.toast-error{background:oklch(96% .02 25);border-color:oklch(88% .06 25);color:oklch(45% .18 25)}
 
 /* ===== Настройки: переключатель «Отключить анимации» ===== */
-.motion-toggle{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:var(--text-base);font-weight:700;color:var(--ink);padding:10px 16px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--sky-1);transition:.2s}
+.motion-toggle{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:var(--text-base);font-weight:700;color:var(--ink);padding:10px 16px;border:1px solid var(--line);border-radius:var(--radius-pill);background:var(--sky-1);transition:.2s}
 .motion-toggle:hover{border-color:var(--star);background:var(--sky-2)}
 .motion-toggle input{width:18px;height:18px;accent-color:var(--star);cursor:pointer}
 
@@ -944,7 +954,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .history-photos{flex:1;position:relative;height:132px;min-width:230px}
 .history-photos:empty{display:none}
 .history-photo{
-  position:absolute;object-fit:cover;border-radius:var(--radius-md);cursor:pointer;
+  position:absolute;object-fit:cover;border-radius:var(--radius-media);cursor:pointer;
   border:3px solid var(--sky-1);box-shadow:0 10px 22px oklch(from var(--night) l c h / .3);
   animation:histFloat 6s ease-in-out infinite;
   transition:transform .25s ease, box-shadow .25s ease;
@@ -982,24 +992,24 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .view-title{font-family:var(--font-display);font-weight:400;font-size:var(--text-display);text-align:center;margin:6px 0 2px;color:var(--star)}
 .rem-empty{text-align:center;padding:40px 20px;color:var(--ink-2);font-size:var(--text-base)}
 .tl{position:relative;max-width:720px;margin:16px auto 40px;padding:10px 0}
-.tl-stem{position:absolute;left:50%;top:0;bottom:0;width:3px;background:var(--night);border-radius:2px;transform:translateX(-50%)}
+.tl-stem{position:absolute;left:50%;top:0;bottom:0;width:3px;background:var(--night);border-radius:var(--radius-pill);transform:translateX(-50%)}
 .tl-left,.tl-right{position:relative;width:50%;margin-bottom:28px}
 .tl-left{padding-right:28px}
 .tl-right{margin-left:50%;padding-left:28px}
-.tl-dot{position:absolute;top:16px;width:14px;height:14px;background:var(--star);border:3px solid var(--sky-0);border-radius:50%;z-index:2}
+.tl-dot{position:absolute;top:16px;width:14px;height:14px;background:var(--star);border:3px solid var(--sky-0);border-radius:var(--radius-pill);z-index:2}
 .tl-left .tl-dot{right:-7px}
 .tl-right .tl-dot{left:-7px}
-.tl-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-md);padding:14px;box-shadow:0 2px 12px oklch(from var(--night) l c h / .06);text-align:left}
+.tl-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:14px;box-shadow:0 2px 12px oklch(from var(--night) l c h / .06);text-align:left}
 .tl-date{font-weight:800;color:var(--star);margin-bottom:8px;font-size:var(--text-base)}
 .tl-photos{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;padding:2px 0}
-.tl-photos img{height:120px;border-radius:var(--radius-sm);object-fit:cover;flex-shrink:0;cursor:pointer;transition:transform .2s}
+.tl-photos img{height:120px;border-radius:var(--radius-media);object-fit:cover;flex-shrink:0;cursor:pointer;transition:transform .2s}
 .tl-photos img:hover{transform:scale(1.04)}
 .tl-item{padding:6px 0;border-top:1px dashed var(--line);font-size:var(--text-base)}
 .tl-item-emoji{font-size:var(--text-lg);margin-right:4px}
 .tl-item b{font-weight:700}
 .tl-item-photos{display:flex;gap:6px;flex-wrap:wrap;padding:4px 0}
-.tl-item-photos img{height:70px;border-radius:var(--radius-xs);object-fit:cover;flex-shrink:0;cursor:pointer}
-.tl-more-btn{align-self:center;border:1px dashed var(--star);background:transparent;color:var(--star);border-radius:var(--radius-sm);padding:6px 10px;font-size:var(--text-sm);cursor:pointer;flex-shrink:0}
+.tl-item-photos img{height:70px;border-radius:var(--radius-media);object-fit:cover;flex-shrink:0;cursor:pointer}
+.tl-more-btn{align-self:center;border:1px dashed var(--star);background:transparent;color:var(--star);border-radius:var(--radius-pill);padding:6px 10px;font-size:var(--text-sm);cursor:pointer;flex-shrink:0}
 .tl-more-btn:hover{background:var(--sky-0)}
 @media(max-width:640px){
   .tl-stem{left:16px}
@@ -1031,7 +1041,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 
 /* ===== Фаза D: единый стиль пустых состояний ===== */
 .empty-state,.dates-empty,.rem-empty{
-  text-align:center;padding:36px 22px;border-radius:var(--radius-lg);color:var(--ink-2);
+  text-align:center;padding:36px 22px;border-radius:var(--radius-card);color:var(--ink-2);
   font-size:var(--text-base);font-weight:700;line-height:1.8;
   background:var(--glass-bg);border:1.5px dashed var(--star);
   -webkit-backdrop-filter:blur(var(--blur));backdrop-filter:blur(var(--blur));
