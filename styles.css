@@ -45,28 +45,41 @@
 @layer tokens {
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg1:#f5eaff;
-  --bg2:#efe3ff;
-  --card:#ffffff;
-  --ink:#4c1d95;
-  --muted:#7a58a6;
-  --violet:#8b5cf6;
-  --violet2:#a78bfa;
-  --pink:#ec4899;
-  --pink2:#f9a8d4;
-  --pink-ink:#be185d;
-  --violet-ink:#7c3aed;
-  --grad:linear-gradient(135deg,#7c3aed,#d6336c);
-  --shadow:0 14px 40px rgba(139,92,246,.16);
+  /* ===== Фаза 1 (NV-13): палитра «Ночь» в OKLCH =====
+     Тёмная тема — теперь значение по умолчанию (без атрибута данные и с
+     data-theme="dark" — JS всегда выставляет атрибут явно, см.
+     src/20-theme-nav.js, но :root остаётся источником истины на случай,
+     если атрибут ещё не проставлен). [data-theme="light"] ниже — то, что
+     раньше было основной, единственной темой. Один акцент — --star,
+     градиентных кнопок больше нет (--grad удалён). --night (фиолетовый) —
+     только фон/линии/декор, никогда не кнопка и не текст. */
+  color-scheme:dark;
+  --sky-0:oklch(16% .035 275);
+  --sky-1:oklch(21% .04 275);
+  --sky-2:oklch(26% .045 275);
+  --line:oklch(30% .03 275);
+  --ink:oklch(95% .012 280);
+  --ink-2:oklch(72% .03 280);
+  --star:oklch(80% .13 75);
+  --night:oklch(62% .16 285);
+  /* Фиксированный тёмный, ОДИН и тот же в обеих темах: белый и --ink
+     проваливают контраст на светлом --star (см. task-7-report.md — белый
+     текст на --star 1.90:1/3.78:1, --ink 1.64:1/4.59:1, оба ниже нужного
+     AA в тёмной теме), а --sky-0 в светлой теме сам почти белый и тоже не
+     годится (3.47:1). --void даёt 10.24:1/5.14:1 — используется для текста
+     на --star (кнопки, активные пилюли, теги) и для тёмных подложек, которые
+     обязаны оставаться тёмными независимо от темы (лайтбокс, подпись на
+     фото) — это не «токен темы», а константа поверх системы токенов. */
+  --void:oklch(16% .035 275);
+  --shadow:0 16px 48px oklch(10% .04 275 / .5);
   --radius:22px;
-  --border:#e9d9ff;
-  --heart-opacity:.55;
-  /* Фаза D — стеклянные карточки */
-  --glass-bg:rgba(255,255,255,.66);
-  --glass-brd:rgba(255,255,255,.62);
-  --glass-strong:rgba(255,255,255,.82);
-  --blur:16px;
-  color-scheme:light;
+  --heart-opacity:.3;
+  /* Фаза D — стеклянные карточки: тонировка в --sky-1/--line через
+     относительный цвет oklch(from …), не в чёрный/белый хардкод. */
+  --glass-bg:oklch(from var(--sky-1) l c h / .55);
+  --glass-brd:oklch(from var(--line) l c h / .4);
+  --glass-strong:oklch(from var(--sky-1) l c h / .82);
+  --blur:18px;
   /* ===== Фаза 2: шкала радиусов и типографики =====
      Раньше похожие по роли элементы получали случайно разные px (10 и 12,
      14 и 16, 18 и 20 — без видимой причины, просто на глаз в момент
@@ -90,27 +103,22 @@
   --font-ui:'Onest',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   --font-display:'Sofia Sans Extra Condensed','Onest',sans-serif; /* узкая гротескная гарнитура для заголовков/чисел — см. @font-face выше */
 }
-[data-theme="dark"]{
-  --bg1:#120b1f;
-  --bg2:#1d1330;
-  --card:#241a38;
-  --ink:#f3e8ff;
-  --muted:#b9a7d6;
-  --violet:#a78bfa;
-  --violet2:#8b5cf6;
-  --pink:#f472b6;
-  --pink2:#ec4899;
-  --pink-ink:#f9a8d4;
-  --violet-ink:#c4b5fd;
-  --grad:linear-gradient(135deg,#7c3aed,#d6336c);
-  --shadow:0 18px 48px rgba(0,0,0,.42);
-  --border:#44336b;
-  --heart-opacity:.3;
-  --glass-bg:rgba(30,19,45,.55);
-  --glass-brd:rgba(196,181,253,.14);
-  --glass-strong:rgba(36,26,56,.8);
-  --blur:18px;
-  color-scheme:dark;
+[data-theme="light"]{
+  color-scheme:light;
+  --sky-0:oklch(97% .012 280);
+  --sky-1:oklch(99% .006 280);
+  --sky-2:oklch(96% .01 280);
+  --line:oklch(90% .012 280);
+  --ink:oklch(22% .03 280);
+  --ink-2:oklch(48% .02 280);
+  --star:oklch(62% .14 62);
+  --night:oklch(55% .15 285);
+  --shadow:0 14px 40px oklch(55% .08 285 / .14);
+  --heart-opacity:.55;
+  --glass-bg:oklch(from var(--sky-1) l c h / .68);
+  --glass-brd:oklch(from var(--line) l c h / .7);
+  --glass-strong:oklch(from var(--sky-1) l c h / .85);
+  --blur:16px;
 }
 } /* /tokens */
 
@@ -118,7 +126,7 @@
 html{scroll-behavior:smooth}
 body{
   font-family:var(--font-ui);
-  background:linear-gradient(160deg,var(--bg1),var(--bg2)) fixed;
+  background:var(--sky-0);
   color:var(--ink);line-height:1.6;min-height:100vh;
 }
 .container{max-width:1100px;margin:0 auto;padding:0 20px}
@@ -126,28 +134,29 @@ body{
 
 @layer components {
 
-/* ===== Фаза D: aurora-фон — мягкие пятна света за «стеклом» ===== */
+/* ===== Фаза D: aurora-фон — мягкие пятна света за «стеклом» =====
+   Один акцент в системе — --star, поэтому пятна больше не смешивают
+   несколько разных фиолетовых/розовых оттенков: все три завязаны на
+   --night (фон/декор, не кнопка — ровно то, для чего он предназначен),
+   светлая тема пятна приглушает сильнее (у нас нет отдельной «глубокой»
+   версии тона — контраст пятна с фоном в светлой теме и так больше). */
 .aurora{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
-.aurora-blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.6;will-change:transform}
-.ab-1{width:56vw;height:56vw;left:-14vw;top:-16vh;background:radial-gradient(circle at 30% 30%,#d8b4fe,#7c3aed 72%);animation:aurora1 24s ease-in-out infinite alternate}
-.ab-2{width:50vw;height:50vw;right:-12vw;top:20vh;background:radial-gradient(circle at 60% 40%,#f9a8d4,#ec4899 72%);animation:aurora2 28s ease-in-out infinite alternate}
-.ab-3{width:48vw;height:48vw;left:16vw;bottom:-20vh;background:radial-gradient(circle at 50% 50%,#a5b4fc,#6366f1 72%);animation:aurora3 32s ease-in-out infinite alternate}
+.aurora-blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.3;will-change:transform}
+.ab-1{width:56vw;height:56vw;left:-14vw;top:-16vh;background:radial-gradient(circle at 30% 30%,var(--night),transparent 72%);animation:aurora1 24s ease-in-out infinite alternate}
+.ab-2{width:50vw;height:50vw;right:-12vw;top:20vh;background:radial-gradient(circle at 60% 40%,var(--star),transparent 72%);animation:aurora2 28s ease-in-out infinite alternate}
+.ab-3{width:48vw;height:48vw;left:16vw;bottom:-20vh;background:radial-gradient(circle at 50% 50%,var(--night),transparent 72%);animation:aurora3 32s ease-in-out infinite alternate}
 @keyframes aurora1{to{transform:translate(16vw,12vh) scale(1.15)}}
 @keyframes aurora2{to{transform:translate(-14vw,16vh) scale(1.1)}}
 @keyframes aurora3{to{transform:translate(12vw,-14vh) scale(1.18)}}
-/* Тёмная тема: aurora приглушена, тона глубже */
-[data-theme="dark"] .aurora-blob{opacity:.3}
-[data-theme="dark"] .ab-1{background:radial-gradient(circle at 30% 30%,#5b21b6,#4c1d95 72%)}
-[data-theme="dark"] .ab-2{background:radial-gradient(circle at 60% 40%,#9d174d,#831843 72%)}
-[data-theme="dark"] .ab-3{background:radial-gradient(circle at 50% 50%,#3730a3,#1e1b4b 72%)}
+/* Светлая тема: пятна светлее фона, поэтому даже слабее, чем в тёмной */
+[data-theme="light"] .aurora-blob{opacity:.18}
 
 /* ===== Шапка ===== */
 .header{
-  position:sticky;top:0;z-index:50;background:rgba(255,255,255,.72);
+  position:sticky;top:0;z-index:50;background:oklch(from var(--sky-0) l c h / .82);
   backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-  border-bottom:1px solid var(--border);
+  border-bottom:1px solid var(--line);
 }
-[data-theme="dark"] .header{background:rgba(42,31,58,.85)}
 .header-inner{
   max-width:1100px;margin:0 auto;padding:0 20px;
   display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
@@ -164,29 +173,29 @@ body{
 .invite-btn{position:relative;padding:9px 12px;animation:invitePulse 1.6s ease-in-out infinite}
 .invite-badge{
   position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;padding:0 4px;
-  border-radius:var(--radius-pill);background:var(--pink-ink);color:#fff;font-size:var(--text-xs);font-weight:900;
-  display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 2px 6px rgba(0,0,0,.3);
+  border-radius:var(--radius-pill);background:var(--star);color:var(--void);font-size:var(--text-xs);font-weight:900;
+  display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 2px 6px oklch(from var(--void) l c h / .3);
 }
-@keyframes invitePulse{0%,100%{box-shadow:0 0 0 0 rgba(236,72,153,.45)}50%{box-shadow:0 0 0 6px rgba(236,72,153,0)}}
+@keyframes invitePulse{0%,100%{box-shadow:0 0 0 0 oklch(from var(--star) l c h / .45)}50%{box-shadow:0 0 0 6px oklch(from var(--star) l c h / 0)}}
 /* Плашка «нет сети» в шапке (см. updateOfflineBadge в src/20-theme-nav.js) —
    ненавязчивая, в духе .invite-badge/.motion-toggle: тихий контур, без ярких
    акцентов и анимации — это не ошибка, а спокойная справка «вот почему». */
 .offline-badge{
   display:flex;align-items:center;gap:4px;padding:6px 10px;
-  border:1px solid var(--border);border-radius:var(--radius-pill);
-  color:var(--muted);font-size:var(--text-xs);font-weight:700;white-space:nowrap;
+  border:1px solid var(--line);border-radius:var(--radius-pill);
+  color:var(--ink-2);font-size:var(--text-xs);font-weight:700;white-space:nowrap;
 }
 .offline-badge[hidden]{display:none}
 /* reduced-motion уже гасит все анимации глобально ([data-motion="reduced"] *
    и системный prefers-reduced-motion), отдельный оверрайд не нужен. */
 .nav{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0}
 .nav-btn{
-  border:1px solid var(--border);background:#fff;color:var(--muted);
+  border:1px solid var(--line);background:var(--sky-1);color:var(--ink-2);
   padding:9px 14px;border-radius:var(--radius-pill);font-size:var(--text-base);font-weight:700;cursor:pointer;
   transition:transform .2s,border-color .2s,color .2s;
 }
-.nav-btn:hover{transform:translateY(-2px);border-color:var(--violet2);color:var(--violet)}
-.nav-btn.active{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 6px 18px rgba(236,72,153,.45);transform:scale(1.06);font-weight:900}
+.nav-btn:hover{transform:translateY(-2px);border-color:var(--star);color:var(--star)}
+.nav-btn.active{background:var(--star);color:var(--void);border-color:transparent;box-shadow:0 6px 18px oklch(from var(--star) l c h / .45);transform:scale(1.06);font-weight:900}
 /* Фаза 4: SVG-иконки вместо эмодзи в кнопках (нижняя навигация, шапка) —
    размер относительно font-size кнопки, красятся вместе с текстом через
    currentColor (эмодзи оставались цветными в .active, эти — нет). */
@@ -199,33 +208,33 @@ main{max-width:1100px;margin:0 auto;padding:28px 20px 90px}
 @keyframes fadeIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 .btn{
   display:inline-flex;align-items:center;gap:8px;padding:11px 20px;border-radius:var(--radius-md);
-  background:var(--grad);color:#fff;border:none;font-weight:800;font-size:var(--text-base);cursor:pointer;
+  background:var(--star);color:var(--void);border:none;font-weight:800;font-size:var(--text-base);cursor:pointer;
   text-decoration:none;transition:transform .2s,box-shadow .25s;
-  box-shadow:0 8px 20px rgba(236,72,153,.25);
+  box-shadow:0 8px 20px oklch(from var(--star) l c h / .25);
 }
 .btn:hover{transform:translateY(-2px)}
-.btn-danger{background:linear-gradient(135deg,#dc2626,#be185d)}
+.btn-danger{background:oklch(58% .19 25);color:oklch(100% 0 0)}
 .file-btn{position:relative;overflow:hidden;cursor:pointer}
 input[type=text],input[type=date],input[type=time],input[type=password],textarea,select{
-  background:#fff;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;
+  background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 14px;
   font:inherit;color:var(--ink);outline:none;transition:border-color .2s;
 }
-input:focus,textarea:focus{border-color:var(--violet2)}
+input:focus,textarea:focus{border-color:var(--star)}
 h3{font-weight:800}
 
 /* ===== Главная / герой ===== */
 .hero-card{
   text-align:center;position:relative;overflow:hidden;
-  background:linear-gradient(160deg,#fdfaff,#f3e8ff);
-  border:1px solid var(--border);border-radius:var(--radius-xl);
+  background:var(--sky-1);
+  border:1px solid var(--line);border-radius:var(--radius-xl);
   padding:46px 24px;box-shadow:var(--shadow);
 }
 .hero-card h1{
   font-family:var(--font-display);font-size:clamp(34px,6vw,54px);font-weight:400;margin-bottom:6px;
-  background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;
+  color:var(--star);
 }
-.hero-names{font-family:var(--font-display);font-size:clamp(22px,3.4vw,30px);font-weight:400;color:var(--pink)}
-.hero-names span{color:var(--violet);margin:0 8px}
+.hero-names{font-family:var(--font-display);font-size:clamp(22px,3.4vw,30px);font-weight:400;color:var(--star)}
+.hero-names span{color:var(--night);margin:0 8px}
 
 /* ===== Главная: герой ===== */
 .hero-zone{position:relative;margin-bottom:6px}
@@ -233,32 +242,35 @@ h3{font-weight:800}
 /* ===== Свидания ===== */
 .date-bar{display:flex;justify-content:center;margin-top:22px}
 .btn-date{
-  font-size:var(--text-md);padding:13px 26px;background:linear-gradient(135deg,#d6336c,#7c3aed);
-  box-shadow:0 10px 26px rgba(236,72,153,.35);animation:pulseBtn 2.4s ease-in-out infinite;
+  font-size:var(--text-md);padding:13px 26px;background:var(--star);
+  box-shadow:0 10px 26px oklch(from var(--star) l c h / .35);animation:pulseBtn 2.4s ease-in-out infinite;
 }
-@keyframes pulseBtn{0%,100%{box-shadow:0 10px 26px rgba(236,72,153,.35)}50%{box-shadow:0 10px 34px rgba(236,72,153,.6)}}
+@keyframes pulseBtn{0%,100%{box-shadow:0 10px 26px oklch(from var(--star) l c h / .35)}50%{box-shadow:0 10px 34px oklch(from var(--star) l c h / .6)}}
 .btn-date:hover{transform:translateY(-2px) scale(1.02)}
 .dates{margin-top:28px}
 .dates h3{font-size:var(--text-lg);margin-bottom:12px}
-.dates-empty{background:#fff;border:1px dashed var(--violet2);border-radius:var(--radius-md);padding:26px;text-align:center;color:var(--muted)}
-.date-card{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--border);border-radius:var(--radius-md);padding:14px 18px;margin-bottom:10px;box-shadow:0 6px 18px rgba(139,92,246,.08)}
+.dates-empty{background:var(--sky-1);border:1px dashed var(--star);border-radius:var(--radius-md);padding:26px;text-align:center;color:var(--ink-2)}
+.date-card{display:flex;align-items:center;gap:14px;background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-md);padding:14px 18px;margin-bottom:10px;box-shadow:0 6px 18px oklch(from var(--night) l c h / .12)}
 .date-card.done{opacity:.6}
-.date-card.done .date-info b{text-decoration:line-through;color:var(--muted)}
+.date-card.done .date-info b{text-decoration:line-through;color:var(--ink-2)}
 .date-emoji{font-size:var(--text-xl);flex:none}
 .date-info{flex:1;display:flex;flex-direction:column;gap:2px;font-size:var(--text-base);min-width:0}
 .date-info b{font-weight:800}
-.date-info span{color:var(--muted);font-size:var(--text-base);overflow-wrap:break-word}
+.date-info span{color:var(--ink-2);font-size:var(--text-base);overflow-wrap:break-word}
 .date-side{display:flex;flex-direction:column;gap:6px;flex:none;align-items:flex-end}
-.resp-row{display:flex;gap:10px;font-size:var(--text-sm);color:var(--muted);font-weight:700}
-.resp-me{color:var(--pink-ink);font-weight:800}
+.resp-row{display:flex;gap:10px;font-size:var(--text-sm);color:var(--ink-2);font-weight:700}
+.resp-me{color:var(--star);font-weight:800}
 .resp-btns{display:flex;gap:8px}
-.resp-btn{border:1px solid var(--border);background:#fff;border-radius:var(--radius-pill);padding:6px 14px;font-size:var(--text-sm);font-weight:800;cursor:pointer;transition:.2s;color:var(--ink)}
-.resp-btn:hover{transform:translateY(-2px);border-color:var(--violet2)}
-.resp-btn.on{background:var(--grad);color:#fff;border-color:transparent}
-.resp-btn.no.on{background:linear-gradient(135deg,#dc2626,#be123c);border-color:transparent}
-.date-from{font-weight:700;color:var(--violet-ink)}
-.tag{display:inline-block;background:var(--grad);color:#fff;font-size:var(--text-sm);font-weight:800;padding:3px 10px;border-radius:var(--radius-pill);margin-left:8px;white-space:nowrap}
-.tag-today{background:linear-gradient(135deg,#be185d,#d6336c)}
+.resp-btn{border:1px solid var(--line);background:var(--sky-1);border-radius:var(--radius-pill);padding:6px 14px;font-size:var(--text-sm);font-weight:800;cursor:pointer;transition:.2s;color:var(--ink)}
+.resp-btn:hover{transform:translateY(-2px);border-color:var(--star)}
+.resp-btn.on{background:var(--star);color:var(--void);border-color:transparent}
+.resp-btn.no.on{background:oklch(58% .19 25);color:oklch(100% 0 0);border-color:transparent}
+.date-from{font-weight:700;color:var(--star)}
+.tag{display:inline-block;background:var(--star);color:var(--void);font-size:var(--text-sm);font-weight:800;padding:3px 10px;border-radius:var(--radius-pill);margin-left:8px;white-space:nowrap}
+/* Раньше .tag-today был отдельного (розового) оттенка — теперь в системе
+   один акцент, различать полутоном нечем; оставлено как алиас на случай,
+   если понадобится другая айдентика позже, сейчас визуально совпадает с .tag. */
+.tag-today{background:var(--star);color:var(--void)}
 
 /* ===== Модалка «свидание» ===== */
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
@@ -268,7 +280,7 @@ h3{font-weight:800}
 
 /* Завершённое свидание в календаре */
 .date-evt.date-done{opacity:.65}
-.date-evt.date-done span{text-decoration:line-through;color:var(--muted)}
+.date-evt.date-done span{text-decoration:line-through;color:var(--ink-2)}
 
 
 /* ===== Календарь ===== */
@@ -282,24 +294,24 @@ h3{font-weight:800}
 .cal-nav-row{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
 .cal-actions{display:flex;gap:10px;flex-wrap:wrap}
 .cal-nav{
-  width:40px;height:40px;border-radius:var(--radius-sm);border:1px solid var(--border);
-  background:#fff;font-size:var(--text-lg);cursor:pointer;color:var(--violet-ink);transition:.2s;flex:none;
+  width:40px;height:40px;border-radius:var(--radius-sm);border:1px solid var(--line);
+  background:var(--sky-1);font-size:var(--text-lg);cursor:pointer;color:var(--star);transition:.2s;flex:none;
 }
-.cal-nav:hover{background:#fbf5ff;transform:translateY(-2px)}
+.cal-nav:hover{background:var(--sky-2);transform:translateY(-2px)}
 .cal-jump-row{display:flex;gap:8px;justify-content:center;flex:1;min-width:0}
 .cal-jump{
-  padding:8px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:#fff;
-  font-size:var(--text-base);font-weight:700;color:var(--violet-ink);cursor:pointer;transition:.2s;font-family:inherit;
+  padding:8px 12px;border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--sky-1);
+  font-size:var(--text-base);font-weight:700;color:var(--star);cursor:pointer;transition:.2s;font-family:inherit;
 }
-.cal-jump:hover{border-color:var(--pink2);background:#fbf5ff}
+.cal-jump:hover{border-color:var(--star);background:var(--sky-2)}
 /* Подпись после «⏭ К ближайшему событию» — что это за событие */
 .cal-jump-info{
-  background:linear-gradient(135deg,#fff5fb,#fbf5ff);border:1px dashed var(--pink2);
-  border-radius:var(--radius-md);padding:10px 14px;font-weight:700;font-size:var(--text-base);color:var(--pink-ink);
+  background:var(--sky-2);border:1px dashed var(--star);
+  border-radius:var(--radius-md);padding:10px 14px;font-weight:700;font-size:var(--text-base);color:var(--star);
   margin:-8px 0 14px;
 }
 .cal-jump-info[hidden]{display:none}
-.calendar{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)}
+.calendar{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)}
 .cal-row{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
 /* Раньше все дни месяца были в ОДНОМ .cal-row (grid сам переносил лишние
    ячейки на новые визуальные строки, вертикальный отступ давал общий gap).
@@ -313,53 +325,53 @@ h3{font-weight:800}
     но подстраховка на случай, если браузер посчитает % от ширины иначе —
     плашка события физически не может вылезти за пределы своей клетки */
 }
-.cal-cell:not(.selected):hover{background:#f7f0ff}
+.cal-cell:not(.selected):hover{background:var(--sky-2)}
 .cal-cell.cal-empty{pointer-events:none}
-.cal-cell.in-span{background:linear-gradient(180deg,#f3e8ff,#fdf4ff)}
-.cal-cell.in-span .cal-num{color:#7c3aed}
-.cal-cell.today{border-color:var(--pink2);background:#fff5fb}
-.cal-cell.selected{background:var(--grad)}
-.cal-cell.selected .cal-num{color:#fff}
-.cal-dow{aspect-ratio:auto;font-size:var(--text-sm);font-weight:800;color:var(--muted);text-transform:uppercase;cursor:default;padding:4px 0}
+.cal-cell.in-span{background:var(--sky-2)}
+.cal-cell.in-span .cal-num{color:var(--star)}
+.cal-cell.today{border-color:var(--star);background:var(--sky-2)}
+.cal-cell.selected{background:var(--star)}
+.cal-cell.selected .cal-num{color:var(--void)}
+.cal-dow{aspect-ratio:auto;font-size:var(--text-sm);font-weight:800;color:var(--ink-2);text-transform:uppercase;cursor:default;padding:4px 0}
 .cal-num{font-weight:800;font-size:var(--text-base)}
 .cal-dot{
   font-size:var(--text-xs);line-height:1.15;max-width:100%;white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis;padding:0 4px;border-radius:var(--radius-xs);background:#fbf5ff;color:var(--violet-ink);
+  text-overflow:ellipsis;padding:0 4px;border-radius:var(--radius-xs);background:var(--sky-2);color:var(--star);
 }
-.cal-cell.has-date{border-color:var(--pink2)}
-.cal-dot-more{background:var(--pink2);color:#fff}
-.date-dot{background:#fff0f7;border-radius:var(--radius-pill);padding:1px 4px;line-height:1.4}
-.day-sub{font-size:var(--text-sm);font-weight:800;color:var(--pink-ink);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px}
-.date-evt{background:#fff0f7;border:1px dashed var(--pink2)}
-.day-panel{margin-top:16px;background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:0 8px 24px rgba(139,92,246,.08)}
+.cal-cell.has-date{border-color:var(--star)}
+.cal-dot-more{background:var(--star);color:var(--void)}
+.date-dot{background:var(--sky-2);border-radius:var(--radius-pill);padding:1px 4px;line-height:1.4}
+.day-sub{font-size:var(--text-sm);font-weight:800;color:var(--star);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px}
+.date-evt{background:var(--sky-2);border:1px dashed var(--star)}
+.day-panel{margin-top:16px;background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:0 8px 24px oklch(from var(--night) l c h / .1)}
 .day-head{font-size:var(--text-md);margin-bottom:12px}
-.day-event{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fbf5ff;border-radius:var(--radius-sm);margin-bottom:8px;font-size:var(--text-base);flex-wrap:wrap}
+.day-event{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--sky-2);border-radius:var(--radius-sm);margin-bottom:8px;font-size:var(--text-base);flex-wrap:wrap}
 .day-event > span{flex:1;min-width:120px}
-.ev-range{color:var(--muted);font-size:var(--text-sm);font-weight:600;margin-left:6px}
+.ev-range{color:var(--ink-2);font-size:var(--text-sm);font-weight:600;margin-left:6px}
 .day-event .ev-thumbs{flex:1 0 100%;display:flex;gap:4px;align-items:center}
-.ev-thumb{width:56px;height:56px;object-fit:cover;border-radius:var(--radius-sm);cursor:zoom-in;border:1px solid var(--border)}
+.ev-thumb{width:56px;height:56px;object-fit:cover;border-radius:var(--radius-sm);cursor:zoom-in;border:1px solid var(--line)}
 .day-add{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
 .day-add input{flex:1;min-width:140px}
-.cal-tip{color:var(--muted);font-size:var(--text-base)}
+.cal-tip{color:var(--ink-2);font-size:var(--text-base)}
 .mini-x{
-  width:26px;height:26px;border-radius:var(--radius-xs);border:1px solid var(--border);
-  background:#fff;cursor:pointer;font-size:var(--text-sm);color:var(--muted);transition:.2s;flex:none;
+  width:26px;height:26px;border-radius:var(--radius-xs);border:1px solid var(--line);
+  background:var(--sky-1);cursor:pointer;font-size:var(--text-sm);color:var(--ink-2);transition:.2s;flex:none;
 }
-.mini-x:hover{background:#ffe4e6;color:#e11d48;border-color:#fecdd3}
+.mini-x:hover{background:oklch(58% .19 25 / .16);color:oklch(70% .19 25);border-color:oklch(58% .19 25 / .4)}
 
 /* ===== Заметки ===== */
 .note-add{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:flex-start}
 .note-add textarea{flex:1;min-width:240px;padding:14px;border-radius:var(--radius-md);min-height:64px;resize:vertical}
 .notes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
 .note{
-  background:#fff;border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;
-  box-shadow:0 8px 20px rgba(139,92,246,.07);transition:transform .25s,box-shadow .25s;
+  background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-md);padding:14px;
+  box-shadow:0 8px 20px oklch(from var(--night) l c h / .1);transition:transform .25s,box-shadow .25s;
 }
-.note:hover{transform:translateY(-4px) rotate(-.5deg);box-shadow:0 14px 30px rgba(139,92,246,.14)}
-.note.pinned{border-color:var(--pink2);background:linear-gradient(160deg,#fff5fb,#fbf5ff)}
+.note:hover{transform:translateY(-4px) rotate(-.5deg);box-shadow:0 14px 30px oklch(from var(--night) l c h / .16)}
+.note.pinned{border-color:var(--star);background:var(--sky-2)}
 .note-top{display:flex;align-items:center;gap:6px;margin-bottom:8px}
-.note-author{font-size:var(--text-sm);font-weight:800;color:var(--violet-ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.note-date{font-size:var(--text-sm);color:var(--muted);white-space:nowrap}
+.note-author{font-size:var(--text-sm);font-weight:800;color:var(--star);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.note-date{font-size:var(--text-sm);color:var(--ink-2);white-space:nowrap}
 .note p{white-space:pre-wrap;font-size:var(--text-base);word-break:break-word}
 /* перетаскиваемую карточку прячем под призраком (старые классы — чип↔фото,
    05-dnd.js; sortable-* — то же самое, но от SortableJS: реордер заметок/
@@ -367,80 +379,80 @@ h3{font-weight:800}
 .note.dragging,.note.sortable-ghost{opacity:.45;border-style:dashed;transform:none;box-shadow:none}
 .list-card.dragging,.list-card.sortable-ghost{opacity:.45;border-style:dashed;transform:none;box-shadow:none}
 .photo.dragging,.photo.sortable-ghost{opacity:.5}
-.items li.sortable-ghost{opacity:.45;background:#fbf5ff}
+.items li.sortable-ghost{opacity:.45;background:var(--sky-2)}
 /* sortable-fallback — плавающий клон под курсором в forceFallback-режиме
    (тач и мышь без нативного HTML5 DnD) — тот же вид, что был у .drag-ghost */
 .sortable-fallback{
-  opacity:.95 !important;box-shadow:0 18px 44px rgba(76,29,149,.28);
+  opacity:.95 !important;box-shadow:0 18px 44px oklch(from var(--night) l c h / .28);
   transition:none !important;pointer-events:none;
 }
 /* ===== Драг-ручки и призрак (Pointer Events драг, схема A+D) ===== */
 .drag-handle{
   display:inline-flex;align-items:center;justify-content:center;
-  width:30px;height:30px;border-radius:var(--radius-xs);border:1px solid var(--border);
-  background:#fff;color:var(--muted);cursor:grab;font-size:var(--text-base);line-height:1;
+  width:30px;height:30px;border-radius:var(--radius-xs);border:1px solid var(--line);
+  background:var(--sky-1);color:var(--ink-2);cursor:grab;font-size:var(--text-base);line-height:1;
   flex:none;touch-action:none;user-select:none;-webkit-user-select:none;
 }
-.drag-handle:hover{border-color:var(--violet2);color:var(--violet-ink);background:#fbf5ff}
+.drag-handle:hover{border-color:var(--star);color:var(--star);background:var(--sky-2)}
 .drag-handle:active{cursor:grabbing}
 .note .drag-handle{width:26px;height:26px;border-radius:var(--radius-xs)}
 .items li .drag-handle{width:26px;height:26px;border-radius:var(--radius-xs);font-size:var(--text-sm)}
 .list-head{display:flex;align-items:flex-start;gap:10px}
 .list-head h3{flex:1}
-.list-name-editor{flex:1;padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);font-family:inherit;font-size:var(--text-md);font-weight:800}
+.list-name-editor{flex:1;padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--line);font-family:inherit;font-size:var(--text-md);font-weight:800}
 /* top:8px;left:8px — тот же угол, что у .sel-photo: ручка и кружок выбора
    теперь взаимоисключающие (режимы «Порядок»/«Выбрать» не активны разом),
    один и тот же слот на карточке никогда не занят обоими сразу. */
 .photo .drag-handle{
   position:absolute;top:8px;left:8px;width:30px;height:30px;border-radius:var(--radius-sm);
-  background:rgba(255,255,255,.92);box-shadow:0 2px 8px rgba(0,0,0,.18);z-index:2;
+  background:oklch(from var(--sky-1) l c h / .92);box-shadow:0 2px 8px oklch(from var(--void) l c h / .18);z-index:2;
 }
 .drag-ghost{
   position:fixed;z-index:9999;pointer-events:none;opacity:.95;margin:0;
-  box-shadow:0 18px 44px rgba(76,29,149,.28);
+  box-shadow:0 18px 44px oklch(from var(--night) l c h / .28);
   transition:none !important;will-change:transform,left,top;
 }
 body.uni-dragging{user-select:none;-webkit-user-select:none}
 body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
-.photo.drag-over{outline:3px solid var(--pink);outline-offset:-3px}
-.note-editor{width:100%;min-height:80px;padding:10px;border-radius:var(--radius-sm);border:1px solid var(--border);font-family:inherit;font-size:var(--text-base);resize:vertical}
+.photo.drag-over{outline:3px solid var(--star);outline-offset:-3px}
+.note-editor{width:100%;min-height:80px;padding:10px;border-radius:var(--radius-sm);border:1px solid var(--line);font-family:inherit;font-size:var(--text-base);resize:vertical}
 .note-edit-btns{display:flex;align-items:center;gap:8px;margin-top:8px}
-.btn-sm{padding:6px 12px;font-size:var(--text-sm);border-radius:var(--radius-sm)}
+.btn-sm{padding:6px 12px;font-size:var(--text-sm);border-radius:var(--radius-sm);background:var(--star);color:var(--void)}
 
 /* ===== Списки ===== */
 .lists-wrap{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-.list-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
+.list-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
 .list-card h3{display:flex;align-items:center;justify-content:space-between;font-size:var(--text-lg);margin-bottom:14px}
-.list-card h3 small{color:var(--muted);font-weight:600;font-size:var(--text-sm)}
+.list-card h3 small{color:var(--ink-2);font-weight:600;font-size:var(--text-sm)}
 .list-add{display:flex;gap:8px;margin-bottom:14px}
 .list-add input{flex:1}
 .lists-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .lists-bar h3{margin:0;font-size:var(--text-lg)}
 .list-create{display:flex;gap:8px;margin-bottom:18px;max-width:540px}
 .list-create input{flex:1}
-.list-actions{margin-top:12px;padding-top:12px;border-top:1px dashed var(--border)}
+.list-actions{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)}
 .btn-small{padding:8px 12px;font-size:var(--text-sm)}
 .items{list-style:none}
 .items li{display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:var(--radius-sm);font-size:var(--text-base)}
-.items li:hover{background:#fbf5ff}
-.items li.done span{text-decoration:line-through;color:var(--muted)}
+.items li:hover{background:var(--sky-2)}
+.items li.done span{text-decoration:line-through;color:var(--ink-2)}
 .check{
-  width:28px;height:28px;border-radius:var(--radius-xs);border:1px solid var(--border);background:#fff;
+  width:28px;height:28px;border-radius:var(--radius-xs);border:1px solid var(--line);background:var(--sky-1);
   cursor:pointer;font-size:var(--text-sm);flex:none;transition:.2s;
 }
-.check:hover{border-color:var(--violet2)}
+.check:hover{border-color:var(--star)}
 .items li span{flex:1;word-break:break-word}
 /* FLIP-анимация переезда подзадач (done-подзадача уезжает вниз) */
 .items li{transition:transform .28s ease,background .28s ease,color .28s ease}
 @keyframes checkPop{0%{transform:scale(.5);opacity:.4}60%{transform:scale(1.25)}100%{transform:scale(1);opacity:1}}
 .items li.just-toggled .check{animation:checkPop .32s ease}
-.empty-li{color:var(--muted);justify-content:center;font-size:var(--text-base)}
+.empty-li{color:var(--ink-2);justify-content:center;font-size:var(--text-base)}
 
 /* ===== Фото ===== */
 .photo-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:18px}
 .photo-bar h3{font-size:var(--text-lg)}
 .photos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
-.photo{position:relative;border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--border);box-shadow:0 8px 20px rgba(139,92,246,.1);background:#fff}
+.photo{position:relative;border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--line);box-shadow:0 8px 20px oklch(from var(--night) l c h / .14);background:var(--sky-1)}
 .photo img{width:100%;aspect-ratio:1;object-fit:cover;display:block;cursor:pointer;transition:transform .3s}
 /* Миниатюра ещё не докачана/расшифрована (data-photo-src ждёт hydratePhotoImgs,
    см. src/05-photostore.js) — до этого у <img> нет src вообще. Без этого
@@ -459,7 +471,7 @@ img[data-photo-src]{visibility:hidden}
    keyframes глобально ([data-motion="reduced"] * и prefers-reduced-motion),
    отдельный оверрайд не нужен, см. .heart/.invitePulse рядом. */
 .photo:has(img[data-photo-src]){
-  background:linear-gradient(100deg,var(--card) 30%,rgba(139,92,246,.14) 50%,var(--card) 70%);
+  background:linear-gradient(100deg,var(--sky-1) 30%,var(--sky-2) 50%,var(--sky-1) 70%);
   background-size:200% 100%;
   animation:photoShimmer 1.6s ease-in-out infinite;
 }
@@ -468,24 +480,24 @@ img[data-photo-src]{visibility:hidden}
 /* Закрепление/удаление одного фото переехали в светбокс (лишние постоянные
    кнопки перекрывали половину маленькой миниатюры) — .photo.pinned остаётся
    единственным индикатором «закреплено» прямо в сетке, пассивным, не кнопкой. */
-.photo.pinned{border-color:var(--pink);box-shadow:0 0 0 3px var(--pink2)}
+.photo.pinned{border-color:var(--star);box-shadow:0 0 0 3px oklch(from var(--star) l c h / .5)}
 .photo-bar-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 
 /* ===== Настройки ===== */
-.settings-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow);margin-bottom:20px}
+.settings-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow);margin-bottom:20px}
 .settings-card h3{font-size:var(--text-lg);margin-bottom:10px}
-.settings-card p{color:var(--muted);font-size:var(--text-base);margin-bottom:16px}
+.settings-card p{color:var(--ink-2);font-size:var(--text-base);margin-bottom:16px}
 .settings-btns{display:flex;gap:12px;flex-wrap:wrap}
 
 /* ===== Оверлеи / модалки ===== */
 .overlay{
-  position:fixed;inset:0;z-index:100;background:rgba(76,29,149,.35);
+  position:fixed;inset:0;z-index:100;background:oklch(from var(--void) l c h / .5);
   backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
   display:grid;place-items:center;padding:20px;
 }
 .overlay[hidden]{display:none}
 .modal{
-  background:#fff;border-radius:var(--radius-xl);padding:28px;width:min(420px,100%);
+  background:var(--sky-1);border-radius:var(--radius-xl);padding:28px;width:min(420px,100%);
   display:flex;flex-direction:column;gap:12px;position:relative;animation:pop .3s ease;
   max-height:92vh;overflow-y:auto;
 }
@@ -493,65 +505,57 @@ img[data-photo-src]{visibility:hidden}
 .modal h3{font-size:var(--text-lg)}
 .modal-x{
   position:absolute;top:12px;right:12px;width:34px;height:34px;border-radius:50%;
-  border:1px solid var(--border);background:#fbf5ff;cursor:pointer;font-size:var(--text-sm);color:var(--muted);
+  border:1px solid var(--line);background:var(--sky-2);cursor:pointer;font-size:var(--text-sm);color:var(--ink-2);
 }
-.modal-x:hover{background:#ffe4e6;color:#e11d48}
-.modal label{font-weight:800;font-size:var(--text-sm);color:var(--muted)}
+.modal-x:hover{background:oklch(58% .19 25 / .16);color:oklch(70% .19 25)}
+.modal label{font-weight:800;font-size:var(--text-sm);color:var(--ink-2)}
 .modal .check{display:flex;align-items:center;gap:8px;height:auto;width:auto;background:none;border:none;color:var(--ink);font-size:var(--text-base);cursor:pointer}
-.modal input[type=checkbox]{accent-color:#ec4899;width:17px;height:17px;cursor:pointer}
-/* Модалка «добавить дату» — в стиле сайта: градиентная шапка + аккуратные поля */
-.event-modal{overflow:hidden;padding:0;width:min(460px,100%);border:1px solid var(--border)}
-.ev-head{flex:none;background:var(--grad);color:#fff;padding:22px 26px 18px;border-bottom:1px solid rgba(255,255,255,.25)}
-.ev-head h3{color:#fff;font-size:var(--text-lg)}
-.ev-head-sub{color:rgba(255,255,255,.88);font-size:var(--text-sm);font-weight:600;margin-top:2px}
-.event-modal .modal-x{top:16px;right:16px;background:rgba(255,255,255,.92);border-color:transparent}
-.event-modal .modal-x:hover{background:#fff;color:#e11d48}
+.modal input[type=checkbox]{accent-color:var(--star);width:17px;height:17px;cursor:pointer}
+/* Модалка «добавить дату» — в стиле сайта: акцентная шапка (сплошной цвет,
+   не градиент — акцент один) + аккуратные поля */
+.event-modal{overflow:hidden;padding:0;width:min(460px,100%);border:1px solid var(--line)}
+.ev-head{flex:none;background:var(--star);color:var(--void);padding:22px 26px 18px;border-bottom:1px solid oklch(from var(--void) l c h / .2)}
+.ev-head h3{color:var(--void);font-size:var(--text-lg)}
+.ev-head-sub{color:oklch(from var(--void) l c h / .78);font-size:var(--text-sm);font-weight:600;margin-top:2px}
+.event-modal .modal-x{top:16px;right:16px;background:oklch(from var(--void) l c h / .14);border-color:transparent;color:var(--void)}
+.event-modal .modal-x:hover{background:oklch(from var(--void) l c h / .26)}
 .ev-body{flex:1;min-height:0;overflow-y:auto;padding:22px 26px 26px;display:flex;flex-direction:column;gap:12px}
 .ev-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .ev-col{display:flex;flex-direction:column;gap:6px}
 .ev-col label{font-size:var(--text-sm)}
-.ev-note{background:#fbf5ff;border:1px dashed var(--violet2);border-radius:var(--radius-sm);padding:10px 12px;font-size:var(--text-sm);color:var(--muted);margin-top:-2px}
-.ev-photo-count{align-self:center;color:var(--muted);font-size:var(--text-sm)}
+.ev-note{background:var(--sky-2);border:1px dashed var(--star);border-radius:var(--radius-sm);padding:10px 12px;font-size:var(--text-sm);color:var(--ink-2);margin-top:-2px}
+.ev-photo-count{align-self:center;color:var(--ink-2);font-size:var(--text-sm)}
 .ev-save{width:100%;justify-content:center;padding:13px;font-size:var(--text-base);margin-top:2px}
 .event-modal .list-add{margin-bottom:0}
 .event-modal .file-btn{flex:none}
-.event-modal input[type=date]{color-scheme:light}
-[data-theme="dark"] .event-modal input[type=date]{color-scheme:dark}
-[data-theme="dark"] .ev-head{background:linear-gradient(135deg,#5b21b6,#9d174d)}
-[data-theme="dark"] .ev-note{background:#3d2a50;border-color:#4c3d6a}
+.event-modal input[type=date]{color-scheme:dark}
+[data-theme="light"] .event-modal input[type=date]{color-scheme:light}
 @media (max-width:420px){.ev-grid{grid-template-columns:1fr}}
 /* Кастомный date-picker (вместо системного календаря браузера) */
 input[type=date]::-webkit-calendar-picker-indicator{display:none;-webkit-appearance:none}
 input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-button{display:none;-webkit-appearance:none}
 .date-pop{
-  position:fixed;z-index:200;background:#fff;border:1px solid var(--border);border-radius:var(--radius-md);
-  box-shadow:0 20px 50px rgba(139,92,246,.28);padding:14px;width:272px;animation:pop .18s ease;
+  position:fixed;z-index:200;background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-md);
+  box-shadow:0 20px 50px oklch(from var(--night) l c h / .28);padding:14px;width:272px;animation:pop .18s ease;
 }
 .date-pop[hidden]{display:none}
 .dp-head{display:flex;align-items:center;gap:6px;margin-bottom:10px}
-.dp-nav{width:30px;height:30px;border-radius:var(--radius-sm);border:1px solid var(--border);background:#fff;font-size:var(--text-md);cursor:pointer;color:var(--violet-ink);transition:.2s;font-family:inherit}
-.dp-nav:hover{background:#fbf5ff;border-color:var(--violet2);transform:translateY(-1px)}
+.dp-nav{width:30px;height:30px;border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--sky-1);font-size:var(--text-md);cursor:pointer;color:var(--star);transition:.2s;font-family:inherit}
+.dp-nav:hover{background:var(--sky-2);border-color:var(--star);transform:translateY(-1px)}
 .dp-jump{display:flex;gap:4px;flex:1;justify-content:center;min-width:0}
-.dp-select{padding:5px 8px;border-radius:var(--radius-sm);border:1px solid var(--border);background:#fff;font-size:var(--text-sm);font-weight:800;color:var(--violet-ink);cursor:pointer;font-family:inherit;outline:none;transition:.2s;max-width:100%}
-.dp-select:hover{border-color:var(--pink2);background:#fbf5ff}
+.dp-select{padding:5px 8px;border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--sky-1);font-size:var(--text-sm);font-weight:800;color:var(--star);cursor:pointer;font-family:inherit;outline:none;transition:.2s;max-width:100%}
+.dp-select:hover{border-color:var(--star);background:var(--sky-2)}
 .dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:10px}
-.dp-dow{font-size:var(--text-xs);font-weight:800;color:var(--muted);text-transform:uppercase;text-align:center;padding:4px 0}
+.dp-dow{font-size:var(--text-xs);font-weight:800;color:var(--ink-2);text-transform:uppercase;text-align:center;padding:4px 0}
 .dp-day{height:30px;border-radius:var(--radius-sm);border:none;background:none;font-size:var(--text-sm);font-weight:700;color:var(--ink);cursor:pointer;transition:background .15s}
-.dp-day:hover{background:#f7f0ff}
+.dp-day:hover{background:var(--sky-2)}
 .dp-day.empty{pointer-events:none;visibility:hidden}
-.dp-day.today{border:1px solid var(--pink2)}
-.dp-day.picked{background:var(--grad);color:#fff;box-shadow:0 4px 12px rgba(236,72,153,.35)}
-.dp-foot{display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--border);padding-top:10px}
-.dp-mini{padding:6px 14px;border-radius:var(--radius-pill);border:1px solid var(--border);background:#fff;font-size:var(--text-sm);font-weight:800;color:var(--violet-ink);cursor:pointer;transition:.2s;font-family:inherit}
-.dp-mini:hover{background:#fbf5ff;border-color:var(--pink2)}
-.dp-mini.clear{color:#e11d48}
-[data-theme="dark"] .date-pop{background:var(--card);border-color:#4c3d6a}
-[data-theme="dark"] .dp-nav,[data-theme="dark"] .dp-select,[data-theme="dark"] .dp-mini{background:#3d2a50;border-color:#4c3d6a;color:#e9dcff}
-[data-theme="dark"] .dp-nav:hover,[data-theme="dark"] .dp-select:hover,[data-theme="dark"] .dp-mini:hover{background:#4c3d6a;border-color:#ec4899}
-[data-theme="dark"] .dp-day{color:#f3e8ff}
-[data-theme="dark"] .dp-day:hover{background:#4c3d6a}
-[data-theme="dark"] .dp-day.today{border-color:#ec4899}
-[data-theme="dark"] .dp-foot{border-color:#4c3d6a}
+.dp-day.today{border:1px solid var(--star)}
+.dp-day.picked{background:var(--star);color:var(--void);box-shadow:0 4px 12px oklch(from var(--star) l c h / .35)}
+.dp-foot{display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--line);padding-top:10px}
+.dp-mini{padding:6px 14px;border-radius:var(--radius-pill);border:1px solid var(--line);background:var(--sky-1);font-size:var(--text-sm);font-weight:800;color:var(--star);cursor:pointer;transition:.2s;font-family:inherit}
+.dp-mini:hover{background:var(--sky-2);border-color:var(--star)}
+.dp-mini.clear{color:oklch(58% .19 25)}
 /* Озвучка даты для скринридера: визуально скрыто, но читается (role=status) */
 .dp-live{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);border:0;white-space:nowrap}
 /* Ниже остальных .overlay (те держат общий z-index:100): любая модалка,
@@ -561,21 +565,23 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
    этого правила модалка визуально уходила под открытое фото. */
 /* Курсор zoom-out тут раньше стоял на весь фон оверлея — по клику ничего не
    уменьшалось (сам зум — только на фото, курсор там свой, динамический,
-   см. lbRender()), а фон теперь по клику закрывает светбокс, не зумит. */
-#lightbox{background:rgba(20,10,40,.85);padding:0;z-index:95}
+   см. lbRender()), а фон теперь по клику закрывает светбокс, не зумит.
+   Лайтбокс — просмотрщик фото, его подложка всегда тёмная (--void),
+   независимо от активной темы сайта, иначе фото на светлом фоне теряются. */
+#lightbox{background:oklch(from var(--void) l c h / .9);padding:0;z-index:95}
 .lb-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:56px 20px}
 .lb-stage img{
-  max-width:92vw;max-height:88vh;border-radius:var(--radius-md);box-shadow:0 20px 60px rgba(0,0,0,.5);
+  max-width:92vw;max-height:88vh;border-radius:var(--radius-md);box-shadow:0 20px 60px oklch(0% 0 0 / .5);
   user-select:none;-webkit-user-select:none;touch-action:pan-y;
   transition:transform .2s ease;
 }
 .lb-btn{
-  border:none;background:rgba(255,255,255,.14);color:#fff;cursor:pointer;border-radius:50%;
+  border:none;background:oklch(100% 0 0 / .14);color:oklch(100% 0 0);cursor:pointer;border-radius:50%;
   backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);font-weight:900;
   display:flex;align-items:center;justify-content:center;
   transition:background .2s,transform .2s;z-index:2;
 }
-.lb-btn:hover{background:rgba(255,255,255,.32);transform:scale(1.08)}
+.lb-btn:hover{background:oklch(100% 0 0 / .32);transform:scale(1.08)}
 .lb-arrow{position:absolute;top:50%;transform:translateY(-50%);width:46px;height:46px;font-size:var(--text-xl);line-height:1}
 .lb-arrow:hover{transform:translateY(-50%) scale(1.08)}
 .lb-prev{left:14px}
@@ -587,15 +593,15 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .lb-actions{position:absolute;right:14px;bottom:18px;display:flex;gap:10px}
 .lb-actions .lb-btn{width:46px;height:46px;font-size:var(--text-lg)}
 .lb-label{font-size:var(--text-lg)}
-.lb-pin.active{background:var(--grad)}
+.lb-pin.active{background:var(--star)}
 .lb-counter{
   position:absolute;left:50%;bottom:16px;transform:translateX(-50%);
-  background:rgba(20,10,40,.55);color:#fff;font-size:var(--text-sm);font-weight:800;
+  background:oklch(from var(--void) l c h / .55);color:oklch(100% 0 0);font-size:var(--text-sm);font-weight:800;
   padding:6px 14px;border-radius:var(--radius-pill);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
   pointer-events:none;white-space:nowrap;
 }
-.lb-close{top:16px;right:16px;background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.35);color:#fff;z-index:2}
-.lb-close:hover{background:#e11d48;color:#fff;transform:scale(1.08)}
+.lb-close{top:16px;right:16px;background:oklch(100% 0 0 / .16);border-color:oklch(100% 0 0 / .35);color:oklch(100% 0 0);z-index:2}
+.lb-close:hover{background:oklch(58% .19 25);color:oklch(100% 0 0);transform:scale(1.08)}
 
 /* ===== Летающие сердечки ===== */
 /* z-index:-1 — как у .aurora: декор заднего плана, а не поверх контента.
@@ -612,47 +618,49 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 @keyframes confettiFall{0%{transform:translateY(0) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
 
 /* ===== Комплимент дня ===== */
-.compliment-card{background:linear-gradient(160deg,#fff5fb,#f3e8ff);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px 24px;margin-top:24px;text-align:center;box-shadow:0 8px 24px rgba(236,72,153,.12)}
-.compliment-card h4{font-size:var(--text-base);color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
-.compliment-text{font-size:var(--text-lg);font-weight:700;color:var(--pink-ink);font-style:italic}
+.compliment-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px 24px;margin-top:24px;text-align:center;box-shadow:0 8px 24px oklch(from var(--star) l c h / .12)}
+.compliment-card h4{font-size:var(--text-base);color:var(--ink-2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+.compliment-text{font-size:var(--text-lg);font-weight:700;color:var(--star);font-style:italic}
 
 /* ===== Вишлист ===== */
 .wishlist-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:18px}
 .wishlist-bar h3{font-size:var(--text-lg)}
 .wishlist-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
-.wish{background:#fff;border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;box-shadow:0 8px 20px rgba(139,92,246,.08);transition:transform .25s,box-shadow .25s}
-.wish:hover{transform:translateY(-4px);box-shadow:0 14px 30px rgba(139,92,246,.14)}
-.wish-img{width:100%;aspect-ratio:16/9;object-fit:cover;background:linear-gradient(135deg,#f3e8ff,#fce7f3)}
+.wish{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-md);overflow:hidden;box-shadow:0 8px 20px oklch(from var(--night) l c h / .1);transition:transform .25s,box-shadow .25s}
+.wish:hover{transform:translateY(-4px);box-shadow:0 14px 30px oklch(from var(--night) l c h / .16)}
+.wish-img{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--sky-2)}
 .wish-body{padding:14px}
 .wish-title{font-weight:800;font-size:var(--text-base);margin-bottom:6px}
-.wish-link{display:inline-flex;align-items:center;gap:4px;color:var(--violet-ink);font-size:var(--text-sm);font-weight:700;text-decoration:none;margin-top:8px}
+.wish-link{display:inline-flex;align-items:center;gap:4px;color:var(--star);font-size:var(--text-sm);font-weight:700;text-decoration:none;margin-top:8px}
 .wish-link:hover{text-decoration:underline}
 .wish-btns{display:flex;gap:8px;margin-top:10px}
-.wish-done-by{display:block;margin-top:8px;font-size:var(--text-sm);font-weight:800;color:var(--violet-ink)}
-.wish.done .wish-done-by{color:var(--pink-ink)}
-.wish-hint{display:block;margin-top:10px;font-size:var(--text-sm);font-weight:700;color:var(--muted)}
+.wish-done-by{display:block;margin-top:8px;font-size:var(--text-sm);font-weight:800;color:var(--star)}
+.wish.done .wish-done-by{color:var(--star)}
+.wish-hint{display:block;margin-top:10px;font-size:var(--text-sm);font-weight:700;color:var(--ink-2)}
 
 /* ===== Альбомы ===== */
 .album-bar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
-.album-chip{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:var(--radius-pill);border:1px solid var(--border);background:#fff;font-weight:700;font-size:var(--text-base);cursor:pointer;transition:.2s;color:var(--ink)}
-.album-chip:hover{border-color:var(--violet2)}
-.album-chip.active{background:var(--grad);color:#fff;border-color:transparent}
+.album-chip{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:var(--radius-pill);border:1px solid var(--line);background:var(--sky-1);font-weight:700;font-size:var(--text-base);cursor:pointer;transition:.2s;color:var(--ink)}
+.album-chip:hover{border-color:var(--star)}
+.album-chip.active{background:var(--star);color:var(--void);border-color:transparent}
 .album-add-btn{font-size:var(--text-sm);padding:6px 12px}
 /* Подсветка кнопки лейбла, когда тащишь на неё фото */
-.album-chip.drag-over{border-color:transparent;background:var(--grad);color:#fff;transform:scale(1.06);box-shadow:0 0 0 3px var(--pink2)}
+.album-chip.drag-over{border-color:transparent;background:var(--star);color:var(--void);transform:scale(1.06);box-shadow:0 0 0 3px oklch(from var(--star) l c h / .5)}
 .album-chip{cursor:grab}
 .album-chip:active{cursor:grabbing}
 .label-apply-chip{cursor:pointer}
 
-/* Цветной маркер лейбла — на чипах фильтра, бейджах фото, в модалках */
-.label-dot{width:8px;height:8px;border-radius:50%;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.12)}
+/* Цветной маркер лейбла — на чипах фильтра, бейджах фото, в модалках.
+   Сам цвет — из палитры лейблов (выбор пользователя, inline style в JS),
+   не токен темы, поэтому не трогаем; кольцо вокруг — тонировано в --void. */
+.label-dot{width:8px;height:8px;border-radius:50%;flex:none;box-shadow:0 0 0 1px oklch(from var(--void) l c h / .12)}
 
 /* ===== Модалка «Лейблы»: список для переименования/цвета/удаления ===== */
-.label-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
+.label-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
 .label-row:last-child{border-bottom:none}
-.label-dot-btn{width:20px;height:20px;border-radius:50%;border:1px solid var(--border);flex:none;cursor:pointer;padding:0}
+.label-dot-btn{width:20px;height:20px;border-radius:50%;border:1px solid var(--line);flex:none;cursor:pointer;padding:0}
 .label-row-name{flex:1;font-weight:700;cursor:pointer}
-.label-row-count{color:var(--muted);font-size:var(--text-sm);font-weight:600;white-space:nowrap}
+.label-row-count{color:var(--ink-2);font-size:var(--text-sm);font-weight:600;white-space:nowrap}
 .label-name-editor{flex:1}
 .label-color-picker{display:flex;gap:8px;flex-wrap:wrap;padding:4px 0 12px 30px}
 .label-swatch{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
@@ -664,42 +672,45 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .ev-filter-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .ev-filter-level{display:none;flex-wrap:wrap;gap:8px;align-items:center}
 .ev-filter-level:empty{display:none}
-.ev-btn{padding:8px 16px;border-radius:var(--radius-pill);border:1px solid var(--border);background:#fff;font-weight:700;font-size:var(--text-sm);color:var(--ink);cursor:pointer;transition:.2s;line-height:1.25}
-.ev-btn:hover{border-color:var(--violet2);transform:translateY(-1px)}
-.ev-btn.active{background:var(--grad);color:#fff;border-color:transparent}
+.ev-btn{padding:8px 16px;border-radius:var(--radius-pill);border:1px solid var(--line);background:var(--sky-1);font-weight:700;font-size:var(--text-sm);color:var(--ink);cursor:pointer;transition:.2s;line-height:1.25}
+.ev-btn:hover{border-color:var(--star);transform:translateY(-1px)}
+.ev-btn.active{background:var(--star);color:var(--void);border-color:transparent}
 .ev-btn .cnt{opacity:.65;font-weight:600;margin-left:3px;font-size:var(--text-xs)}
 .ev-btn.active .cnt{opacity:.85}
-.ev-reset-btn{padding:6px 14px;border-radius:var(--radius-pill);border:1px dashed var(--border);background:transparent;font-weight:700;font-size:var(--text-sm);color:var(--muted);cursor:pointer;transition:.2s}
-.ev-reset-btn:hover{border-color:var(--pink2);color:var(--pink)}
-.ev-album-hint{color:var(--muted);font-size:var(--text-sm);font-weight:600}
-.photo-caption{position:absolute;left:0;right:0;bottom:0;padding:18px 8px 6px;font-size:var(--text-xs);font-weight:800;color:#fff;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(180deg,rgba(76,29,149,0),rgba(76,29,149,.62));pointer-events:none}
+.ev-reset-btn{padding:6px 14px;border-radius:var(--radius-pill);border:1px dashed var(--line);background:transparent;font-weight:700;font-size:var(--text-sm);color:var(--ink-2);cursor:pointer;transition:.2s}
+.ev-reset-btn:hover{border-color:var(--star);color:var(--star)}
+.ev-album-hint{color:var(--ink-2);font-size:var(--text-sm);font-weight:600}
+/* Подпись под фото — тёмный градиент-скрим всегда тонирован в --void
+   (не в тему): подпись должна читаться поверх ЛЮБОГО фото, вне зависимости
+   от активной темы сайта. */
+.photo-caption{position:absolute;left:0;right:0;bottom:0;padding:18px 8px 6px;font-size:var(--text-xs);font-weight:800;color:oklch(100% 0 0);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(180deg,oklch(from var(--void) l c h / 0),oklch(from var(--void) l c h / .62));pointer-events:none}
 
 /* ===== Дополнительно: таймер, бейджи, хотелки, фото ===== */
 .countdown-time{font-size:var(--text-xl);font-weight:900;color:var(--ink);margin-top:6px;letter-spacing:.5px}
-.both-yes{color:var(--pink-ink);font-weight:800;font-size:var(--text-base);margin-top:6px}
+.both-yes{color:var(--star);font-weight:800;font-size:var(--text-base);margin-top:6px}
 .sel-photo{
   position:absolute;top:8px;left:8px;width:30px;height:30px;border-radius:50%;border:none;cursor:pointer;
-  font-size:var(--text-base);background:rgba(255,255,255,.92);box-shadow:0 2px 8px rgba(0,0,0,.18);transition:.2s;
-  color:#7c3aed;font-weight:900;
+  font-size:var(--text-base);background:oklch(from var(--sky-1) l c h / .92);box-shadow:0 2px 8px oklch(from var(--void) l c h / .18);transition:.2s;
+  color:var(--star);font-weight:900;
 }
 .sel-photo:hover{transform:scale(1.15)}
-.sel-photo.active{background:var(--grad);color:#fff}
-.photo.selected{border-color:var(--pink);box-shadow:0 0 0 3px var(--pink2)}
+.sel-photo.active{background:var(--star);color:var(--void)}
+.photo.selected{border-color:var(--star);box-shadow:0 0 0 3px oklch(from var(--star) l c h / .5)}
 .photo-labels{
   position:absolute;bottom:8px;left:8px;right:8px;display:flex;flex-wrap:wrap;gap:4px;
   pointer-events:none;
 }
 .photo-label{
   display:inline-flex;align-items:center;gap:4px;
-  background:rgba(76,29,149,.78);color:#fff;font-size:var(--text-xs);padding:2px 8px;border-radius:var(--radius-pill);
+  background:oklch(from var(--void) l c h / .78);color:oklch(100% 0 0);font-size:var(--text-xs);padding:2px 8px;border-radius:var(--radius-pill);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
 }
-.photo-label .label-dot{box-shadow:0 0 0 1px rgba(255,255,255,.5)}
+.photo-label .label-dot{box-shadow:0 0 0 1px oklch(100% 0 0 / .5)}
 .photo-label-del{
   margin-left:4px;background:none;border:none;padding:0;font:inherit;font-size:var(--text-xs);
-  color:rgba(255,255,255,.9);font-weight:900;cursor:pointer;pointer-events:auto;vertical-align:baseline;
+  color:oklch(100% 0 0 / .9);font-weight:900;cursor:pointer;pointer-events:auto;vertical-align:baseline;
 }
-.photo-label-del:hover{color:#fff}
+.photo-label-del:hover{color:oklch(100% 0 0)}
 /* Липкая панель: раньше жила в обычном потоке страницы — выбрал фото №290 из
    300, докрутил вверх применить действие, а панель осталась там, где
    создалась, вне экрана. На десктопе прилипает под шапкой (64px — её
@@ -707,15 +718,15 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
    над нижней навигацией: куда ни докрутишь после выбора, панель всегда на виду. */
 .sel-bar{
   display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;
-  background:var(--grad);color:#fff;padding:10px 14px;border-radius:var(--radius-md);
-  box-shadow:0 6px 16px rgba(236,72,153,.25);
+  background:var(--star);color:var(--void);padding:10px 14px;border-radius:var(--radius-md);
+  box-shadow:0 6px 16px oklch(from var(--star) l c h / .25);
   position:sticky;top:64px;z-index:40;
 }
 .sel-bar .btn{box-shadow:none}
 .sel-count{font-weight:800;font-size:var(--text-base);margin-right:auto}
 .sel-count b{font-size:var(--text-md)}
 .wish-section{margin-bottom:30px}
-.wish-section h4{margin-bottom:12px;font-size:var(--text-md);color:var(--muted)}
+.wish-section h4{margin-bottom:12px;font-size:var(--text-md);color:var(--ink-2)}
 /* Фаза 6, пункт 18 плана: на мобиле секции Гоши/Даши шли одна под другой —
    чтобы увидеть хотелки партнёра, приходилось пролистать все свои. На
    десктопе сетка в несколько колонок короче по высоте — там переключатель
@@ -723,14 +734,14 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .wish-tabs{display:none}
 @media(max-width:820px){
   .wish-tabs{display:flex;gap:8px;margin-bottom:18px}
-  .wish-tab{flex:1;border:1px solid var(--border);background:#fff;color:var(--muted);padding:10px;border-radius:var(--radius-pill);font-size:var(--text-base);font-weight:800;cursor:pointer;transition:.2s}
-  .wish-tab.active{background:var(--grad);color:#fff;border-color:transparent}
+  .wish-tab{flex:1;border:1px solid var(--line);background:var(--sky-1);color:var(--ink-2);padding:10px;border-radius:var(--radius-pill);font-size:var(--text-base);font-weight:800;cursor:pointer;transition:.2s}
+  .wish-tab.active{background:var(--star);color:var(--void);border-color:transparent}
   #wishlistGrid[data-active-wish="gosha"] .wish-section[data-wish-owner="dasha"],
   #wishlistGrid[data-active-wish="dasha"] .wish-section[data-wish-owner="gosha"]{display:none}
 }
 .wish.done{opacity:.55}
 .wish.done .wish-title{text-decoration:line-through}
-.drag-hint{color:var(--muted);font-size:var(--text-sm);margin:-6px 0 14px}
+.drag-hint{color:var(--ink-2);font-size:var(--text-sm);margin:-6px 0 14px}
 
 /* ===== Нижняя навигация (мобильные): все вкладки в одном ряду =====
    На десктопе панель скрыта (работает шапка-пилюли); на <=820px шапка-пилюли
@@ -773,21 +784,23 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
   .nav{display:none}
   .bottom-nav{
     display:flex;position:fixed;left:0;right:0;bottom:0;z-index:60;
-    background:rgba(255,255,255,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-    border-top:1px solid var(--border);padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+    background:oklch(from var(--sky-0) l c h / .92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom));
     gap:2px;justify-content:space-around;
   }
   /* Раньше — 5 вкладок + «Ещё»; теперь все 7 вкладок в один ряд без шторки,
      кнопки чуть уже (padding/gap), чтобы плотнее сидели на узких экранах. */
   .bottom-nav-btn{
-    flex:1;min-width:0;background:none;border:none;color:var(--muted);
+    flex:1;min-width:0;background:none;border:none;color:var(--ink-2);
     font-size:var(--text-lg);line-height:1;font-weight:800;padding:8px 1px;border-radius:var(--radius-sm);cursor:pointer;
     transition:background .2s,color .2s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   }
-  .bottom-nav-btn:hover{background:var(--pink2);color:var(--violet)}
-  .bottom-nav-btn.active{background:var(--grad);color:#fff}
-  .bottom-nav-btn.active:hover{background:var(--grad);color:#fff}
-  [data-theme="dark"] .bottom-nav{background:rgba(42,31,58,.92)}
+  .bottom-nav-btn:hover{background:var(--sky-2);color:var(--star)}
+  .bottom-nav-btn.active{background:var(--star);color:var(--void)}
+  .bottom-nav-btn.active:hover{background:var(--star);color:var(--void)}
+}
+[data-theme="light"] .bottom-nav{background:oklch(from var(--sky-1) l c h / .92)}
+@media(max-width:820px){
   /* Мобиле: липкая панель выбора — не под шапкой (там тесно и её роль уже
      занята логотипом), а фиксирована над нижней навигацией, ближе к пальцу —
      тот же приём, что у Google/Apple Photos. 48px+10px — высота bottom-nav
@@ -817,92 +830,71 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 /* ===== Скроллбар и выделение ===== */
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--violet2);border-radius:var(--radius-pill);border:2px solid var(--bg2)}
-::selection{background:var(--pink2);color:var(--ink)}
+::-webkit-scrollbar-thumb{background:var(--star);border-radius:var(--radius-pill);border:2px solid var(--sky-0)}
+::selection{background:var(--star);color:var(--void)}
 
-/* ===== Тёмная тема — корректировки ===== */
-[data-theme="dark"] .hero-card{background:linear-gradient(160deg,#2a1f3a,#3d2a50)}
-[data-theme="dark"] .nav-btn{background:var(--card);color:var(--ink)}
-[data-theme="dark"] .nav-btn.active{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 6px 18px rgba(236,72,153,.45);transform:scale(1.06);font-weight:900}
-[data-theme="dark"] .modal{background:var(--card)}
-[data-theme="dark"] input,[data-theme="dark"] textarea,[data-theme="dark"] select{background:var(--card);color:var(--ink)}
-[data-theme="dark"] .date-card,[data-theme="dark"] .note,[data-theme="dark"] .list-card,[data-theme="dark"] .calendar,[data-theme="dark"] .day-panel,[data-theme="dark"] .settings-card,[data-theme="dark"] .photo,[data-theme="dark"] .wish{background:var(--card)}
-[data-theme="dark"] .cal-cell:not(.selected):hover{background:#3d2a50}
-[data-theme="dark"] .cal-cell.in-span{background:linear-gradient(180deg,#2e1b42,#3d2a50)}
-[data-theme="dark"] .cal-cell.in-span .cal-num{color:#c4b5fd}
-[data-theme="dark"] .cal-cell.today{background:#3d2a50}
-[data-theme="dark"] .cal-nav:hover,[data-theme="dark"] .day-event,[data-theme="dark"] .date-evt,[data-theme="dark"] .date-dot,[data-theme="dark"] .cal-dot{background:#3d2a50}
-[data-theme="dark"] .cal-dot-more{background:var(--pink2);color:#fff}
-[data-theme="dark"] .cal-jump{background:#241a31;border-color:#3d2a50;color:#e9d5ff}
-[data-theme="dark"] .cal-jump-info{background:linear-gradient(135deg,#3d2a50,#2a1f3a);color:#f9a8d4}
-[data-theme="dark"] .note-editor{background:var(--card);color:var(--ink)}
-[data-theme="dark"] .btn-sm{background:var(--grad);color:#fff}
-[data-theme="dark"] .ev-thumb{border-color:#3d2a50}
-[data-theme="dark"] .note.pinned{background:linear-gradient(160deg,#3d2a50,#2a1f3a);color:var(--ink)}
-[data-theme="dark"] .resp-btn{background:var(--card);color:var(--ink)}
-[data-theme="dark"] .dates-empty{background:var(--card)}
-[data-theme="dark"] .compliment-card{background:linear-gradient(160deg,#3d2a50,#2a1f3a)}
-[data-theme="dark"] .items li:hover{background:#3d2a50}
-[data-theme="dark"] .album-chip{background:var(--card);color:var(--ink)}
-[data-theme="dark"] .album-chip.active{background:var(--grad);color:#fff}
-[data-theme="dark"] .ev-btn{background:var(--card);color:var(--ink)}
-[data-theme="dark"] .ev-btn.active{background:var(--grad);color:#fff}
-[data-theme="dark"] .ev-reset-btn{color:var(--muted);border-color:#4c3d6a}
-[data-theme="dark"] .ev-reset-btn:hover{color:var(--pink);border-color:var(--pink2)}
-[data-theme="dark"] .sel-photo{background:#2a1f3a;color:#e9dcff;border:1px solid #4c3d6a}
-[data-theme="dark"] .mini-x,[data-theme="dark"] .cal-nav,[data-theme="dark"] .modal-x{background:#3d2a50;border-color:#4c3d6a;color:#e9dcff}
-[data-theme="dark"] .check{background:var(--card);border-color:#4c3d6a;color:var(--ink)}
+/* ===== Тёмная тема — корректировки =====
+   Раньше здесь была большая пачка [data-theme="dark"] X{background:var(--card)}
+   переопределений: тёмная тема была НЕ основной, и почти каждой карточке
+   приходилось явно повторять один и тот же тёмный фон. Теперь тёмная —
+   значение по умолчанию, все эти фоны уже расставлены на самих правилах
+   выше (var(--sky-1)/var(--sky-2)/var(--star) и т.п.) — блок больше не
+   нужен, оставлены только реальные различия между темами (контраст
+   ошибок/фокуса, см. ниже). */
 
 /* ===== Личный кабинет: замок и создание пароля ===== */
 body.auth .header, body.auth main{display:none} /* пока замок закрыт — приложения нет */
 .auth-screen{
   position:fixed;inset:0;z-index:300;display:grid;place-items:center;
-  padding:20px;background:linear-gradient(160deg,var(--bg1),var(--bg2));
+  padding:20px;background:var(--sky-0);
 }
 .auth-screen[hidden]{display:none}
 body:not(.auth) .auth-screen{display:none}
 .auth-card{
-  width:min(400px,100%);background:var(--card);border:1px solid var(--border);
+  width:min(400px,100%);background:var(--sky-1);border:1px solid var(--line);
   border-radius:var(--radius-xl);padding:34px 30px;box-shadow:var(--shadow);text-align:center;
   display:flex;flex-direction:column;gap:12px;animation:pop .4s ease;
 }
 .auth-logo{font-size:44px;line-height:1}
-.auth-card h1{font-family:var(--font-display);font-size:28px;font-weight:400;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
-.auth-sub{color:var(--muted);font-size:var(--text-base);margin:-4px 0 6px;line-height:1.5}
+.auth-card h1{font-family:var(--font-display);font-size:28px;font-weight:400;color:var(--star)}
+.auth-sub{color:var(--ink-2);font-size:var(--text-base);margin:-4px 0 6px;line-height:1.5}
 .auth-card input[type=password],.auth-card select{width:100%;text-align:center;font-size:var(--text-md);letter-spacing:2px}
 .auth-card select{letter-spacing:normal;text-align:left}
-.auth-err{color:#dc2626;font-weight:700;font-size:var(--text-sm);min-height:18px}
-[data-theme="dark"] .auth-err{color:#fca5a5}
-[data-theme="dark"] .auth-card{background:var(--card)}
+/* Ошибка формы: тёмная тема (по умолчанию) — светлее для контраста на
+   тёмном фоне, светлая тема — темнее, иначе на белом фоне бледнеет. */
+.auth-err{color:oklch(82% .08 20);font-weight:700;font-size:var(--text-sm);min-height:18px}
+[data-theme="light"] .auth-err{color:oklch(50% .19 25)}
 
 /* ===== Доступность: видимый фокус для клавиатуры =====
    outline:none выше убирает фокус-кольцо по умолчанию; возвращаем его только
-   для клавиатурной навигации (:focus-visible), мышь кольцо не получает. */
-:focus-visible{outline:2px solid var(--violet2);outline-offset:2px}
+   для клавиатурной навигации (:focus-visible), мышь кольцо не получает.
+   --star виден на фоне обеих тем одинаково хорошо — отдельного тёмного
+   варианта, в отличие от старой пары violet2/#c4b5fd, больше не нужно. */
+:focus-visible{outline:2px solid var(--star);outline-offset:2px}
 input[type=text]:focus-visible,input[type=date]:focus-visible,input[type=time]:focus-visible,
 input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
-  outline:2px solid var(--violet2);outline-offset:2px;border-color:var(--violet2)
+  outline:2px solid var(--star);outline-offset:2px;border-color:var(--star)
 }
-.dp-select:focus-visible,.dp-nav:focus-visible{outline:2px solid var(--violet2);outline-offset:1px}
-[data-theme="dark"] :focus-visible{outline-color:#c4b5fd}
+.dp-select:focus-visible,.dp-nav:focus-visible{outline:2px solid var(--star);outline-offset:1px}
 
 /* ===== Тост: ненавязчивые уведомления (ошибки хранилища и т.п.) ===== */
 .app-toast{
   position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
   z-index:300;max-width:min(92vw,420px);
-  background:var(--card);color:var(--ink);border:1px solid var(--border);
-  border-radius:var(--radius-md);padding:12px 18px;box-shadow:0 12px 34px rgba(0,0,0,.18);
+  background:var(--sky-1);color:var(--ink);border:1px solid var(--line);
+  border-radius:var(--radius-md);padding:12px 18px;box-shadow:0 12px 34px oklch(from var(--void) l c h / .18);
   font-size:var(--text-base);font-weight:700;text-align:center;animation:pop .2s ease;
 }
 .app-toast[hidden]{display:none}
-.app-toast.toast-error{background:#fef2f2;border-color:#fecaca;color:#b91c1c}
-[data-theme="dark"] .app-toast.toast-error{background:#3f1d1d;border-color:#7f1d1d;color:#fecaca}
+/* Тёмная тема (по умолчанию): приглушённый тёмно-красный фон, светлый текст.
+   Светлая тема: бледно-красный фон, тёмный текст — иначе на белом не видно. */
+.app-toast.toast-error{background:oklch(24% .05 25);border-color:oklch(35% .09 25);color:oklch(85% .07 25)}
+[data-theme="light"] .app-toast.toast-error{background:oklch(96% .02 25);border-color:oklch(88% .06 25);color:oklch(45% .18 25)}
 
 /* ===== Настройки: переключатель «Отключить анимации» ===== */
-.motion-toggle{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:var(--text-base);font-weight:700;color:var(--ink);padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius-md);background:#fff;transition:.2s}
-.motion-toggle:hover{border-color:var(--violet2);background:#fbf5ff}
-.motion-toggle input{width:18px;height:18px;accent-color:var(--pink);cursor:pointer}
-[data-theme="dark"] .motion-toggle{background:var(--card);color:var(--ink)}
+.motion-toggle{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:var(--text-base);font-weight:700;color:var(--ink);padding:10px 16px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--sky-1);transition:.2s}
+.motion-toggle:hover{border-color:var(--star);background:var(--sky-2)}
+.motion-toggle input{width:18px;height:18px;accent-color:var(--star);cursor:pointer}
 
 /* ===== Уменьшенное движение =====
    Переключатель в настройках ставит data-motion на <html>:
@@ -932,85 +924,81 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
    (см. index.html), поэтому без своего фона/рамки/тени — просто секция,
    отделённая тонкой чертой, как уже разделены .history-stats/.history-otd
    ниже тем же приёмом. */
-.progress-ring{margin-top:22px;padding-top:20px;border-top:1px dashed var(--border);text-align:left}
+.progress-ring{margin-top:22px;padding-top:20px;border-top:1px dashed var(--line);text-align:left}
 .history-main{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
 .ring-wrap{position:relative;width:104px;height:104px;flex:0 0 auto}
 .ring-svg{width:104px;height:104px;transform:rotate(-90deg)}
-.ring-bg{fill:none;stroke:var(--border);stroke-width:8}
-.ring-fg{fill:none;stroke:var(--pink);stroke-width:8;stroke-linecap:round;transition:stroke-dashoffset .6s ease}
+.ring-bg{fill:none;stroke:var(--line);stroke-width:8}
+.ring-fg{fill:none;stroke:var(--star);stroke-width:8;stroke-linecap:round;transition:stroke-dashoffset .6s ease}
 .ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
-.ring-center b{font-family:var(--font-display);font-size:var(--text-xl);color:var(--pink-ink)}
-.ring-center small{font-size:var(--text-xs);color:var(--muted)}
+.ring-center b{font-family:var(--font-display);font-size:var(--text-xl);color:var(--star)}
+.ring-center small{font-size:var(--text-xs);color:var(--ink-2)}
 .ring-info{flex:0 1 auto;min-width:170px}
-.ring-info h4{font-family:var(--font-display);font-weight:400;font-size:var(--text-lg);margin:0 0 2px;color:var(--pink-ink)}
+.ring-info h4{font-family:var(--font-display);font-weight:400;font-size:var(--text-lg);margin:0 0 2px;color:var(--star)}
 .ring-info p{margin:0;font-weight:700;color:var(--ink)}
-.ring-info small{color:var(--muted)}
+.ring-info small{color:var(--ink-2)}
 
 /* Коллаж: 2-3 фото с поворотом, разным размером и парением (не ровный ряд) */
 .history-photos{flex:1;position:relative;height:132px;min-width:230px}
 .history-photos:empty{display:none}
 .history-photo{
   position:absolute;object-fit:cover;border-radius:var(--radius-md);cursor:pointer;
-  border:3px solid #fff;box-shadow:0 10px 22px rgba(139,92,246,.3);
+  border:3px solid var(--sky-1);box-shadow:0 10px 22px oklch(from var(--night) l c h / .3);
   animation:histFloat 6s ease-in-out infinite;
   transition:transform .25s ease, box-shadow .25s ease;
 }
-.history-photo:hover{transform:translateY(-4px) scale(1.04);box-shadow:0 14px 30px rgba(139,92,246,.45)}
+.history-photo:hover{transform:translateY(-4px) scale(1.04);box-shadow:0 14px 30px oklch(from var(--night) l c h / .45)}
 @keyframes histFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
 
 /* Статистика «чем заполнена история» — чипы под кольцом */
-.history-stats{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px dashed var(--border)}
+.history-stats{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
 .hs-chip{
-  background:linear-gradient(135deg,#fff5fb,#fbf5ff);border:1px solid var(--border);
+  background:var(--sky-2);border:1px solid var(--line);
   border-radius:var(--radius-pill);padding:6px 12px;font-size:var(--text-sm);font-weight:700;color:var(--ink);
 }
-[data-theme="dark"] .hs-chip{background:linear-gradient(135deg,#3d2a50,#2a1f3a);color:var(--ink);border-color:#3d2a50}
 
 /* Хотелки — чип с прогрессом исполненных + кнопка «🎲 Перемешать» */
 .hs-wish{display:inline-flex;align-items:center;gap:6px}
-.hs-bar{display:inline-block;width:46px;height:6px;border-radius:var(--radius-pill);background:rgba(0,0,0,.12);overflow:hidden;vertical-align:middle}
-.hs-bar i{display:block;height:100%;border-radius:var(--radius-pill);background:linear-gradient(90deg,#f472b6,#a78bfa);transition:width .4s ease}
-[data-theme="dark"] .hs-bar{background:rgba(255,255,255,.16)}
-.hs-shuffle{cursor:pointer;user-select:none;border-color:transparent;background:linear-gradient(135deg,#fff5fb,#f3e8ff)}
-.hs-shuffle:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(139,92,246,.3)}
+.hs-bar{display:inline-block;width:46px;height:6px;border-radius:var(--radius-pill);background:oklch(100% 0 0 / .16);overflow:hidden;vertical-align:middle}
+.hs-bar i{display:block;height:100%;border-radius:var(--radius-pill);background:var(--star);transition:width .4s ease}
+[data-theme="light"] .hs-bar{background:oklch(0% 0 0 / .12)}
+.hs-shuffle{cursor:pointer;user-select:none;border-color:transparent;background:var(--sky-2)}
+.hs-shuffle:hover{transform:translateY(-1px);box-shadow:0 4px 12px oklch(from var(--night) l c h / .3)}
 .hs-shuffle:active{transform:translateY(0)}
-.hs-shuffle:focus-visible{outline:2px solid var(--pink);outline-offset:2px}
-[data-theme="dark"] .hs-shuffle{background:linear-gradient(135deg,#3d2a50,#33244a)}
+.hs-shuffle:focus-visible{outline:2px solid var(--star);outline-offset:2px}
 
-/* Бейдж «✨ В этот день» на коллаже */
-.hp-badge{position:absolute;right:2%;top:8%;z-index:2;pointer-events:none;font-size:var(--text-xs);font-weight:700;color:#fff;background:linear-gradient(135deg,#f472b6,#a78bfa);border-radius:var(--radius-pill);padding:3px 9px;box-shadow:0 4px 12px rgba(167,139,250,.45);white-space:nowrap}
+/* Бейдж «✨ В этот день» на коллаже — единственный акцент, без градиента */
+.hp-badge{position:absolute;right:2%;top:8%;z-index:2;pointer-events:none;font-size:var(--text-xs);font-weight:700;color:var(--void);background:var(--star);border-radius:var(--radius-pill);padding:3px 9px;box-shadow:0 4px 12px oklch(from var(--star) l c h / .45);white-space:nowrap}
 
 /* «В этот день» — события прошлых лет чипами в блоке «Наша история» */
 .history-otd{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px}
-.history-otd-label{font-size:var(--text-sm);font-weight:800;color:var(--pink-ink)}
-.hs-otd-chip{background:linear-gradient(135deg,#fff0f7,#f3e8ff);border-color:#f9d4e7}
-.hs-otd-chip small{color:var(--muted);font-weight:600}
-[data-theme="dark"] .hs-otd-chip{background:linear-gradient(135deg,#3d2a50,#33244a);border-color:#4c3a66}
+.history-otd-label{font-size:var(--text-sm);font-weight:800;color:var(--star)}
+.hs-otd-chip{background:var(--sky-2);border-color:var(--line)}
+.hs-otd-chip small{color:var(--ink-2);font-weight:600}
 
 /* Таймлайн-дерево «Память» */
-.view-title{font-family:var(--font-display);font-weight:400;font-size:var(--text-xl);text-align:center;margin:6px 0 2px;color:var(--pink-ink)}
-.rem-empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:var(--text-base)}
+.view-title{font-family:var(--font-display);font-weight:400;font-size:var(--text-xl);text-align:center;margin:6px 0 2px;color:var(--star)}
+.rem-empty{text-align:center;padding:40px 20px;color:var(--ink-2);font-size:var(--text-base)}
 .tl{position:relative;max-width:720px;margin:16px auto 40px;padding:10px 0}
-.tl-stem{position:absolute;left:50%;top:0;bottom:0;width:3px;background:linear-gradient(to bottom,var(--pink),var(--violet),var(--pink));border-radius:2px;transform:translateX(-50%)}
+.tl-stem{position:absolute;left:50%;top:0;bottom:0;width:3px;background:var(--night);border-radius:2px;transform:translateX(-50%)}
 .tl-left,.tl-right{position:relative;width:50%;margin-bottom:28px}
 .tl-left{padding-right:28px}
 .tl-right{margin-left:50%;padding-left:28px}
-.tl-dot{position:absolute;top:16px;width:14px;height:14px;background:var(--pink);border:3px solid var(--bg1);border-radius:50%;z-index:2}
+.tl-dot{position:absolute;top:16px;width:14px;height:14px;background:var(--star);border:3px solid var(--sky-0);border-radius:50%;z-index:2}
 .tl-left .tl-dot{right:-7px}
 .tl-right .tl-dot{left:-7px}
-.tl-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;box-shadow:0 2px 12px rgba(139,92,246,.06);text-align:left}
-[data-theme="dark"] .tl-card{background:var(--card)}
-.tl-date{font-weight:800;color:var(--pink-ink);margin-bottom:8px;font-size:var(--text-base)}
+.tl-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-md);padding:14px;box-shadow:0 2px 12px oklch(from var(--night) l c h / .06);text-align:left}
+.tl-date{font-weight:800;color:var(--star);margin-bottom:8px;font-size:var(--text-base)}
 .tl-photos{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;padding:2px 0}
 .tl-photos img{height:120px;border-radius:var(--radius-sm);object-fit:cover;flex-shrink:0;cursor:pointer;transition:transform .2s}
 .tl-photos img:hover{transform:scale(1.04)}
-.tl-item{padding:6px 0;border-top:1px dashed var(--border);font-size:var(--text-base)}
+.tl-item{padding:6px 0;border-top:1px dashed var(--line);font-size:var(--text-base)}
 .tl-item-emoji{font-size:var(--text-lg);margin-right:4px}
 .tl-item b{font-weight:700}
 .tl-item-photos{display:flex;gap:6px;flex-wrap:wrap;padding:4px 0}
 .tl-item-photos img{height:70px;border-radius:var(--radius-xs);object-fit:cover;flex-shrink:0;cursor:pointer}
-.tl-more-btn{align-self:center;border:1px dashed var(--pink);background:transparent;color:var(--pink-ink);border-radius:var(--radius-sm);padding:6px 10px;font-size:var(--text-sm);cursor:pointer;flex-shrink:0}
-.tl-more-btn:hover{background:var(--bg1)}
+.tl-more-btn{align-self:center;border:1px dashed var(--star);background:transparent;color:var(--star);border-radius:var(--radius-sm);padding:6px 10px;font-size:var(--text-sm);cursor:pointer;flex-shrink:0}
+.tl-more-btn:hover{background:var(--sky-0)}
 @media(max-width:640px){
   .tl-stem{left:16px}
   .tl-left,.tl-right{width:100%;margin-left:0!important;padding-left:42px!important;padding-right:0!important}
@@ -1018,42 +1006,33 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 }
 
 /* ===== Фаза D: Glass-карточки — полупрозрачные + размытие фона =====
-   Блок в конце файла: перекрывает сплошные фоны выше (и светлые, и тёмные),
-   чтобы aurora мягко просвечивала сквозь карточки. */
-.hero-card,.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.dates-empty,.rem-empty,.tl-card,.modal,.date-pop,.auth-card,
-[data-theme="dark"] .hero-card,[data-theme="dark"] .date-card,[data-theme="dark"] .note,[data-theme="dark"] .list-card,[data-theme="dark"] .calendar,[data-theme="dark"] .day-panel,[data-theme="dark"] .settings-card,[data-theme="dark"] .wish,[data-theme="dark"] .photo,[data-theme="dark"] .dates-empty,[data-theme="dark"] .rem-empty,[data-theme="dark"] .tl-card,[data-theme="dark"] .modal,[data-theme="dark"] .date-pop,[data-theme="dark"] .auth-card{
+   Блок в конце файла: перекрывает сплошные фоны выше, чтобы aurora мягко
+   просвечивала сквозь карточки. var(--glass-bg) уже разный в двух темах —
+   отдельных [data-theme="dark"] дублей для тех же селекторов больше не
+   нужно, как и раньше на этой странице. */
+.hero-card,.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.dates-empty,.rem-empty,.tl-card,.modal,.date-pop,.auth-card{
   background:var(--glass-bg);
   -webkit-backdrop-filter:blur(var(--blur));
   backdrop-filter:blur(var(--blur));
 }
-/* Градиентные карточки — полупрозрачные версии стекла */
-.hero-card{background:linear-gradient(160deg,rgba(255,255,255,.7),rgba(248,242,255,.54))}
-.compliment-card{background:linear-gradient(160deg,rgba(255,245,251,.74),rgba(243,232,255,.62));-webkit-backdrop-filter:blur(var(--blur));backdrop-filter:blur(var(--blur))}
-.note.pinned{background:linear-gradient(160deg,rgba(255,245,251,.82),rgba(243,232,255,.7))}
+/* Карточки с усиленной непрозрачностью стекла — один акцент, без градиента */
+.hero-card{background:oklch(from var(--sky-1) l c h / .7)}
+.compliment-card{background:oklch(from var(--sky-1) l c h / .74);-webkit-backdrop-filter:blur(var(--blur));backdrop-filter:blur(var(--blur))}
+.note.pinned{background:oklch(from var(--sky-2) l c h / .82)}
 .auth-card{background:var(--glass-strong)}
-[data-theme="dark"] .hero-card{background:linear-gradient(160deg,rgba(38,25,54,.68),rgba(56,39,76,.52))}
-[data-theme="dark"] .compliment-card{background:linear-gradient(160deg,rgba(56,39,76,.68),rgba(38,25,54,.62))}
-[data-theme="dark"] .note.pinned{background:linear-gradient(160deg,rgba(61,42,80,.76),rgba(42,31,58,.76))}
-[data-theme="dark"] .auth-card{background:var(--glass-strong)}
-/* Тонкая светлая кромка — как блик на стекле */
+/* Тонкая кромка — как блик на стекле */
 .hero-card,.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.tl-card,.modal,.date-pop,.auth-card{
   border-color:var(--glass-brd);
 }
-.note.pinned{border-color:var(--pink2)}
-.photo.pinned{border-color:var(--pink);box-shadow:0 0 0 3px var(--pink2)}
-/* Тёмная 2.0: шапка и нижняя панель чуть плотнее */
-[data-theme="dark"] .header{background:rgba(22,14,36,.82)}
-[data-theme="dark"] .bottom-nav{background:rgba(22,14,36,.86)}
+.note.pinned{border-color:var(--star)}
+.photo.pinned{border-color:var(--star);box-shadow:0 0 0 3px oklch(from var(--star) l c h / .5)}
 
 /* ===== Фаза D: единый стиль пустых состояний ===== */
 .empty-state,.dates-empty,.rem-empty{
-  text-align:center;padding:36px 22px;border-radius:var(--radius-lg);color:var(--muted);
+  text-align:center;padding:36px 22px;border-radius:var(--radius-lg);color:var(--ink-2);
   font-size:var(--text-base);font-weight:700;line-height:1.8;
-  background:var(--glass-bg);border:1.5px dashed var(--violet2);
+  background:var(--glass-bg);border:1.5px dashed var(--star);
   -webkit-backdrop-filter:blur(var(--blur));backdrop-filter:blur(var(--blur));
-}
-[data-theme="dark"] .empty-state,[data-theme="dark"] .dates-empty,[data-theme="dark"] .rem-empty{
-  background:var(--glass-bg);border-color:var(--violet2)
 }
 /* ===== Фаза D: микро-анимации ===== */
 @keyframes cardIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
