@@ -4,16 +4,25 @@
 const fs = require('fs');
 const css = fs.readFileSync('styles.css', 'utf8');
 // Слой tokens — единственное место, где разрешены литеральные цвета.
-// Границы слоя ищем счётчиком скобок, а не регэкспом /@layer tokens\{[\s\S]*?\n\}/:
-// у реального @layer tokens { ... } внутри есть своя закрывашка (:root{}
-// перед [data-theme="light"]{}), и нежадный [\s\S]*?\n\} остановился бы на
-// ней первой, обрезав светлую тему из-под защиты слоя.
-const layerStart = css.indexOf('@layer tokens');
-if (layerStart === -1) {
+// Начало слоя ищем регэкспом, заякоренным на открывашку блока, а не голым
+// indexOf('@layer tokens') — тот находит первое вхождение этой ПОДСТРОКИ
+// где угодно в файле, хоть в комментарии, не требуя, чтобы за ней шла '{'.
+// Комментарий с текстом "@layer tokens" перед посторонним правилом увёл бы
+// indexOf на себя, а следующий за ним indexOf('{', ...) — на скобку ЭТОГО
+// постороннего правила, и счётчик скобок принял бы его за сам слой tokens,
+// спрятав реальный хардкод от проверки. /@layer\s+tokens\s*\{/ требует,
+// чтобы сразу после "tokens" (с пробелом или без) шла именно '{' —
+// у @layer tokens, base, ...; после "tokens" запятая, а не скобка, так что
+// этот случай регэксп не подхватит. Пробел перед '{' — тоже сознательно:
+// в реальном файле написано "@layer tokens {" (с пробелом), а буквальный
+// регэксп из брифа (tokens\{, без \s*) на этом тексте вообще не совпадает.
+const openMatch = css.match(/@layer\s+tokens\s*\{/);
+if (!openMatch) {
   console.log('FAIL: не нашёл @layer tokens — слои разъехались');
   process.exit(1);
 }
-const braceStart = css.indexOf('{', layerStart);
+const layerStart = openMatch.index;
+const braceStart = layerStart + openMatch[0].length - 1;
 let depth = 0,
   layerEnd = braceStart;
 for (; layerEnd < css.length; layerEnd++) {
