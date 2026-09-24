@@ -47,6 +47,21 @@ for (const m of rest.matchAll(/#[0-9a-fA-F]{3,8}\b/g)) fails.push('hex ' + m[0])
 for (const m of rest.matchAll(/\b(rgba?|hsla?)\(/g)) fails.push(m[1] + '()');
 // радиусы числом вне токенов (0 и 50% разрешены)
 for (const m of rest.matchAll(/border-radius:\s*(?!0\b|50%|var\()([^;]+);/g)) fails.push('radius ' + m[1].trim());
+// Финальное ревью (NV-13): миграция на OKLCH сделала предыдущие проверки
+// слепыми — сам формат, в который всё переехало, не ловился вообще.
+// oklch(from var(--x) …) — легальная деривация из токена (тот же приём,
+// что и oklch(from var(--sky-1) l c h / .55) в токенах), её не трогаем.
+// Литеральный oklch(ЧИСЛО …) вне слоя tokens — ровно то, чем раньше был
+// #7c3aed «на минуточку». Пять исключений — сознательные одноразовые
+// значения, для которых токен был бы избыточной абстракцией:
+// звёздное небо (.sky-far/.sky-near, четыре едва заметных точки на фоне,
+// не завязаны ни на одну смысловую роль токена) и чёрная тень под фото в
+// лайтбоксе (.lb-stage img, обычная фотографическая тень, не тонированная
+// в тему — как color-scheme:dark в токенах, единственная в своём роде).
+const oklchExceptions = new Set(['oklch(90% .02 280 / .5)', 'oklch(90% .02 280 / .35)', 'oklch(92% .03 280 / .4)', 'oklch(95% .02 280 / .6)', 'oklch(0% 0 0 / .5)']);
+for (const m of rest.matchAll(/oklch\((?!from\b)[^)]*\)/g)) {
+  if (!oklchExceptions.has(m[0])) fails.push('oklch ' + m[0]);
+}
 if (fails.length) {
   console.log('FAIL: хардкод вне токенов (' + fails.length + '):');
   for (const f of [...new Set(fails)].slice(0, 30)) console.log('  ' + f);
