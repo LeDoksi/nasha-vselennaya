@@ -932,11 +932,13 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
   font-size:var(--text-base);font-weight:700;text-align:center;animation:pop .2s ease;
 }
 .app-toast[hidden]{display:none}
-/* Фон/рамка — прозрачная заливка от --danger-ink: тот уже тёмно-красный в
-   тёмной теме и глубокий красный в светлой, поэтому низкий alpha сам даёт
-   приглушённый тёмный фон в одной теме и бледный в другой — без отдельного
-   [data-theme="light"]-переопределения. */
-.app-toast.toast-error{background:oklch(from var(--danger-ink) l c h / .14);border-color:oklch(from var(--danger-ink) l c h / .4);color:var(--danger-ink)}
+/* Регрессия финального ревью (NV-13): прозрачная заливка от --danger-ink
+   ловила цвет фонового контента сквозь себя — на телефоне тост встаёт
+   поверх bottom-nav (position:fixed;bottom:24px), и сквозь низкий alpha
+   было видно оранжевую активную пилюлю/эмодзи под текстом ошибки, контраст
+   падал до 1.43:1/1.58:1. Заменено на color-mix() в --sky-1 — тот же
+   тёмно-красный/бледно-красный тон, но непрозрачный (5.10:1/5.21:1). */
+.app-toast.toast-error{background:color-mix(in oklab,var(--danger-ink) 14%,var(--sky-1));border-color:color-mix(in oklab,var(--danger-ink) 40%,var(--sky-1));color:var(--danger-ink)}
 
 /* ===== Переключатель (используется настройками уведомлений) ===== */
 .motion-toggle{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:var(--text-base);font-weight:700;color:var(--ink);padding:10px 16px;border:1px solid var(--line);border-radius:var(--radius-pill);background:var(--sky-1);transition:.2s}
