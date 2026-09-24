@@ -7,7 +7,12 @@ function getTheme() {
   try {
     if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
   } catch (e) {}
-  return 'light';
+  // Финальное ревью (NV-13): «Ночь» — основная тема сайта (см. @layer tokens
+  // в styles.css, :root уже тёмный по умолчанию). Раньше здесь стоял 'light'
+  // — последний фолбэк для сессий без сохранённого выбора и без сигнала ОС,
+  // то есть именно новых пользователей. Уже сохранённый выбор (light ИЛИ
+  // dark) эта ветка не трогает — return saved выше срабатывает раньше.
+  return 'dark';
 }
 
 // Общая обёртка View Transitions: если переход уже идёт или не поддержан —

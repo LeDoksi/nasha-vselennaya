@@ -373,7 +373,13 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{s.stopLiveUpdates(); s.fsReady = false; return 1;}');
 
   // --- Тема ---
-  assert(w('(s)=>s.getTheme()') === 'light', 'тема по умолчанию — светлая');
+  // Финальное ревью (NV-13): фолбэк getTheme() теперь 'dark' (без
+  // сохранённого выбора и без сигнала ОС) — см. src/20-theme-nav.js.
+  // Проверяем это, затем ставим 'light' явно и тестируем переключение
+  // toggleTheme() в обратную сторону — сама механика переключения и иконки
+  // от направления не зависит.
+  assert(w('(s)=>s.getTheme()') === 'dark', 'тема по умолчанию — тёмная');
+  w('(s)=>s.setTheme("light")');
   w('(s)=>s.toggleTheme()');
   assert(sandbox.document.documentElement.dataset.theme === 'dark', 'data-theme=dark применён');
   assert(registry['#themeToggle'].innerHTML.includes('icon-sun'), 'кнопка темы показывает солнце');
