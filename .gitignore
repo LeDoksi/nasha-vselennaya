@@ -15,7 +15,6 @@ browser_*.png
 # fetch-fonts.js через год никто не вспомнит, откуда взялись woff2 в fonts/.
 tools/*.png
 tools/patch-dnd.js
-tools/serve.js
 tools/browser-check-results.txt
 
 # Скриншоты прогонов — локальные. В git уходят только выводы (README, metrics).
