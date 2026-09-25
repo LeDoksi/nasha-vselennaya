@@ -24,9 +24,9 @@ function evThumbHTML(ref, altText) {
   return html`<img class="ev-thumb" src="${src}" alt="${altText}" data-photo="${attr}" loading="lazy" />`;
 }
 function evThumbs(e) {
-  if (!(e.photos && e.photos.length)) return raw('');
+  if (!(e.photos && e.photos.length)) return html``;
   const refs = thumbRefs(e.photos);
-  if (!refs.length) return raw('');
+  if (!refs.length) return html``;
   return html`<span class="ev-thumbs">${refs.map(ref => evThumbHTML(ref, e.title))}</span>`;
 }
 
@@ -203,8 +203,8 @@ function addDatePhotoQuick(dtId) {
 
 // Миниатюры фото свидания в панели дня
 function dtThumbs(dt) {
-  if (!(dt.photos && dt.photos.length)) return raw('');
+  if (!(dt.photos && dt.photos.length)) return html``;
   const refs = thumbRefs(dt.photos);
-  if (!refs.length) return raw('');
+  if (!refs.length) return html``;
   return html`<span class="ev-thumbs">${refs.map(ref => evThumbHTML(ref, ''))}</span>`;
 }

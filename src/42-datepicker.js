@@ -102,6 +102,7 @@ function renderDatePop() {
   if (!pop) return;
   const ms = $('#dpMonth'),
     ys = $('#dpYear');
+  // selected — целый атрибут, а не значение: raw() из фиксированного литерала по флагу, не пользовательские данные.
   if (ms) render(ms, html`${MONTHS.map((n, i) => html`<option value="${i}"${i === dpM ? raw(' selected') : ''}>${n}</option>`)}`);
   if (ys) {
     const now = new Date();
