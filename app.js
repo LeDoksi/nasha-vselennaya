@@ -56,7 +56,7 @@ function confirmDelete(msg) {
   return confirm(msg || 'Удалить? Это не отменить.');
 }
 let toastTimer = null;
-// Фаза 6: активная мобильная вкладка хотелок (renderWishlist в 60-lists-wishes.js)
+// Фаза 6: активная мобильная вкладка хотелок (renderWishlist в 61-wishes.js)
 // — объявлено тут, а не там, чтобы прямая ссылка #/wishlist не ловила TDZ
 // (см. комментарий у renderWishlist). null → renderWishlist подставит getUser().
 let wishlistTab = null;
@@ -192,7 +192,7 @@ function migrateDB(d) {
   // раньше порядок карточек списков держался только позицией в массиве
   // db.lists, что работало с единым JSON-блобом сейфа, но не с отдельными
   // документами Firestore (Critical-находка ревью задач 8-9 — см.
-  // listsSortEnd в src/60-lists-wishes.js). Существующим спискам без order
+  // listsSortEnd в src/60-lists.js). Существующим спискам без order
   // проставляем его по текущей позиции в массиве, иначе при первой же
   // загрузке через Firestore порядок пары оказался бы случайным.
   if (d.lists.some(l => l.order === undefined)) {
@@ -539,7 +539,7 @@ function isLocked() {
 }
 
 /* ===== Старт приложения =====
-   Вызов boot() стоит в конце 95-photos-cloud.js (последний модуль сборки) —
+   Вызов boot() стоит в конце 95-photos-sync.js (последний модуль сборки) —
    как и раньше initAuth(), он читает FIREBASE_CONFIG (let из
    95-photos-cloud.js), который ещё в «мёртвой зоне» во время выполнения
    этого файла. */
@@ -728,7 +728,7 @@ async function loadMonth(year, month) {
 
 // Следующая страница галереи. Возвращает, сколько фото добавилось (0 — конец).
 // photosLoadingMore — защита от гонки: пока идёт запрос, второй параллельный
-// вызов (см. photosObserver в src/70-photos.js) выходит сразу же, не
+// вызов (см. photosObserver в src/71-photo-grid.js) выходит сразу же, не
 // повторяя чтение того же photosCursor — иначе он держал бы старое значение
 // курсора до завершения первого запроса и прочитал бы ту же страницу второй раз.
 async function loadMorePhotos() {
@@ -900,7 +900,7 @@ function stopLiveUpdates() {
    обработчик конфликтовать не может: общих ручек/контейнеров нет.
    Обратное направление (фото → чип) живёт в самом SortableJS-инстансе
    #photosGrid — хит-тест по координатам отпускания прямо в его onEnd
-   (см. src/70-photos.js), отдельного движка для него не нужно. */
+   (см. src/72-photo-labels.js), отдельного движка для него не нужно. */
 'use strict';
 
 const CHIP_DRAG_THRESHOLD = 6; // px движения до начала перетаскивания
@@ -5678,7 +5678,7 @@ function lbIsDataUrl(src) {
 function lbPhoto(src) {
   const p = Array.isArray(db.photos) ? db.photos.find(p => p.id === src) : null;
   if (p) return p;
-  // Фото хотелок не входят в db.photos (осознанно, см. 60-lists-wishes.js) —
+  // Фото хотелок не входят в db.photos (осознанно, см. 61-wishes.js) —
   // ищем по photoId в db.wishlist; лайтбоксу для рендера/скачивания нужны
   // только id и title, полноценная запись db.photos не требуется.
   const w = Array.isArray(db.wishlist) ? db.wishlist.find(w => w.photoId === src) : null;
@@ -5843,7 +5843,7 @@ if (lbDeleteBtn)
 const lbImg = $('#lightboxImg');
 if (lbImg) lbImg.addEventListener('dblclick', () => lbZoomToggle());
 // Клик вне фото закрывает светбокс — не только крестик. Общий делегат
-// «клик по .overlay = закрыть» (60-lists-wishes.js) тут не срабатывает:
+// «клик по .overlay = закрыть» (62-global-clicks.js) тут не срабатывает:
 // #lbStage растянут на весь #lightbox (inset:0), поэтому клик куда угодно
 // внутри оверлея попадает на #lbStage, а не на сам #lightbox. Закрываем,
 // только если клик пришёлся ровно на сам #lbStage (пустое место вокруг
@@ -6254,7 +6254,7 @@ async function fetchCloudPart(id, part) {
 
 // Докачивает ОДНУ часть фото по требованию — не из фоновой очереди
 // (syncPhotos качает эagerно только thumb, см. Task 8), а в момент, когда
-// она реально понадобилась: photoUrl()/photoOrigUrl() (src/05-photostore.js)
+// она реально понадобилась: photoUrl()/photoOrigUrl() (src/08-photo-cache.js)
 // зовут это, когда локального блоба нет. Возвращает true, если часть теперь
 // доступна локально (уже была или только что докачана).
 async function ensureCloudPart(id, part) {

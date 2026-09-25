@@ -14,7 +14,7 @@ const bounds = [
   { name: 'Главная',          file: '30-home.js' },
   { name: 'Календарь',        file: '40-calendar.js' },
   { name: 'Заметки',          file: '50-notes.js' },
-  { name: 'Списки',           file: '60-lists-wishes.js' },
+  { name: 'Списки',           file: '60-lists.js' },
   { name: 'Фото',             file: '70-photos.js' },
   { name: 'Настройки',        file: '80-settings.js' },
   { name: 'Летающие сердечки', file: '90-effects-init.js' },

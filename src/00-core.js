@@ -56,7 +56,7 @@ function confirmDelete(msg) {
   return confirm(msg || 'Удалить? Это не отменить.');
 }
 let toastTimer = null;
-// Фаза 6: активная мобильная вкладка хотелок (renderWishlist в 60-lists-wishes.js)
+// Фаза 6: активная мобильная вкладка хотелок (renderWishlist в 61-wishes.js)
 // — объявлено тут, а не там, чтобы прямая ссылка #/wishlist не ловила TDZ
 // (см. комментарий у renderWishlist). null → renderWishlist подставит getUser().
 let wishlistTab = null;
@@ -192,7 +192,7 @@ function migrateDB(d) {
   // раньше порядок карточек списков держался только позицией в массиве
   // db.lists, что работало с единым JSON-блобом сейфа, но не с отдельными
   // документами Firestore (Critical-находка ревью задач 8-9 — см.
-  // listsSortEnd в src/60-lists-wishes.js). Существующим спискам без order
+  // listsSortEnd в src/60-lists.js). Существующим спискам без order
   // проставляем его по текущей позиции в массиве, иначе при первой же
   // загрузке через Firestore порядок пары оказался бы случайным.
   if (d.lists.some(l => l.order === undefined)) {

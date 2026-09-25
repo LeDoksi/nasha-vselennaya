@@ -461,7 +461,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // документ события; метаданные самой карточки фото теперь сохраняет
   // addEventPhotosToGallery() изнутри, своим repoSet('photos', ...) — после
   // того как блоб уйдёт в photoStore и base64 уберётся из памяти (см.
-  // src/40-calendar.js). Зовём настоящую saveEventFromModal() с уже готовым
+  // src/41-calendar-photos.js). Зовём настоящую saveEventFromModal() с уже готовым
   // evPhotoData (как если бы фото уже было прочитано file-picker'ом — сам
   // readFile()/FileReader/Image/canvas здесь не мокаем, это отдельный шаг ДО
   // вызова saveEventFromModal и заводить под него канвас-моки ради этого

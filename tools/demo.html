@@ -37,7 +37,7 @@
     window.__DEMO__ = true;
 
     // ===== Сеть отключена целиком =====
-    // photo-sync (src/95-photos-cloud.js) и push (src/96-push.js) в реальном
+    // photo-sync (src/95-photos-cloud.js, src/95-photos-sync.js) и push (src/96-push.js) в реальном
     // приложении сами дёргают fetch/serviceWorker — их не отключить точечно,
     // не трогая src/. Перехватываем на уровне браузерных API: код приложения
     // остаётся нетронутым, а наружу не уходит ни одного запроса.

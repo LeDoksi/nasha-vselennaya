@@ -143,7 +143,7 @@ const sandbox = {
 
 // Мок Firebase: Firestore — из tests/fs-mock.js (тот же, что в uni-repo.js),
 // Auth намеренно НЕ отдаёт пользователя (onAuthStateChanged сразу зовёт cb(null)).
-// Если бы мок сразу авто-логинил, boot() в конце сборки (95-photos-cloud.js) запустил бы
+// Если бы мок сразу авто-логинил, boot() в конце сборки (95-photos-sync.js) запустил бы
 // СВОЙ unlockWithKey конкурентно с тем, что ниже вызывает тест явно, — гонка за
 // общие masterKey/db. Здесь это не нужно: тест сам решает, когда и под кем входить.
 function authObj() {

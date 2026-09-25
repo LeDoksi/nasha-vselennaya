@@ -19,7 +19,7 @@ const RESULTS_FILE = path.join(__dirname, 'browser-check-results.txt');
 
 // Перетаскивает узел fromSel на место toSel — теми же событиями мыши, что
 // использует настоящий пользователь. SortableJS создан с forceFallback:true
-// (src/50-notes.js, src/60-lists-wishes.js, src/70-photos.js) именно потому,
+// (src/50-notes.js, src/60-lists.js, src/72-photo-labels.js) именно потому,
 // что нативный HTML5 DnD не работает на тач-устройствах — эмулируется он
 // обычными mousedown/mousemove/mouseup, поэтому page.mouse тут и работает.
 async function dragTo(page, fromSel, toSel) {

@@ -88,7 +88,7 @@ function lbIsDataUrl(src) {
 function lbPhoto(src) {
   const p = Array.isArray(db.photos) ? db.photos.find(p => p.id === src) : null;
   if (p) return p;
-  // Фото хотелок не входят в db.photos (осознанно, см. 60-lists-wishes.js) —
+  // Фото хотелок не входят в db.photos (осознанно, см. 61-wishes.js) —
   // ищем по photoId в db.wishlist; лайтбоксу для рендера/скачивания нужны
   // только id и title, полноценная запись db.photos не требуется.
   const w = Array.isArray(db.wishlist) ? db.wishlist.find(w => w.photoId === src) : null;
@@ -253,7 +253,7 @@ if (lbDeleteBtn)
 const lbImg = $('#lightboxImg');
 if (lbImg) lbImg.addEventListener('dblclick', () => lbZoomToggle());
 // Клик вне фото закрывает светбокс — не только крестик. Общий делегат
-// «клик по .overlay = закрыть» (60-lists-wishes.js) тут не срабатывает:
+// «клик по .overlay = закрыть» (62-global-clicks.js) тут не срабатывает:
 // #lbStage растянут на весь #lightbox (inset:0), поэтому клик куда угодно
 // внутри оверлея попадает на #lbStage, а не на сам #lightbox. Закрываем,
 // только если клик пришёлся ровно на сам #lbStage (пустое место вокруг
