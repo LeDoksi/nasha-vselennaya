@@ -4,15 +4,14 @@
    ВАЖНО: SHELL_FILES ниже должен совпадать со списком копирования в
    .github/workflows/deploy-pages.yml — добавляешь новый статический файл на
    сайт, добавляй его в оба места, иначе он либо не задеплоится (deploy-pages),
-   либо не попадёт в офлайн-кэш (тут). Шрифты (fonts/) намеренно не кэшируются —
-   их отсутствие офлайн просто откатывается на системный шрифт, не ломает
-   функциональность, а перечисление каждого файла по отдельности хрупко
-   (addAll — атомарный: одна опечатка валит установку кэша целиком).
+   либо не попадёт в офлайн-кэш (тут). Шрифты (fonts/) в SHELL_FILES не перечислены —
+   установка кэша не должна падать из-за одного файла; в кэш они попадают при первом
+   показе через обработчик fetch.
 
    CACHE_NAME версионируется вручную — меняешь состав SHELL_FILES или логику
    fetch, бампни версию, иначе часть пользователей будет обслуживаться старым
    активным воркером до следующей полной перезагрузки. */
-const CACHE_NAME = 'nasha-vselennaya-shell-v2';
+const CACHE_NAME = 'nasha-vselennaya-shell-v3';
 const SHELL_FILES = ['./', './index.html', './app.min.js', './styles.css', './icon.svg', './manifest.webmanifest', './vendor/sortable.min.js'];
 
 self.addEventListener('install', event => {
@@ -33,10 +32,13 @@ self.addEventListener('activate', event => {
   );
 });
 
-// Stale-while-revalidate только для собственного origin: отдаём кэш сразу
-// (мгновенная загрузка, работает офлайн), в фоне подтягиваем свежую версию в
-// кэш на следующий раз — не залипаем на старом app.min.js неделями, но и не ждём
-// сеть при каждой загрузке. Firebase/Yandex/Google — чужой origin, не трогаем.
+// Сеть первой, кэш — запасной путь. Раньше было stale-while-revalidate: после
+// деплоя первый заход показывал прошлую версию, а index.html и app.min.js
+// могли оказаться из разных версий. Кэш отвечает, только если сеть упала или
+// не ответила за NET_TIMEOUT_MS (плохая мобильная связь не вешает запуск).
+// Firebase/Yandex/Google — чужой origin, не трогаем.
+const NET_TIMEOUT_MS = 3000;
+
 self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -47,18 +49,24 @@ self.addEventListener('fetch', event => {
     return;
   }
   if (url.origin !== self.location.origin) return;
-  event.respondWith(
-    caches.match(req).then(cached => {
-      const network = fetch(req)
-        .then(res => {
-          if (res && res.ok) caches.open(CACHE_NAME).then(cache => cache.put(req, res.clone()));
-          return res;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
-  );
+  event.respondWith(networkFirst(req));
 });
+
+async function networkFirst(req) {
+  const cache = await caches.open(CACHE_NAME);
+  const network = fetch(req).then(res => {
+    if (res && res.ok) cache.put(req, res.clone());
+    return res;
+  });
+  network.catch(() => {}); // отказ сети обработан ниже — не пускаем его в unhandledrejection
+  const timeout = new Promise(resolve => setTimeout(resolve, NET_TIMEOUT_MS, null));
+  try {
+    const res = await Promise.race([network, timeout]);
+    if (res) return res;
+  } catch (e) {}
+  const cached = (await cache.match(req)) || (req.mode === 'navigate' ? await cache.match('./index.html') : undefined);
+  return cached || network;
+}
 
 self.addEventListener('push', event => {
   let data = { title: '💜 Наша вселенная', body: 'Новое уведомление' };
