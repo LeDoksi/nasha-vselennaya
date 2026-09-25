@@ -68,10 +68,13 @@ function renderCompliment() {
   const key = new Date().toDateString(); // один и тот же комплимент весь день
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  box.innerHTML = `<div class="compliment-card">
-    <h4>💌 Комплимент дня</h4>
-    <div class="compliment-text">${esc(COMPLIMENTS[h % COMPLIMENTS.length])}</div>
-  </div>`;
+  render(
+    box,
+    html`<div class="compliment-card">
+      <h4>💌 Комплимент дня</h4>
+      <div class="compliment-text">${COMPLIMENTS[h % COMPLIMENTS.length]}</div>
+    </div>`
+  );
 }
 
 /* ===== Таймер до события ===== */
@@ -101,16 +104,19 @@ function renderCountdown() {
   const n = nextTarget();
   if (!n) {
     box.hidden = true;
-    box.innerHTML = '';
+    render(box, '');
     countdownTarget = null;
     return;
   }
   countdownTarget = n.t;
   box.hidden = false;
-  box.innerHTML = `<div class="compliment-card">
-    <h4>${esc(n.emoji)} До «${esc(n.title)}» осталось</h4>
-    <div class="countdown-time" id="countdownTick">…</div>
-  </div>`;
+  render(
+    box,
+    html`<div class="compliment-card">
+      <h4>${n.emoji} До «${n.title}» осталось</h4>
+      <div class="countdown-time" id="countdownTick">…</div>
+    </div>`
+  );
   tickCountdown();
 }
 function tickCountdown() {
@@ -174,7 +180,7 @@ function fmtResp(r) {
 function renderDates() {
   const box = $('#dates');
   if (!db.dates.length) {
-    box.innerHTML = '<div class="empty-state dates-empty">💘 Свиданий пока нет.<br>Нажми «Назначить свидание» — и пусть оно обязательно случится!</div>';
+    render(box, html`<div class="empty-state dates-empty">💘 Свиданий пока нет.<br />Нажми «Назначить свидание» — и пусть оно обязательно случится!</div>`);
     return;
   }
   const now0 = new Date();
@@ -188,50 +194,49 @@ function renderDates() {
     .filter(o => o.days >= 0 && !o.d.done)
     .sort((a, b) => a.when - b.when || (a.d.time || '').localeCompare(b.d.time || ''))
     .slice(0, 8);
-  box.innerHTML =
-    '<h3>💘 Наши свидания</h3>' +
-    (list.length
-      ? list
-          .map(o => {
-            const d = o.d;
-            const who = getUser();
-            const resp = d.responses || {};
-            const from = d.from;
-            // Пригласивший уже согласился — ему кнопки «Да/Нет» не нужны
-            const status = p => (from === p ? (p === 'gosha' ? '💌 позвал' : '💌 позвала') : fmtResp(resp[p]));
-            // canAnswer: не только «не я позвал», но и «ещё не ответил» — иначе
-            // кнопки Да/Нет остаются после ответа и по ним можно кликать бесконечно (NV-11)
-            const canAnswer = (!from || from === 'both' || from !== who) && !resp[who];
-            const bothYes = resp.gosha === 'yes' && resp.dasha === 'yes';
-            const whenTag = o.days === 0 ? '<span class="tag tag-today">сегодня</span>' : o.days === 1 ? '<span class="tag">завтра</span>' : '';
-            return `<div class="date-card">
-        <div class="date-emoji">${esc(d.emoji || '💘')}</div>
-        <div class="date-info">
-          <b>${fmtDateLong(d.date)}${whenTag}</b>
-          ${from ? `<span class="date-from">${from === 'both' ? '💜 вместе' : from === 'gosha' ? '💌 приглашение от Гоши' : '💌 приглашение от Даши'}</span>` : ''}
-          ${d.time ? `<span>🕐 ${esc(d.time)}</span>` : ''}
-          ${d.place ? `<span>📍 ${esc(d.place)}</span>` : ''}
-          ${d.note ? `<span>💬 ${esc(d.note)}</span>` : ''}
-        </div>
-        <div class="date-side">
-          <div class="resp-row">
-            <span class="${who === 'gosha' ? 'resp-me' : ''}">Гоша: ${status('gosha')}</span>
-            <span class="${who === 'dasha' ? 'resp-me' : ''}">Даша: ${status('dasha')}</span>
-          </div>
-          ${bothYes ? '<div class="both-yes">💞 Мы идём на свидание!</div>' : ''}
-          ${
-            canAnswer
-              ? `<div class="resp-btns">
-            <button class="resp-btn ${resp[who] === 'yes' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="yes">Да 👍</button>
-            <button class="resp-btn no ${resp[who] === 'no' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="no">Нет 👎</button>
-          </div>`
-              : ''
-          }
-        </div>
-      </div>`;
-          })
-          .join('')
-      : '<p class="cal-tip">Ближайших свиданий пока нет. Самое время назначить новое! ✨</p>');
+  render(
+    box,
+    html`<h3>💘 Наши свидания</h3>
+      ${
+        list.length
+          ? list.map(o => {
+              const d = o.d;
+              const who = getUser();
+              const resp = d.responses || {};
+              const from = d.from;
+              // Пригласивший уже согласился — ему кнопки «Да/Нет» не нужны
+              const status = p => (from === p ? (p === 'gosha' ? '💌 позвал' : '💌 позвала') : fmtResp(resp[p]));
+              // canAnswer: не только «не я позвал», но и «ещё не ответил» — иначе
+              // кнопки Да/Нет остаются после ответа и по ним можно кликать бесконечно (NV-11)
+              const canAnswer = (!from || from === 'both' || from !== who) && !resp[who];
+              const bothYes = resp.gosha === 'yes' && resp.dasha === 'yes';
+              return html`<div class="date-card">
+                <div class="date-emoji">${d.emoji || '💘'}</div>
+                <div class="date-info">
+                  <b>${fmtDateLong(d.date)}${o.days === 0 ? html`<span class="tag tag-today">сегодня</span>` : o.days === 1 ? html`<span class="tag">завтра</span>` : ''}</b>
+                  ${from ? html`<span class="date-from">${from === 'both' ? '💜 вместе' : from === 'gosha' ? '💌 приглашение от Гоши' : '💌 приглашение от Даши'}</span>` : ''}
+                  ${d.time ? html`<span>🕐 ${d.time}</span>` : ''} ${d.place ? html`<span>📍 ${d.place}</span>` : ''} ${d.note ? html`<span>💬 ${d.note}</span>` : ''}
+                </div>
+                <div class="date-side">
+                  <div class="resp-row">
+                    <span class="${who === 'gosha' ? 'resp-me' : ''}">Гоша: ${status('gosha')}</span>
+                    <span class="${who === 'dasha' ? 'resp-me' : ''}">Даша: ${status('dasha')}</span>
+                  </div>
+                  ${bothYes ? html`<div class="both-yes">💞 Мы идём на свидание!</div>` : ''}
+                  ${
+                    canAnswer
+                      ? html`<div class="resp-btns">
+                          <button class="resp-btn ${resp[who] === 'yes' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="yes">Да 👍</button>
+                          <button class="resp-btn no ${resp[who] === 'no' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="no">Нет 👎</button>
+                        </div>`
+                      : ''
+                  }
+                </div>
+              </div>`;
+            })
+          : html`<p class="cal-tip">Ближайших свиданий пока нет. Самое время назначить новое! ✨</p>`
+      }`
+  );
 }
 
 /* ===== Неотвеченные приглашения на свидание =====
@@ -246,14 +251,12 @@ function pendingDateInvites() {
 }
 function dateInviteCardHTML(d) {
   const fromName = d.from === 'gosha' ? 'Гоши' : 'Даши';
-  return `<div class="date-card">
-    <div class="date-emoji">${esc(d.emoji || '💘')}</div>
+  return html`<div class="date-card">
+    <div class="date-emoji">${d.emoji || '💘'}</div>
     <div class="date-info">
       <b>${fmtDateLong(d.date)}</b>
       <span class="date-from">💌 приглашение от ${fromName}</span>
-      ${d.time ? `<span>🕐 ${esc(d.time)}</span>` : ''}
-      ${d.place ? `<span>📍 ${esc(d.place)}</span>` : ''}
-      ${d.note ? `<span>💬 ${esc(d.note)}</span>` : ''}
+      ${d.time ? html`<span>🕐 ${d.time}</span>` : ''} ${d.place ? html`<span>📍 ${d.place}</span>` : ''} ${d.note ? html`<span>💬 ${d.note}</span>` : ''}
     </div>
     <div class="date-side">
       <div class="resp-btns">
@@ -275,7 +278,7 @@ function renderDateInvites() {
     if (c) c.textContent = pending.length;
   }
   const list = $('#dateInviteList');
-  if (list) list.innerHTML = pending.length ? pending.map(dateInviteCardHTML).join('') : '';
+  render(list, html`${pending.map(dateInviteCardHTML)}`);
   const ov = $('#dateInviteOverlay');
   if (ov && !ov.hidden && !pending.length) ov.hidden = true; // ответили на всё — закрываем само
   return pending;
@@ -474,33 +477,21 @@ function shuffleHistoryPhotos() {
 function historyPhotosHtml(at) {
   const picks = pickHistoryPhotos(at);
   const otdIds = new Set(onThisDayPhotos(at).map(p => p.id));
-  const badge = picks.some(p => otdIds.has(p.id)) ? '<span class="hp-badge">✨ В этот день</span>' : '';
-  return (
-    badge +
-    picks
-      .map((p, i) => {
-        const s = HISTORY_PHOTO_SLOTS[i];
-        const url = photoSrc(p); // кэш миниатюр может быть не прогрет — ставим fallback
-        return (
-          '<img class="history-photo" data-photo="' +
-          esc(p.id) +
-          '" alt="' +
-          esc(p.title || '') +
-          '"' +
-          (url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"') +
-          ' style="' +
-          s.st +
-          'animation-duration:' +
-          s.dur +
-          's;animation-delay:' +
-          s.delay +
-          's" loading="lazy">'
-        );
-      })
-      .join('')
-  );
+  const badge = picks.some(p => otdIds.has(p.id));
+  return html`${badge ? html`<span class="hp-badge">✨ В этот день</span>` : ''}${picks.map((p, i) => {
+    const s = HISTORY_PHOTO_SLOTS[i];
+    const url = photoSrc(p); // кэш миниатюр может быть не прогрет — ставим fallback
+    return html`<img
+      class="history-photo"
+      data-photo="${p.id}"
+      alt="${p.title || ''}"
+      ${url ? html` src="${url}"` : html` data-photo-src="${p.id}"`}
+      style="${s.st}animation-duration:${s.dur}s;animation-delay:${s.delay}s"
+      loading="lazy"
+    />`;
+  })}`;
 }
-// Делегирование: innerHTML #progressRing перерисовывается на каждом рендере
+// Делегирование: render() перерисовывает #progressRing на каждом рендере
 $('#progressRing').addEventListener('click', e => {
   if (e.target.closest && e.target.closest('#shuffleHistoryBtn')) shuffleHistoryPhotos();
 });

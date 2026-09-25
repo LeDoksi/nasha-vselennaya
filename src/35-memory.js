@@ -120,58 +120,44 @@ function renderProgressRing(at) {
   const wishPct = wishTotal ? Math.round((wishDone / wishTotal) * 100) : 0;
   const wishLabel = wishTotal ? wishDone + '/' + wishTotal : 'пока пусто';
   const wishTitle = wishTotal ? 'Исполнено ' + wishDone + ' из ' + wishTotal + ' хотелок' : 'Хотелок пока нет — загадай желание 💜';
-  const stats =
-    [
+  const stats = html`${[
       ['📸', db.photos.length, 'фото', 'фото', 'фото'],
       ['📅', db.events.length, 'событие', 'события', 'событий'],
       ['💘', db.dates.length, 'свидание', 'свидания', 'свиданий'],
       ['📝', db.notes.length, 'заметка', 'заметки', 'заметок']
-    ]
-      .map(a => `<span class="hs-chip">${a[0]} ${a[1]} ${plural(a[1], a[2], a[3], a[4])}</span>`)
-      .join('') +
-    `<span class="hs-chip hs-wish" title="${wishTitle}">🎁 ${wishLabel}<span class="hs-bar"><i style="width:${wishPct}%"></i></span></span>` +
-    `<span class="hs-chip hs-shuffle" id="shuffleHistoryBtn" role="button" tabindex="0" title="Перемешать фото коллажа">🎲 Перемешать</span>`;
+    ].map(a => html`<span class="hs-chip">${a[0]} ${a[1]} ${plural(a[1], a[2], a[3], a[4])}</span>`)}<span class="hs-chip hs-wish" title="${wishTitle}"
+      >🎁 ${wishLabel}<span class="hs-bar"><i style="width:${wishPct}%"></i></span></span
+    ><span class="hs-chip hs-shuffle" id="shuffleHistoryBtn" role="button" tabindex="0" title="Перемешать фото коллажа">🎲 Перемешать</span>`;
   // «В этот день» (только когда есть события/свидания прошлых лет): чипы под кольцом.
   // Фото «в этот день» уже встали в коллаж выше — здесь только события и свидания, без дублей.
   const otdEvents = onThisDayItems(at || new Date()).filter(it => it.kind === 'event' || it.kind === 'date');
   const otdRow = otdEvents.length
-    ? '<div class="history-otd"><span class="history-otd-label">✨ В этот день</span>' +
-      otdEvents
-        .map(
-          ev =>
-            '<span class="hs-chip hs-otd-chip" title="' +
-            esc(ev.title) +
-            ' — ' +
-            otdYear(ev.date) +
-            '">' +
-            esc(ev.emoji) +
-            ' ' +
-            esc(ev.title) +
-            ' <small>· ' +
-            esc(String(ev.date).slice(0, 4)) +
-            '</small></span>'
-        )
-        .join('') +
-      '</div>'
+    ? html`<div class="history-otd">
+        <span class="history-otd-label">✨ В этот день</span>${otdEvents.map(
+          ev => html`<span class="hs-chip hs-otd-chip" title="${ev.title} — ${otdYear(ev.date)}">${ev.emoji} ${ev.title} <small>· ${String(ev.date).slice(0, 4)}</small></span>`
+        )}
+      </div>`
     : '';
-  box.innerHTML = `
-    <div class="history-main">
-      <div class="ring-wrap">
-        <svg class="ring-svg" viewBox="0 0 100 100" role="img" aria-label="Прогресс до годовщины: ${pct}%">
-          <circle class="ring-bg" cx="50" cy="50" r="${R}"></circle>
-          <circle class="ring-fg" cx="50" cy="50" r="${R}" stroke-dasharray="${CIRC}" stroke-dashoffset="${off}"></circle>
-        </svg>
-        <div class="ring-center"><b>${pct}%</b><small>до годовщины</small></div>
+  render(
+    box,
+    html` <div class="history-main">
+        <div class="ring-wrap">
+          <svg class="ring-svg" viewBox="0 0 100 100" role="img" aria-label="Прогресс до годовщины: ${pct}%">
+            <circle class="ring-bg" cx="50" cy="50" r="${R}"></circle>
+            <circle class="ring-fg" cx="50" cy="50" r="${R}" stroke-dasharray="${CIRC}" stroke-dashoffset="${off}"></circle>
+          </svg>
+          <div class="ring-center"><b>${pct}%</b><small>до годовщины</small></div>
+        </div>
+        <div class="ring-info">
+          <h4>${yearsTogether > 0 ? yearsTogether + ' ' + pluralYears(yearsTogether) + ' вместе' : 'Наша история'}</h4>
+          <p>${days} ${pluralDays(days)} вместе</p>
+          <small>с ${fmtShort(START_DATE)}</small>
+        </div>
+        <div class="history-photos">${historyPhotosHtml(at)}</div>
       </div>
-      <div class="ring-info">
-        <h4>${yearsTogether > 0 ? yearsTogether + ' ' + pluralYears(yearsTogether) + ' вместе' : 'Наша история'}</h4>
-        <p>${days} ${pluralDays(days)} вместе</p>
-        <small>с ${fmtShort(START_DATE)}</small>
-      </div>
-      <div class="history-photos">${historyPhotosHtml(at)}</div>
-    </div>
-    ${otdRow}
-    <div class="history-stats">${stats}</div>`;
+      ${otdRow}
+      <div class="history-stats">${stats}</div>`
+  );
 }
 
 /* ===== Лента «Память»: таймлайн-дерево ===== */
@@ -226,38 +212,48 @@ function renderMemory() {
   if (!feed) return;
   const days = memoryByDay();
   if (!days.length) {
-    feed.innerHTML = '<div class="empty-state rem-empty">Пока пусто 💜<br>Добавляйте события и фото — здесь сложится история вашей вселенной.</div>';
+    render(feed, html`<div class="empty-state rem-empty">Пока пусто 💜<br />Добавляйте события и фото — здесь сложится история вашей вселенной.</div>`);
     return;
   }
-  let html = '<div class="tl"><div class="tl-stem"></div>';
+  const groups = [];
   let side = 0;
   let gid = 0;
   for (const day of days) {
     const dt = parseLocalIso(day.date);
     const label = dt ? dt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : day.date;
     const cls = side % 2 === 0 ? 'tl-left' : 'tl-right';
-    let card = '<div class="tl-date">' + esc(label) + '</div>';
+    const card = [html`<div class="tl-date">${label}</div>`];
     if (day.photos.length) {
-      card += memoryPhotosHtml(day.photos, 'day' + gid++, 'tl-photos');
+      card.push(memoryPhotosHtml(day.photos, 'day' + gid++, 'tl-photos'));
     }
     for (const d of day.dates) {
       const info = [d.place, d.time].filter(Boolean).join(' · ');
-      card += '<div class="tl-item"><span class="tl-item-emoji">' + esc(d.emoji) + '</span><b>Свидание' + (info ? ' · ' + esc(info) : '') + '</b></div>';
+      card.push(html`<div class="tl-item"><span class="tl-item-emoji">${d.emoji}</span><b>Свидание${info ? html` · ${info}` : ''}</b></div>`);
       if (d.photos && d.photos.length) {
-        card += memoryPhotosHtml(d.photos, 'dt' + gid++, 'tl-item-photos');
+        card.push(memoryPhotosHtml(d.photos, 'dt' + gid++, 'tl-item-photos'));
       }
     }
     for (const ev of day.events) {
-      card += '<div class="tl-item"><span class="tl-item-emoji">' + esc(ev.emoji) + '</span><b>' + esc(ev.title) + '</b></div>';
+      card.push(html`<div class="tl-item"><span class="tl-item-emoji">${ev.emoji}</span><b>${ev.title}</b></div>`);
       if (ev.photos.length) {
-        card += memoryPhotosHtml(ev.photos, 'ev' + gid++, 'tl-item-photos');
+        card.push(memoryPhotosHtml(ev.photos, 'ev' + gid++, 'tl-item-photos'));
       }
     }
-    html += '<div class="' + cls + '"><div class="tl-dot"></div><div class="tl-card">' + card + '</div></div>';
+    groups.push(
+      html`<div class="${cls}">
+        <div class="tl-dot"></div>
+        <div class="tl-card">${card}</div>
+      </div>`
+    );
     side++;
   }
-  html += '</div>';
-  feed.innerHTML = html;
+  render(
+    feed,
+    html`<div class="tl">
+      <div class="tl-stem"></div>
+      ${groups}
+    </div>`
+  );
   hydratePhotoImgs(feed);
   feed.querySelectorAll('[data-lightbox]').forEach(function (img) {
     img.addEventListener('click', function () {
@@ -272,30 +268,17 @@ function renderMemory() {
 const MEMORY_PHOTOS_PREVIEW = 3;
 
 function tlPhotoImg(p, extraCls) {
-  const cls = extraCls ? ' class="' + extraCls + '"' : '';
-  const stl = extraCls ? ' style="display:none"' : '';
   const url = photoSrc(p);
-  return url
-    ? '<img' + cls + stl + ' src="' + esc(url) + '" alt="" data-lightbox="' + esc(p.id) + '">'
-    : '<img' + cls + stl + ' data-photo-src="' + esc(p.id) + '" alt="" data-lightbox="' + esc(p.id) + '">';
+  return html`<img alt="" data-lightbox="${p.id}" ${extraCls ? html`class="${extraCls}" style="display:none"` : ''} ${url ? html`src="${url}"` : html`data-photo-src="${p.id}"`} />`;
 }
 function memoryPhotosHtml(photos, groupId, rowCls) {
   const shown = photos.slice(0, MEMORY_PHOTOS_PREVIEW);
   const rest = photos.slice(MEMORY_PHOTOS_PREVIEW);
-  return (
-    '<div class="' +
-    rowCls +
-    '" data-photo-group="' +
-    groupId +
-    '" data-more-count="' +
-    rest.length +
-    '">' +
-    shown.map(p => tlPhotoImg(p)).join('') +
-    (rest.length
-      ? '<button class="tl-more-btn" data-tl-expand="' + groupId + '" title="Показать ещё фото">Показать ещё ' + rest.length + '</button>' + rest.map(p => tlPhotoImg(p, 'tl-more-photo')).join('')
-      : '') +
-    '</div>'
-  );
+  return html`<div class="${rowCls}" data-photo-group="${groupId}" data-more-count="${rest.length}">
+    ${shown.map(p => tlPhotoImg(p))}${
+      rest.length ? html`<button class="tl-more-btn" data-tl-expand="${groupId}" title="Показать ещё фото">Показать ещё ${rest.length}</button>${rest.map(p => tlPhotoImg(p, 'tl-more-photo'))}` : ''
+    }
+  </div>`;
 }
 // Переключатель «Показать ещё N фото ⇄ Свернуть». Возвращает 'more' | 'less' | null.
 function toggleMemoryPhotos(groupId) {
