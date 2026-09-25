@@ -38,9 +38,6 @@ assert(true, 'render(null) не падает');
 // объект пустой. Число должно совпадать точно: и новое присваивание, и
 // забытая правка списка — ошибка.
 const PENDING = {
-  '40-calendar.js': 3,
-  '41-calendar-photos.js': 0, // innerHTML нет, но есть esc() в evThumbHTML
-  '42-datepicker.js': 3,
   '60-lists.js': 3,
   '61-wishes.js': 1,
   '70-photos.js': 1,

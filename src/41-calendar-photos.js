@@ -21,13 +21,13 @@ function evThumbHTML(ref, altText) {
   const p = photoByRef(ref);
   const src = p ? photoSrc(p) : ref; // сиротский data-URL из легаси-события показываем напрямую
   const attr = p ? p.id : ref;
-  return `<img class="ev-thumb" src="${esc(src)}" alt="${esc(altText)}" data-photo="${esc(attr)}" loading="lazy">`;
+  return html`<img class="ev-thumb" src="${src}" alt="${altText}" data-photo="${attr}" loading="lazy" />`;
 }
 function evThumbs(e) {
-  if (!(e.photos && e.photos.length)) return '';
+  if (!(e.photos && e.photos.length)) return raw('');
   const refs = thumbRefs(e.photos);
-  if (!refs.length) return '';
-  return `<span class="ev-thumbs">${refs.map(ref => evThumbHTML(ref, e.title)).join('')}</span>`;
+  if (!refs.length) return raw('');
+  return html`<span class="ev-thumbs">${refs.map(ref => evThumbHTML(ref, e.title))}</span>`;
 }
 
 // Фото события кладём в общую галерею под общим лейблом «📅 События»;
@@ -203,8 +203,8 @@ function addDatePhotoQuick(dtId) {
 
 // Миниатюры фото свидания в панели дня
 function dtThumbs(dt) {
-  if (!(dt.photos && dt.photos.length)) return '';
+  if (!(dt.photos && dt.photos.length)) return raw('');
   const refs = thumbRefs(dt.photos);
-  if (!refs.length) return '';
-  return '<span class="ev-thumbs">' + refs.map(ref => evThumbHTML(ref, '')).join('') + '</span>';
+  if (!refs.length) return raw('');
+  return html`<span class="ev-thumbs">${refs.map(ref => evThumbHTML(ref, ''))}</span>`;
 }

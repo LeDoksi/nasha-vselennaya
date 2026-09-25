@@ -102,11 +102,11 @@ function renderDatePop() {
   if (!pop) return;
   const ms = $('#dpMonth'),
     ys = $('#dpYear');
-  if (ms) ms.innerHTML = MONTHS.map((n, i) => `<option value="${i}"${i === dpM ? ' selected' : ''}>${n}</option>`).join('');
+  if (ms) render(ms, html`${MONTHS.map((n, i) => html`<option value="${i}"${i === dpM ? raw(' selected') : ''}>${n}</option>`)}`);
   if (ys) {
     const now = new Date();
     const y0 = Math.min(2026, now.getFullYear() - 5);
-    ys.innerHTML = '';
+    render(ys, '');
     for (let y = y0; y <= now.getFullYear() + 5; y++) {
       const o = document.createElement('option');
       o.value = String(y);
@@ -118,20 +118,21 @@ function renderDatePop() {
   const firstDow = (new Date(dpY, dpM, 1).getDay() + 6) % 7; // понедельник = 0
   const dim = new Date(dpY, dpM + 1, 0).getDate();
   const now = new Date();
-  let cells =
-    '<div class="dp-dow" role="columnheader">Пн</div><div class="dp-dow" role="columnheader">Вт</div><div class="dp-dow" role="columnheader">Ср</div>' +
-    '<div class="dp-dow" role="columnheader">Чт</div><div class="dp-dow" role="columnheader">Пт</div><div class="dp-dow" role="columnheader">Сб</div><div class="dp-dow" role="columnheader">Вс</div>';
-  for (let i = 0; i < firstDow; i++) cells += '<button type="button" class="dp-day empty" tabindex="-1" aria-hidden="true"></button>';
+  const dow = html`${['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => html`<div class="dp-dow" role="columnheader">${d}</div>`)}`;
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(html`<button type="button" class="dp-day empty" tabindex="-1" aria-hidden="true"></button>`);
   for (let d = 1; d <= dim; d++) {
     const iso = dpIso(dpY, dpM, d);
     const isToday = now.getFullYear() === dpY && now.getMonth() === dpM && now.getDate() === d;
     const picked = dpInput && dpInput.value === iso;
-    cells +=
-      `<button type="button" class="dp-day${isToday ? ' today' : ''}${picked ? ' picked' : ''}" data-dp-date="${iso}" ` +
-      `tabindex="${iso === dpFocus ? '0' : '-1'}" aria-label="${d} ${MONTHS_GEN[dpM]} ${dpY} года"${isToday ? ' aria-current="date"' : ''}>${d}</button>`;
+    // aria-current — целый атрибут, а не значение: raw() из фиксированного литерала по флагу, не пользовательские данные.
+    const current = isToday ? raw(' aria-current="date"') : '';
+    cells.push(
+      html`<button type="button" class="dp-day${isToday ? ' today' : ''}${picked ? ' picked' : ''}" data-dp-date="${iso}" tabindex="${iso === dpFocus ? '0' : '-1'}" aria-label="${d} ${MONTHS_GEN[dpM]} ${dpY} года"${current}>${d}</button>`
+    );
   }
   const grid = $('#dpDays');
-  if (grid) grid.innerHTML = cells;
+  render(grid, html`${dow}${cells}`);
 }
 // Клик по дню в попапе двигает фокус на саму кнопку дня, а не остаётся на
 // input — el.focus() ниже возвращает его обратно, но это НАСТОЯЩИЙ новый

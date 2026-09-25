@@ -1307,15 +1307,15 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{s.db.dates=[]; return 1;}');
   // Мёртвые id в ev.photos/dt.photos (например, из старых данных) не рисуют битую миниатюру
   w('(s)=>{s.db.photos=[]; return 1;}');
-  assert(w('(s)=>s.dtThumbs({photos:["deadId"]})') === '', 'dtThumbs: мёртвый id — без битой рамки');
-  assert(w('(s)=>s.evThumbs({title:"Пикник", photos:["deadId"]})') === '', 'evThumbs: мёртвый id — без битой рамки');
+  assert(String(w('(s)=>s.dtThumbs({photos:["deadId"]})')) === '', 'dtThumbs: мёртвый id — без битой рамки');
+  assert(String(w('(s)=>s.evThumbs({title:"Пикник", photos:["deadId"]})')) === '', 'evThumbs: мёртвый id — без битой рамки');
   assert(w('(s)=>s.dtThumbs({photos:["data:image/jpeg;base64,AA=="]})').includes('<img'), 'dtThumbs: легаси data-URL показывается напрямую');
   // Фото уже известно (есть в db.photos), но блоб ещё качается из облака — миниатюры в
   // кэше нет: показываем каркас БЕСШОВНО не показывая ничего вообще (не рисуем ни src="",
   // ни пустую рамку), пока фото реально не готово — так же, как «мёртвый» id выше.
   w('(s)=>{s.db.photos=[{id:"pending1", title:"Ф", labels:[], pinned:false, order:0}]; return 1;}');
-  assert(w('(s)=>s.evThumbs({title:"Пикник", photos:["pending1"]})') === '', 'evThumbs: фото ещё без миниатюры — ничего не рисуем (без каркаса)');
-  assert(w('(s)=>s.dtThumbs({photos:["pending1"]})') === '', 'dtThumbs: фото ещё без миниатюры — ничего не рисуем (без каркаса)');
+  assert(String(w('(s)=>s.evThumbs({title:"Пикник", photos:["pending1"]})')) === '', 'evThumbs: фото ещё без миниатюры — ничего не рисуем (без каркаса)');
+  assert(String(w('(s)=>s.dtThumbs({photos:["pending1"]})')) === '', 'dtThumbs: фото ещё без миниатюры — ничего не рисуем (без каркаса)');
   // Когда миниатюра докачалась и попала в кэш — фото сразу появляется с src
   w('(s)=>{s.setThumbUrl("pending1", "data:image/jpeg;base64,BB=="); return 1;}');
   const readyEvHtml = w('(s)=>s.evThumbs({title:"Пикник", photos:["pending1"]})');
