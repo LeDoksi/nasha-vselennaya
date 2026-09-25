@@ -67,29 +67,30 @@ function renderLabelManageList() {
   const box = $('#labelManageList');
   if (!box) return;
   if (!db.labels.length) {
-    box.innerHTML = '<p class="cal-tip">Пока нет ни одного лейбла — создай первый выше.</p>';
+    render(box, html`<p class="cal-tip">Пока нет ни одного лейбла — создай первый выше.</p>`);
     return;
   }
-  box.innerHTML = db.labels
-    .map(l => {
+  render(
+    box,
+    html`${db.labels.map(l => {
       const count = db.photos.filter(p => (p.labels || []).includes(l.id)).length;
       const editing = editingLabelId === l.id;
       const pickerOpen = colorPickerLabelId === l.id;
-      return `<div class="label-row">
-      <button type="button" class="label-dot-btn" data-label-color-toggle="${l.id}" style="background:${esc(l.color)}" title="Изменить цвет"></button>
+      return html`<div class="label-row">
+      <button type="button" class="label-dot-btn" data-label-color-toggle="${l.id}" style="background:${l.color}" title="Изменить цвет"></button>
       ${
         editing
-          ? `<input type="text" class="label-name-editor" id="labelNameEdit-${l.id}" value="${esc(l.name)}">
+          ? html`<input type="text" class="label-name-editor" id="labelNameEdit-${l.id}" value="${l.name}">
            <button class="mini-x" data-save-label="${l.id}" title="Сохранить">💜</button>
            <button class="mini-x" data-cancel-label title="Отмена">✕</button>`
-          : `<span class="label-row-name">${esc(l.name)}</span>
+          : html`<span class="label-row-name">${l.name}</span>
            <span class="label-row-count">${count} фото</span>
            <button class="mini-x" data-edit-label="${l.id}" title="Переименовать">${navIconHtml('pencil')}</button>
            <button class="mini-x" data-del-label="${l.id}" title="Удалить лейбл">${navIconHtml('trash')}</button>`
       }
-    </div>${pickerOpen ? `<div class="label-color-picker">${LABEL_COLORS.map(c => `<button type="button" class="label-swatch${c === l.color ? ' active' : ''}" data-label-set-color="${l.id}" data-color="${c}" style="background:${c}"></button>`).join('')}</div>` : ''}`;
-    })
-    .join('');
+    </div>${pickerOpen ? html`<div class="label-color-picker">${LABEL_COLORS.map(c => html`<button type="button" class="label-swatch${c === l.color ? ' active' : ''}" data-label-set-color="${l.id}" data-color="${c}" style="background:${c}"></button>`)}</div>` : ''}`;
+    })}`
+  );
 }
 function startEditLabelName(id) {
   editingLabelId = id;
@@ -158,14 +159,15 @@ function renderLabelApplyList() {
   const box = $('#labelApplyList');
   if (!box) return;
   const targets = db.photos.filter(p => applyTargetIds.includes(p.id));
-  box.innerHTML = db.labels.length
-    ? db.labels
-        .map(l => {
+  render(
+    box,
+    db.labels.length
+      ? html`${db.labels.map(l => {
           const on = targets.length > 0 && targets.every(p => (p.labels || []).includes(l.id));
-          return `<button type="button" class="album-chip label-apply-chip${on ? ' active' : ''}" data-label-apply-toggle="${l.id}"><span class="label-dot" style="background:${esc(l.color)}"></span>${esc(l.name)}${on ? ' ✓' : ''}</button>`;
-        })
-        .join('')
-    : '<p class="cal-tip">Лейблов пока нет — создай ниже.</p>';
+          return html`<button type="button" class="album-chip label-apply-chip${on ? ' active' : ''}" data-label-apply-toggle="${l.id}"><span class="label-dot" style="background:${l.color}"></span>${l.name}${on ? ' ✓' : ''}</button>`;
+        })}`
+      : html`<p class="cal-tip">Лейблов пока нет — создай ниже.</p>`
+  );
 }
 $('#labelApplyNewBtn').addEventListener('click', () => {
   const name = $('#labelApplyNewName').value.trim();

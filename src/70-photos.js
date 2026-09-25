@@ -111,17 +111,15 @@ function renderLabels() {
   if (!bar) return;
   const evCount = db.photos.filter(p => (p.labels || []).includes(EVENT_LABEL)).length;
   const dtCount = db.photos.filter(p => (p.labels || []).includes(DATE_LABEL)).length;
-  bar.innerHTML =
-    `<button class="album-chip${currentLabel === '' ? ' active' : ''}" data-label="">🖼 Все фото (${db.photos.length})</button>` +
-    (evCount ? `<button class="album-chip${currentLabel === EVENT_LABEL ? ' active' : ''}" data-label="${esc(EVENT_LABEL)}">📅 События (${evCount})</button>` : '') +
-    (dtCount ? `<button class="album-chip${currentLabel === DATE_LABEL ? ' active' : ''}" data-label="${esc(DATE_LABEL)}">💞 Свидания (${dtCount})</button>` : '') +
-    db.labels
-      .map(
-        l =>
-          `<button class="album-chip${currentLabel === l.id ? ' active' : ''}" data-label="${esc(l.id)}" title="Перетащи фото сюда, чтобы навесить лейбл"><span class="label-dot" style="background:${esc(l.color)}"></span>${esc(l.name)}</button>`
-      )
-      .join('') +
-    `<button class="btn album-add-btn" data-label-new title="Создать, переименовать, перекрасить или удалить лейблы">🏷 Лейблы</button>`;
+  render(
+    bar,
+    html`<button class="album-chip${currentLabel === '' ? ' active' : ''}" data-label="">🖼 Все фото (${db.photos.length})</button>${
+      evCount ? html`<button class="album-chip${currentLabel === EVENT_LABEL ? ' active' : ''}" data-label="${EVENT_LABEL}">📅 События (${evCount})</button>` : ''
+    }${dtCount ? html`<button class="album-chip${currentLabel === DATE_LABEL ? ' active' : ''}" data-label="${DATE_LABEL}">💞 Свидания (${dtCount})</button>` : ''}${db.labels.map(
+      l =>
+        html`<button class="album-chip${currentLabel === l.id ? ' active' : ''}" data-label="${l.id}" title="Перетащи фото сюда, чтобы навесить лейбл"><span class="label-dot" style="background:${l.color}"></span>${l.name}</button>`
+    )}<button class="btn album-add-btn" data-label-new title="Создать, переименовать, перекрасить или удалить лейблы">🏷 Лейблы</button>`
+  );
 }
 // Чистка фото без подтверждения — общая часть deletePhoto()/deleteSelectedPhotos()
 // (при массовом удалении confirm один, на всех отмеченных сразу).

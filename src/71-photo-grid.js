@@ -70,41 +70,43 @@ function renderPhotosNow() {
     }
   }
   const cards = list.length
-    ? list
-        .map(p => {
-          // Кэш миниатюр может быть ещё не прогрет — рисуем каркас и заполняем src
-          // асинхронно (как в «Памяти» и на «Главной»), чтобы миниатюры появлялись сами.
-          const url = photoSrc(p);
-          return `
+    ? list.map(p => {
+        // Кэш миниатюр может быть ещё не прогрет — рисуем каркас и заполняем src
+        // асинхронно (как в «Памяти» и на «Главной»), чтобы миниатюры появлялись сами.
+        const url = photoSrc(p);
+        return html`
     <div class="photo${p.pinned ? ' pinned' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}">
-      <img${url ? ' src="' + esc(url) + '"' : ' data-photo-src="' + esc(p.id) + '"'} alt="${esc(p.title)}" data-photo="${esc(p.id)}" loading="lazy">
-      ${photoSelectMode ? `<button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>` : ''}
-      ${photoReorderMode ? `<button class="drag-handle photo-drag" data-photo-drag="${p.id}" title="Перетащить">⠿</button>` : ''}
+      <img${url ? html` src="${url}"` : html` data-photo-src="${p.id}"`} alt="${p.title}" data-photo="${p.id}" loading="lazy">
       ${
-        (p.labels || []).length
-          ? `<div class="photo-labels">${p.labels
-              .map(id => {
-                const sys = id === EVENT_LABEL || id === DATE_LABEL;
-                const tag = sys ? null : labelById(id);
-                if (!sys && !tag) return ''; // ссылка на удалённый лейбл — не рисуем
-                const name = sys ? id : tag.name;
-                return `<span class="photo-label">${sys ? '' : `<span class="label-dot" style="background:${esc(tag.color)}"></span>`}${esc(name)}${sys ? '' : `<button type="button" class="photo-label-del" data-label-off="${esc(id)}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</button>`}</span>`;
-              })
-              .join('')}</div>`
+        photoSelectMode
+          ? html`<button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>`
           : ''
       }
-      ${currentLabel === EVENT_LABEL && p.title ? `<span class="photo-caption">${esc(eventFilter.title || p.title)}</span>` : ''}
+      ${photoReorderMode ? html`<button class="drag-handle photo-drag" data-photo-drag="${p.id}" title="Перетащить">⠿</button>` : ''}
+      ${
+        (p.labels || []).length
+          ? html`<div class="photo-labels">${p.labels.map(id => {
+              const sys = id === EVENT_LABEL || id === DATE_LABEL;
+              const tag = sys ? null : labelById(id);
+              if (!sys && !tag) return ''; // ссылка на удалённый лейбл — не рисуем
+              const name = sys ? id : tag.name;
+              return html`<span class="photo-label">${sys ? '' : html`<span class="label-dot" style="background:${tag.color}"></span>`}${name}${
+                sys ? '' : html`<button type="button" class="photo-label-del" data-label-off="${id}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</button>`
+              }</span>`;
+            })}</div>`
+          : ''
+      }
+      ${currentLabel === EVENT_LABEL && p.title ? html`<span class="photo-caption">${eventFilter.title || p.title}</span>` : ''}
     </div>`;
-        })
-        .join('')
-    : '<p class="cal-tip">📷 Загрузите ваши фото — они зашифруются и будут доступны с обоих устройств, если настроена синхронизация в Настройках.</p>';
+      })
+    : html`<p class="cal-tip">📷 Загрузите ваши фото — они зашифруются и будут доступны с обоих устройств, если настроена синхронизация в Настройках.</p>`;
   // Невидимая метка в конце сетки — на неё наводится photosObserver ниже,
   // чтобы знать, когда догружать следующую страницу. grid-column:1/-1 и
   // высота 1px — иначе в CSS grid (photos-grid) это была бы лишняя пустая
   // плитка на всю ширину колонки.
-  grid.innerHTML = cards + '<div id="photosSentinel" aria-hidden="true" style="grid-column:1/-1;height:1px"></div>';
+  render(grid, html`${cards}<div id="photosSentinel" aria-hidden="true" style="grid-column:1/-1;height:1px"></div>`);
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
-  // grid.innerHTML каждый раз пересоздаёт разметку целиком — старая метка
+  // render() каждый раз пересоздаёт разметку целиком — старая метка
   // уничтожена вместе с ней, новую нужно заново отдать тому же наблюдателю.
   if (photosObserver) {
     photosObserver.disconnect();
@@ -175,23 +177,25 @@ function renderEventBar() {
   const yearsEl = $('#eventYears');
   if (yearsEl) {
     yearsEl.style.display = years.length ? 'flex' : 'none';
-    yearsEl.innerHTML = years.map(y => `<button class="ev-btn${f.year === y ? ' active' : ''}" data-ev-year="${y}">${y} <span class="cnt">${eventPhotosCount(y, '', '')}</span></button>`).join('');
+    render(yearsEl, html`${years.map(y => html`<button class="ev-btn${f.year === y ? ' active' : ''}" data-ev-year="${y}">${y} <span class="cnt">${eventPhotosCount(y, '', '')}</span></button>`)}`);
   }
   const monthsEl = $('#eventMonths');
   if (monthsEl) {
     const months = f.year ? monthsOf(f.year) : [];
     monthsEl.style.display = months.length ? 'flex' : 'none';
-    monthsEl.innerHTML = months
-      .map(m => `<button class="ev-btn${f.month === m ? ' active' : ''}" data-ev-month="${m}">${MONTHS[Number(m) - 1]} <span class="cnt">${eventPhotosCount(f.year, m, '')}</span></button>`)
-      .join('');
+    render(
+      monthsEl,
+      html`${months.map(m => html`<button class="ev-btn${f.month === m ? ' active' : ''}" data-ev-month="${m}">${MONTHS[Number(m) - 1]} <span class="cnt">${eventPhotosCount(f.year, m, '')}</span></button>`)}`
+    );
   }
   const titlesEl = $('#eventTitles');
   if (titlesEl) {
     const titles = f.month ? titlesOf(f.year, f.month) : [];
     titlesEl.style.display = titles.length ? 'flex' : 'none';
-    titlesEl.innerHTML = titles
-      .map(t => `<button class="ev-btn${f.title === t ? ' active' : ''}" data-ev-title="${esc(t)}">${esc(t)} <span class="cnt">${eventPhotosCount(f.year, f.month, t)}</span></button>`)
-      .join('');
+    render(
+      titlesEl,
+      html`${titles.map(t => html`<button class="ev-btn${f.title === t ? ' active' : ''}" data-ev-title="${t}">${t} <span class="cnt">${eventPhotosCount(f.year, f.month, t)}</span></button>`)}`
+    );
   }
   const reset = $('#eventReset');
   if (reset) reset.style.display = f.year || f.month || f.title ? 'inline-block' : 'none';

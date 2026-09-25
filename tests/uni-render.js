@@ -37,11 +37,7 @@ assert(true, 'render(null) не падает');
 // в нём сейчас. Каждая задача перевода удаляет свои строки; к концу фазы 2
 // объект пустой. Число должно совпадать точно: и новое присваивание, и
 // забытая правка списка — ошибка.
-const PENDING = {
-  '70-photos.js': 1,
-  '71-photo-grid.js': 4,
-  '72-photo-labels.js': 3
-};
+const PENDING = {};
 const SELF = ['00-core.js', '00-html.js'];
 for (const f of fs.readdirSync('src').filter(n => n.endsWith('.js') && !SELF.includes(n))) {
   const src = fs.readFileSync(path.join('src', f), 'utf8');
