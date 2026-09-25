@@ -31,6 +31,8 @@ h.render(el, h.html`<p>${'a'}</p>`);
 assert(el.innerHTML === '<p>a</p>', 'повторный render заменяет, а не дописывает');
 h.render(null, h.html`x`);
 assert(true, 'render(null) не падает');
+h.render(el, '<b>');
+assert(el.innerHTML === '&lt;b&gt;', 'render() голой строки экранирует, а не пропускает разметку');
 
 // --- страж ---
 // Файлы, ещё не переведённые на помощник: имя → сколько присваиваний innerHTML
@@ -41,11 +43,13 @@ const PENDING = {};
 const SELF = ['00-core.js', '00-html.js'];
 for (const f of fs.readdirSync('src').filter(n => n.endsWith('.js') && !SELF.includes(n))) {
   const src = fs.readFileSync(path.join('src', f), 'utf8');
-  const inner = (src.match(/\.innerHTML\s*=(?!=)/g) || []).length;
+  const inner = (src.match(/\.innerHTML\s*\+?=(?!=)/g) || []).length;
   const pending = f in PENDING;
   const want = pending ? PENDING[f] : 0;
   assert(inner === want, f + ': innerHTML-присваиваний ' + inner + (pending ? ' (ждёт перевода: ' + want + ')' : ', нужно 0 — только render()'));
   if (!pending) assert(!/\besc\(/.test(src), f + ': нет esc() — в html`` экранирование по умолчанию');
+  assert(!/\.insertAdjacentHTML\s*\(/.test(src), f + ': нет insertAdjacentHTML — в обход render() экранирование не сработает');
+  assert(!/\.outerHTML\s*=(?!=)/.test(src), f + ': нет outerHTML — в обход render() экранирование не сработает');
 }
 
 if (failed) {
