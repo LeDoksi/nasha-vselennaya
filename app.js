@@ -3122,7 +3122,6 @@ function jumpCalendar(m, y) {
 }
 $('#calMonthSelect').addEventListener('change', e => jumpCalendar(e.target.value, calY));
 $('#calYearSelect').addEventListener('change', e => jumpCalendar(calM, e.target.value));
-
 // Миниатюры фото события в панели дня (v6+: ev.photos хранит id фото)
 function photoByRef(ref) {
   return db.photos.find(p => p.id === ref) || null;
@@ -3333,7 +3332,6 @@ function dtThumbs(dt) {
   if (!refs.length) return '';
   return '<span class="ev-thumbs">' + refs.map(ref => evThumbHTML(ref, '')).join('') + '</span>';
 }
-
 /* ===== Кастомный date-picker в стиле сайта =====
    Системный календарь у input[type=date] не стилизуется и «выбивается».
    Вместо него — свой попап в стилистике большого календаря: стрелки ‹ ›,
@@ -3594,7 +3592,6 @@ document.addEventListener('keydown', e => {
       if (!dpSuppressReopen) openDatePop(el);
     });
 });
-
 // Фото, прикреплённые к событию (живут, пока открыта модалка)
 let evPhotoData = [];
 function setEvPhotoCount() {
@@ -3696,7 +3693,6 @@ function saveEventFromModal() {
   loadCalMonthNeighbors();
 }
 $('#evSave').addEventListener('click', saveEventFromModal);
-
 /* ===== Экспорт памятных дат в .ics (Фаза 6) =====
    Формат iCalendar (RFC 5545) — импортируется системным календарём телефона
    (Google/Apple/Outlook), там реально приходят напоминания, в отличие от
