@@ -4224,7 +4224,6 @@ $('#listCreateBtn').addEventListener('click', () => createList($('#listNameInput
 $('#listNameInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') createList($('#listNameInput').value);
 });
-
 /* ===== Хотелки (общие, но разделены по людям: у каждого свой список) ===== */
 let wishPhotoData = null;
 function fmtWishDate(ts) {
@@ -4383,7 +4382,6 @@ function toggleDateDone(id) {
   renderCalendar();
   return d.done;
 }
-
 /* ===== Глобальные клики ===== */
 function closeOverlay(id) {
   $('#' + id).hidden = true;

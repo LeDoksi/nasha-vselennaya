@@ -1,0 +1,348 @@
+/* ===== Глобальные клики ===== */
+function closeOverlay(id) {
+  $('#' + id).hidden = true;
+  if (id === 'lightbox') lbResetState(); // светбокс закрыт — сбрасываем список и зум
+  if (id === 'eventOverlay') editingEventId = null;
+  // Закрыли не ответив — запоминаем на время сессии, чтобы не всплывало
+  // повторно при каждом заходе на главную (см. src/30-home.js).
+  if (id === 'dateInviteOverlay') markInvitesDismissed(pendingDateInvites().map(d => d.id));
+}
+document.addEventListener('click', e => {
+  const day = e.target.closest('[data-day]');
+  if (day) {
+    selectedDate = day.dataset.day;
+    renderCalendar();
+    return;
+  }
+
+  const delEv = e.target.closest('[data-del-event]');
+  if (delEv) {
+    if (!confirmDelete('Удалить событие? Это не отменить.')) return;
+    db.events = db.events.filter(x => x.id !== delEv.dataset.delEvent);
+    repoDelete('events', delEv.dataset.delEvent); // это событие, не список/хотелка
+    renderCalendar();
+    renderHome();
+    return;
+  }
+
+  const editEv = e.target.closest('[data-edit-event]');
+  if (editEv) {
+    openEventModal(editEv.dataset.editEvent);
+    return;
+  }
+
+  const editDt = e.target.closest('[data-edit-date]');
+  if (editDt) {
+    openDateModal(editDt.dataset.editDate);
+    return;
+  }
+
+  const openInvites = e.target.closest('[data-open-invites]');
+  if (openInvites) {
+    openDateInviteOverlay();
+    return;
+  }
+
+  const photoEv = e.target.closest('[data-photo-event]');
+  if (photoEv) {
+    addEventPhotoQuick(photoEv.dataset.photoEvent);
+    return;
+  }
+
+  const photoDate = e.target.closest('[data-photo-date]');
+  if (photoDate) {
+    addDatePhotoQuick(photoDate.dataset.photoDate);
+    return;
+  }
+
+  const answerDate = e.target.closest('[data-answer-date]');
+  if (answerDate) {
+    const d = db.dates.find(x => x.id === answerDate.dataset.answerDate);
+    if (d) {
+      const who = getUser();
+      const val = answerDate.dataset.answer;
+      d.responses = d.responses || {};
+      const justAnswered = d.responses[who] !== val; // true, если это не «снял ответ», а именно новый ответ
+      d.responses[who] = d.responses[who] === val ? null : val;
+      if (d.responses.gosha === 'yes' && d.responses.dasha === 'yes') celebrate(); // оба согласились — салют!
+      repoSet('dates', d); // меняется свидание (responses), не список/хотелка
+      renderHome();
+      renderCalendar();
+      // Пуш пригласившему — только на настоящий ответ, не на его снятие; без деталей, см. src/96-push.js
+      if (justAnswered && d.from && d.from !== who) {
+        notifyPartner(val === 'yes' ? '💜 Свидание подтверждено' : '💔 Ответ на приглашение', 'Открой приложение, чтобы посмотреть 💜');
+      }
+    }
+    return;
+  }
+  const doneDate = e.target.closest('[data-done-date]');
+  if (doneDate) {
+    toggleDateDone(doneDate.dataset.doneDate);
+    return;
+  }
+  const delDate = e.target.closest('[data-del-date]');
+  if (delDate) {
+    if (!confirmDelete('Удалить свидание? Это не отменить.')) return;
+    db.dates = db.dates.filter(x => x.id !== delDate.dataset.delDate);
+    repoDelete('dates', delDate.dataset.delDate); // это свидание, не список/хотелка
+    renderHome();
+    renderCalendar();
+    return;
+  }
+
+  const pinNote = e.target.closest('[data-pin-note]');
+  if (pinNote) {
+    togglePinNote(pinNote.dataset.pinNote);
+    return;
+  }
+  const delNote = e.target.closest('[data-del-note]');
+  if (delNote) {
+    deleteNote(delNote.dataset.delNote);
+    return;
+  }
+  const editNote = e.target.closest('[data-edit-note]');
+  if (editNote) {
+    startEditNote(editNote.dataset.editNote);
+    return;
+  }
+  const saveNoteBtn = e.target.closest('[data-save-note]');
+  if (saveNoteBtn) {
+    saveNoteEdit(saveNoteBtn.dataset.saveNote);
+    return;
+  }
+  const cancelNoteBtn = e.target.closest('[data-cancel-note]');
+  if (cancelNoteBtn) {
+    cancelNoteEdit();
+    return;
+  }
+
+  const togItem = e.target.closest('[data-toggle-item]');
+  if (togItem) {
+    toggleSubtask(togItem.dataset.toggleItem, togItem.dataset.id);
+    return;
+  }
+  const delItem = e.target.closest('[data-del-item]');
+  if (delItem) {
+    delSubtask(delItem.dataset.delItem, delItem.dataset.id);
+    return;
+  }
+  const editItem = e.target.closest('[data-edit-item]');
+  if (editItem) {
+    startEditSubtask(editItem.dataset.editItem, editItem.dataset.id);
+    return;
+  }
+  const saveItemBtn = e.target.closest('[data-save-item]');
+  if (saveItemBtn) {
+    saveSubtaskEdit(saveItemBtn.dataset.saveItem, saveItemBtn.dataset.id);
+    return;
+  }
+  const cancelItemBtn = e.target.closest('[data-cancel-item]');
+  if (cancelItemBtn) {
+    cancelSubtaskEdit();
+    return;
+  }
+  const listAdd = e.target.closest('[data-list-add]');
+  if (listAdd) {
+    addListSubtask(listAdd.dataset.listAdd, 'listInput-' + listAdd.dataset.listAdd);
+    return;
+  }
+  const listDone = e.target.closest('[data-list-complete]');
+  if (listDone) {
+    completeList(listDone.dataset.listComplete);
+    return;
+  }
+  const editList = e.target.closest('[data-edit-list]');
+  if (editList) {
+    startEditListName(editList.dataset.editList);
+    return;
+  }
+  const saveListBtn = e.target.closest('[data-save-list]');
+  if (saveListBtn) {
+    saveListNameEdit(saveListBtn.dataset.saveList);
+    return;
+  }
+  const cancelListBtn = e.target.closest('[data-cancel-list]');
+  if (cancelListBtn) {
+    cancelListNameEdit();
+    return;
+  }
+
+  const photoSelectToggle = e.target.closest('[data-photo-select-toggle]');
+  if (photoSelectToggle) {
+    togglePhotoSelectMode();
+    return;
+  }
+  const photoReorderToggle = e.target.closest('[data-photo-reorder-toggle]');
+  if (photoReorderToggle) {
+    togglePhotoReorderMode();
+    return;
+  }
+  const selPhoto = e.target.closest('[data-sel-photo]');
+  if (selPhoto) {
+    const id = selPhoto.dataset.selPhoto;
+    if (selectedPhotos.has(id)) selectedPhotos.delete(id);
+    else selectedPhotos.add(id);
+    renderPhotos();
+    return;
+  }
+  const photo = e.target.closest('[data-photo]');
+  if (photo) {
+    openLightboxFrom(photo);
+    return;
+  }
+
+  const wishDone = e.target.closest('[data-wish-done]');
+  if (wishDone) {
+    const w = db.wishlist.find(x => x.id === wishDone.dataset.wishDone);
+    if (w) {
+      const me = getUser();
+      // Исполнить может только партнёр; снять отметку — только исполнивший.
+      if (w.owner !== me && (!w.done || w.doneBy === me)) {
+        if (w.done) {
+          w.done = false;
+          w.doneBy = null;
+          w.doneAt = null;
+        } else {
+          w.done = true;
+          w.doneBy = me;
+          w.doneAt = Date.now();
+        }
+        repoSet('wishes', w);
+      }
+      renderWishlist();
+    }
+    return;
+  }
+  const editWish = e.target.closest('[data-edit-wish]');
+  if (editWish) {
+    openWishModal(editWish.dataset.editWish);
+    return;
+  }
+  const wishDel = e.target.closest('[data-wish-del]');
+  if (wishDel) {
+    if (!confirmDelete('Удалить хотелку? Это не отменить.')) return;
+    db.wishlist = db.wishlist.filter(x => x.id !== wishDel.dataset.wishDel);
+    repoDelete('wishes', wishDel.dataset.wishDel);
+    renderWishlist();
+    return;
+  }
+  const wishTab = e.target.closest('[data-wish-tab]');
+  if (wishTab) {
+    wishlistTab = wishTab.dataset.wishTab;
+    renderWishlist();
+    return;
+  }
+
+  const labelOff = e.target.closest('[data-label-off]');
+  if (labelOff) {
+    removeLabelFromPhoto(labelOff.dataset.photoOff, labelOff.dataset.labelOff);
+    return;
+  }
+
+  const labelNew = e.target.closest('[data-label-new]');
+  if (labelNew) {
+    openLabelManageOverlay();
+    return;
+  }
+  const labelChip = e.target.closest('[data-label]');
+  if (labelChip) {
+    currentLabel = labelChip.dataset.label;
+    eventFilter = { year: '', month: '', title: '' };
+    renderPhotos();
+    return;
+  }
+
+  const labelColorToggle = e.target.closest('[data-label-color-toggle]');
+  if (labelColorToggle) {
+    toggleLabelColorPicker(labelColorToggle.dataset.labelColorToggle);
+    return;
+  }
+  const labelSetColor = e.target.closest('[data-label-set-color]');
+  if (labelSetColor) {
+    setLabelColor(labelSetColor.dataset.labelSetColor, labelSetColor.dataset.color);
+    return;
+  }
+  const editLabel = e.target.closest('[data-edit-label]');
+  if (editLabel) {
+    startEditLabelName(editLabel.dataset.editLabel);
+    return;
+  }
+  const saveLabelBtn = e.target.closest('[data-save-label]');
+  if (saveLabelBtn) {
+    saveLabelNameEdit(saveLabelBtn.dataset.saveLabel);
+    return;
+  }
+  const cancelLabelBtn = e.target.closest('[data-cancel-label]');
+  if (cancelLabelBtn) {
+    cancelLabelNameEdit();
+    return;
+  }
+  const delLabelBtn = e.target.closest('[data-del-label]');
+  if (delLabelBtn) {
+    deleteLabel(delLabelBtn.dataset.delLabel);
+    return;
+  }
+  const applyToggle = e.target.closest('[data-label-apply-toggle]');
+  if (applyToggle) {
+    toggleLabelOnPhotos(applyToggle.dataset.labelApplyToggle, applyTargetIds);
+    renderLabelApplyList();
+    renderPhotos();
+    return;
+  }
+
+  const closeBtn = e.target.closest('[data-close]');
+  if (closeBtn) {
+    closeOverlay(closeBtn.dataset.close);
+    return;
+  }
+  if (e.target.classList && e.target.classList.contains('overlay')) closeOverlay(e.target.id);
+});
+// Двойной клик по подзадаче — как ✏️ (пара с редактированием заметок)
+const listsWrapEl = $('#listsWrap');
+if (listsWrapEl)
+  listsWrapEl.addEventListener('dblclick', e => {
+    const li = e.target.closest('li[data-item]');
+    if (!li || e.target.closest('.check, .drag-handle, button, input')) return;
+    const card = li.closest('.list-card');
+    if (card) startEditSubtask(card.dataset.id, li.dataset.item);
+  });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const open = document.querySelector('.overlay:not([hidden])');
+    if (open) closeOverlay(open.id);
+    return;
+  }
+  // Списки: Enter в поле подзадачи добавляет её
+  if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('listInput-') === 0) {
+    e.preventDefault();
+    addListSubtask(e.target.id.slice('listInput-'.length), e.target.id);
+    return;
+  }
+  // Списки: Enter в поле правки подзадачи — сохранить
+  if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('subtaskEdit-') === 0 && editingSubtask) {
+    e.preventDefault();
+    saveSubtaskEdit(editingSubtask.listId, editingSubtask.itemId);
+    return;
+  }
+  // Списки: Enter в поле правки названия списка — сохранить
+  if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('listNameEdit-') === 0 && editingListId) {
+    e.preventDefault();
+    saveListNameEdit(editingListId);
+    return;
+  }
+  // Лейблы: Enter в поле переименования — сохранить
+  if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('labelNameEdit-') === 0 && editingLabelId) {
+    e.preventDefault();
+    saveLabelNameEdit(editingLabelId);
+    return;
+  }
+  // Календарь: Enter / пробел на дне — как клик по ячейке
+  if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.closest) {
+    const day = e.target.closest('[data-day]');
+    if (day) {
+      e.preventDefault();
+      selectedDate = day.dataset.day;
+      renderCalendar();
+    }
+  }
+});
