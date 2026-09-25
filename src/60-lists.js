@@ -3,15 +3,15 @@ let editingSubtask = null; // {listId, itemId} в режиме инлайн-пр
 let editingListId = null; // id списка, у которого сейчас правится название, иначе null
 function listItemHTML(listId, it) {
   const editing = editingSubtask && editingSubtask.listId === listId && editingSubtask.itemId === it.id;
-  return `<li class="${it.done ? 'done' : ''}" data-item="${esc(it.id)}">
-    <button class="drag-handle subtask-drag" data-item-drag="${esc(it.id)}" title="Перетащить">⠿</button>
+  return html`<li class="${it.done ? 'done' : ''}" data-item="${it.id}">
+    <button class="drag-handle subtask-drag" data-item-drag="${it.id}" title="Перетащить">⠿</button>
     <button class="check" data-toggle-item="${listId}" data-id="${it.id}" title="Готово">${it.done ? '✅' : '○'}</button>
     ${
       editing
-        ? `<input type="text" class="subtask-editor" id="subtaskEdit-${esc(it.id)}" value="${esc(it.text)}">
+        ? html`<input type="text" class="subtask-editor" id="subtaskEdit-${it.id}" value="${it.text}">
          <button class="mini-x" data-save-item="${listId}" data-id="${it.id}" title="Сохранить">💜</button>
          <button class="mini-x" data-cancel-item title="Отмена">✕</button>`
-        : `<span>${esc(it.text)}</span>
+        : html`<span>${it.text}</span>
          <button class="mini-x" data-edit-item="${listId}" data-id="${it.id}" title="Редактировать">${navIconHtml('pencil')}</button>
          <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>`
     }
@@ -68,34 +68,18 @@ function saveListNameEdit(listId, text) {
 function sortListItems(items) {
   return [...items].sort((a, b) => Number(!!a.done) - Number(!!b.done));
 }
-function renderLists() {
-  const wrap = $('#listsWrap');
-  if (!wrap) return;
-  if (!db.lists.length) {
-    wrap.innerHTML = '<div class="empty-state rem-empty">Пока нет ни одного списка 🫧<br>Создайте первый — например, «Подарки на 8 марта».</div>';
-    return;
-  }
-  // Сортируем по order (как renderNotes) — сам db.lists может прийти из
-  // Firestore в произвольном порядке документов, order — единственный
-  // источник истины для позиции карточки.
-  const sorted = [...db.lists].sort((a, b) => (a.order ?? 1e9) - (b.order ?? 1e9));
-  wrap.innerHTML = sorted
-    .map(list => {
-      const active = list.items.filter(i => !i.done).length;
-      const editingName = editingListId === list.id;
-      const items = list.items.length
-        ? sortListItems(list.items)
-            .map(it => listItemHTML(list.id, it))
-            .join('')
-        : '<li class="empty-li">Пока пусто 🫧</li>';
-      return `<div class="list-card" data-id="${list.id}">
+function listCardHTML(list) {
+  const active = list.items.filter(i => !i.done).length;
+  const editingName = editingListId === list.id;
+  const items = list.items.length ? sortListItems(list.items).map(it => listItemHTML(list.id, it)) : html`<li class="empty-li">Пока пусто 🫧</li>`;
+  return html`<div class="list-card" data-id="${list.id}">
       <div class="list-head">
         ${
           editingName
-            ? `<input type="text" class="list-name-editor" id="listNameEdit-${esc(list.id)}" value="${esc(list.name)}">
+            ? html`<input type="text" class="list-name-editor" id="listNameEdit-${list.id}" value="${list.name}">
              <button class="mini-x" data-save-list="${list.id}" title="Сохранить">💜</button>
              <button class="mini-x" data-cancel-list title="Отмена">✕</button>`
-            : `<h3>${esc(list.name)} <small class="list-count">${active} в работе</small></h3>
+            : html`<h3>${list.name} <small class="list-count">${active} в работе</small></h3>
              <button class="mini-x" data-edit-list="${list.id}" title="Переименовать список">${navIconHtml('pencil')}</button>`
         }
         <button class="drag-handle list-drag" data-list-drag="${list.id}" title="Перетащить">⠿</button>
@@ -109,8 +93,19 @@ function renderLists() {
         <button class="btn btn-danger btn-small" data-list-complete="${list.id}" title="Выполнить все подзадачи и удалить список">✔ Выполнить список</button>
       </div>
     </div>`;
-    })
-    .join('');
+}
+function renderLists() {
+  const wrap = $('#listsWrap');
+  if (!wrap) return;
+  if (!db.lists.length) {
+    render(wrap, html`<div class="empty-state rem-empty">Пока нет ни одного списка 🫧<br>Создайте первый — например, «Подарки на 8 марта».</div>`);
+    return;
+  }
+  // Сортируем по order (как renderNotes) — сам db.lists может прийти из
+  // Firestore в произвольном порядке документов, order — единственный
+  // источник истины для позиции карточки.
+  const sorted = [...db.lists].sort((a, b) => (a.order ?? 1e9) - (b.order ?? 1e9));
+  render(wrap, html`${sorted.map(listCardHTML)}`);
   initSubtaskSortables();
 }
 // Точечное обновление подзадач ОДНОГО списка (без перерисовки всех карточек): в DOM
@@ -154,7 +149,7 @@ function renderListItems(listId) {
         if (check) check.textContent = it.done ? '✅' : '○';
       } else {
         li = document.createElement('li');
-        li.innerHTML = listItemHTML(list.id, it);
+        render(li, listItemHTML(list.id, it));
         if (li.dataset) li.dataset.item = it.id; // для мини-DOM без парсинга innerHTML
       }
       keep.push(li);

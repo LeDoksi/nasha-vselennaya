@@ -12,10 +12,10 @@ function fmtWishDate(ts) {
 function wishToggleHTML(w) {
   const me = getUser();
   if (w.done) {
-    return w.doneBy === me ? `<button class="check" data-wish-done="${w.id}" title="Снять отметку">↩️</button>` : '';
+    return w.doneBy === me ? html`<button class="check" data-wish-done="${w.id}" title="Снять отметку">↩️</button>` : html``;
   }
-  if (w.owner === me) return `<span class="wish-hint">Только ${me === 'gosha' ? 'Даша' : 'Гоша'} исполнит 💜</span>`;
-  return `<button class="check" data-wish-done="${w.id}" title="Исполнить!">○</button>`;
+  if (w.owner === me) return html`<span class="wish-hint">Только ${me === 'gosha' ? 'Даша' : 'Гоша'} исполнит 💜</span>`;
+  return html`<button class="check" data-wish-done="${w.id}" title="Исполнить!">○</button>`;
 }
 function wishCard(w) {
   const doneBy = w.doneBy ? (w.doneBy === 'gosha' ? 'Гошей' : 'Дашей') : '';
@@ -23,16 +23,18 @@ function wishCard(w) {
   // в 85-lightbox.js). Каркас + асинхронная дозаливка src — как у остальной
   // галереи, кэш миниатюр мог ещё не прогреться.
   const wPhotoSrc = w.photoId ? photoSrc({ id: w.photoId }) : '';
-  return `<div class="wish${w.done ? ' done' : ''}">
+  return html`<div class="wish${w.done ? ' done' : ''}">
     ${
       w.photoId
-        ? `<img class="wish-img"${wPhotoSrc ? ' src="' + esc(wPhotoSrc) + '"' : ' data-photo-src="' + esc(w.photoId) + '"'} alt="${esc(w.text)}" data-photo="${esc(w.photoId)}" loading="lazy">`
-        : `<div class="wish-img" style="display:grid;place-items:center;font-size:34px">💝</div>`
+        ? wPhotoSrc
+          ? html`<img class="wish-img" src="${wPhotoSrc}" alt="${w.text}" data-photo="${w.photoId}" loading="lazy">`
+          : html`<img class="wish-img" data-photo-src="${w.photoId}" alt="${w.text}" data-photo="${w.photoId}" loading="lazy">`
+        : html`<div class="wish-img" style="display:grid;place-items:center;font-size:34px">💝</div>`
     }
     <div class="wish-body">
-      <div class="wish-title">${esc(w.text)}</div>
-      ${w.done ? `<span class="wish-done-by">💜 Исполнено${doneBy ? ' ' + doneBy : ''}${w.doneAt ? ' · ' + fmtWishDate(w.doneAt) : ''}</span>` : ''}
-      ${w.link ? `<a class="wish-link" href="${safeUrl(w.link)}" target="_blank" rel="noopener">🔗 Открыть ссылку</a>` : ''}
+      <div class="wish-title">${w.text}</div>
+      ${w.done ? html`<span class="wish-done-by">💜 Исполнено${doneBy ? ' ' + doneBy : ''}${w.doneAt ? ' · ' + fmtWishDate(w.doneAt) : ''}</span>` : html``}
+      ${w.link ? html`<a class="wish-link" href="${safeUrl(w.link)}" target="_blank" rel="noopener">🔗 Открыть ссылку</a>` : html``}
       <div class="wish-btns">
         ${wishToggleHTML(w)}
         <button class="mini-x" data-edit-wish="${w.id}" title="Изменить">${navIconHtml('pencil')}</button>
@@ -59,16 +61,18 @@ function renderWishlist() {
   if (wishlistTab !== 'gosha' && wishlistTab !== 'dasha') wishlistTab = getUser();
   const byOwner = who => [...db.wishlist].filter(w => w.owner === who).sort((a, b) => a.done - b.done || b.ts - a.ts);
   const sec = (who, label, emoji, empty) =>
-    `<div class="wish-section" data-wish-owner="${who}"><h4>${esc(emoji)} Хотелки ${label}</h4>
-      ${byOwner(who).length ? `<div class="wishlist-grid">${byOwner(who).map(wishCard).join('')}</div>` : `<p class="cal-tip">${empty}</p>`}
+    html`<div class="wish-section" data-wish-owner="${who}"><h4>${emoji} Хотелки ${label}</h4>
+      ${byOwner(who).length ? html`<div class="wishlist-grid">${byOwner(who).map(wishCard)}</div>` : html`<p class="cal-tip">${empty}</p>`}
     </div>`;
-  const tabs = `<div class="wish-tabs">
+  const tabs = html`<div class="wish-tabs">
       <button type="button" class="wish-tab${wishlistTab === 'gosha' ? ' active' : ''}" data-wish-tab="gosha">👦 Гоша</button>
       <button type="button" class="wish-tab${wishlistTab === 'dasha' ? ' active' : ''}" data-wish-tab="dasha">👧 Даша</button>
     </div>`;
   grid.dataset.activeWish = wishlistTab;
-  grid.innerHTML =
-    tabs + sec('gosha', 'Гоши', '👦', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨') + sec('dasha', 'Даши', '👧', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨');
+  render(
+    grid,
+    html`${tabs}${sec('gosha', 'Гоши', '👦', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨')}${sec('dasha', 'Даши', '👧', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨')}`
+  );
   if (typeof hydratePhotoImgs === 'function') hydratePhotoImgs(grid);
 }
 let editingWishId = null;

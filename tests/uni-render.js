@@ -38,8 +38,6 @@ assert(true, 'render(null) не падает');
 // объект пустой. Число должно совпадать точно: и новое присваивание, и
 // забытая правка списка — ошибка.
 const PENDING = {
-  '60-lists.js': 3,
-  '61-wishes.js': 1,
   '70-photos.js': 1,
   '71-photo-grid.js': 4,
   '72-photo-labels.js': 3
