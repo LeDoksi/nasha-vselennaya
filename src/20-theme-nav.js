@@ -52,7 +52,7 @@ function setTheme(t) {
     if (root) root.dataset.theme = t;
     const btn = $('#themeToggle');
     if (btn) {
-      btn.innerHTML = '<svg class="nav-icon" aria-hidden="true"><use href="#icon-' + (t === 'dark' ? 'sun' : 'moon') + '"></use></svg>';
+      render(btn, navIconHtml(t === 'dark' ? 'sun' : 'moon'));
       btn.setAttribute('aria-pressed', String(t === 'dark'));
     }
     const sbtn = $('#settingsThemeBtn');
@@ -82,7 +82,7 @@ const BOTTOM_PRIMARY = ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photo
 // с текстом кнопки (эмодзи так не умеют — оставались цветными в .active).
 // Полный текст остаётся для скринридеров через aria-label.
 function navIconHtml(id) {
-  return '<svg class="nav-icon" aria-hidden="true"><use href="#icon-' + id + '"></use></svg>';
+  return html`<svg class="nav-icon" aria-hidden="true"><use href="#icon-${id}"></use></svg>`;
 }
 const BOTTOM_ICON = {
   home: navIconHtml('home'),
@@ -157,7 +157,7 @@ function buildBottomNav() {
   const bar = $('#bottomNav');
   if (!bar || !bar.querySelectorAll) return;
   const navBtn = view => [...document.querySelectorAll('.nav-btn')].find(b => b.dataset && b.dataset.view === view);
-  bar.innerHTML = '';
+  render(bar, '');
   BOTTOM_PRIMARY.forEach(view => {
     const src = navBtn(view);
     const clone = src ? src.cloneNode(true) : document.createElement('button');
@@ -169,7 +169,7 @@ function buildBottomNav() {
     const label = clone.textContent.trim();
     clone.setAttribute('aria-label', label);
     clone.title = label;
-    clone.innerHTML = BOTTOM_ICON[view] || esc(label);
+    render(clone, BOTTOM_ICON[view] || html`${label}`);
     bar.appendChild(clone);
   });
 }

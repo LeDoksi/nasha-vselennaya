@@ -173,7 +173,7 @@ function lbRender() {
   if (pinBtn) {
     pinBtn.style.display = galleryPhoto ? '' : 'none';
     if (galleryPhoto) {
-      pinBtn.innerHTML = '<svg class="nav-icon" aria-hidden="true"><use href="#icon-' + (galleryPhoto.pinned ? 'star-fill' : 'star') + '"></use></svg>';
+      render(pinBtn, navIconHtml(galleryPhoto.pinned ? 'star-fill' : 'star'));
       pinBtn.classList.toggle('active', !!galleryPhoto.pinned);
       pinBtn.title = galleryPhoto.pinned ? 'Открепить' : 'Закрепить';
     }

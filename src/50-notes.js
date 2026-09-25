@@ -5,34 +5,35 @@ function noteAuthorName(n) {
 }
 function renderNotes() {
   const list = [...db.notes].sort((a, b) => b.pinned - a.pinned || (a.order ?? 1e9) - (b.order ?? 1e9) || b.ts - a.ts);
-  $('#notesGrid').innerHTML = list.length
-    ? list
-        .map(
-          n => `
-    <div class="note${n.pinned ? ' pinned' : ''}" data-id="${n.id}">
-      <div class="note-top">
-        <button class="drag-handle note-drag" data-note-drag="${n.id}" title="Перетащить">⠿</button>
-        <button class="mini-x" data-pin-note="${n.id}" title="${n.pinned ? 'Открепить' : 'Закрепить'}">${navIconHtml(n.pinned ? 'pin-fill' : 'pin')}</button>
-        <span class="note-author">${noteAuthorName(n)}</span>
-        <span class="note-date">${new Date(n.ts).toLocaleDateString('ru-RU')}</span>
-        <button class="mini-x" data-edit-note="${n.id}" title="Редактировать">${navIconHtml('pencil')}</button>
-        <button class="mini-x" data-del-note="${n.id}" title="Удалить">✕</button>
-      </div>
-      ${
+  render(
+    $('#notesGrid'),
+    list.length
+      ? html`${list.map(
+          n =>
+            html` <div class="note${n.pinned ? ' pinned' : ''}" data-id="${n.id}">
+              <div class="note-top">
+                <button class="drag-handle note-drag" data-note-drag="${n.id}" title="Перетащить">⠿</button>
+                <button class="mini-x" data-pin-note="${n.id}" title="${n.pinned ? 'Открепить' : 'Закрепить'}">${navIconHtml(n.pinned ? 'pin-fill' : 'pin')}</button>
+                <span class="note-author">${noteAuthorName(n)}</span>
+                <span class="note-date">${new Date(n.ts).toLocaleDateString('ru-RU')}</span>
+                <button class="mini-x" data-edit-note="${n.id}" title="Редактировать">${navIconHtml('pencil')}</button>
+                <button class="mini-x" data-del-note="${n.id}" title="Удалить">✕</button>
+              </div>
+              ${
         editingNoteId === n.id
-          ? `<div class="note-edit">
-             <textarea id="noteEdit-${n.id}" class="note-editor">${esc(n.text)}</textarea>
-             <div class="note-edit-btns">
-               <button class="btn btn-sm" data-save-note="${n.id}">💜 Сохранить</button>
-               <button class="mini-x" data-cancel-note title="Отмена">✕</button>
-             </div>
-           </div>`
-          : `<p>${esc(n.text)}</p>`
+          ? html`<div class="note-edit">
+              <textarea id="noteEdit-${n.id}" class="note-editor">${n.text}</textarea>
+              <div class="note-edit-btns">
+                <button class="btn btn-sm" data-save-note="${n.id}">💜 Сохранить</button>
+                <button class="mini-x" data-cancel-note title="Отмена">✕</button>
+              </div>
+            </div>`
+          : html`<p>${n.text}</p>`
       }
-    </div>`
-        )
-        .join('')
-    : '<div class="empty-state">Пока пусто. Напиши первую записку! 💌</div>';
+            </div>`
+        )}`
+      : html`<div class="empty-state">Пока пусто. Напиши первую записку! 💌</div>`
+  );
 }
 function addNote() {
   const t = $('#noteText').value.trim();

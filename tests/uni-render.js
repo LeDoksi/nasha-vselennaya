@@ -38,19 +38,16 @@ assert(true, 'render(null) не падает');
 // объект пустой. Число должно совпадать точно: и новое присваивание, и
 // забытая правка списка — ошибка.
 const PENDING = {
-  '20-theme-nav.js': 3,
   '30-home.js': 6,
   '35-memory.js': 3,
   '40-calendar.js': 3,
   '41-calendar-photos.js': 0, // innerHTML нет, но есть esc() в evThumbHTML
   '42-datepicker.js': 3,
-  '50-notes.js': 1,
   '60-lists.js': 3,
   '61-wishes.js': 1,
   '70-photos.js': 1,
   '71-photo-grid.js': 4,
-  '72-photo-labels.js': 3,
-  '85-lightbox.js': 1
+  '72-photo-labels.js': 3
 };
 const SELF = ['00-core.js', '00-html.js'];
 for (const f of fs.readdirSync('src').filter(n => n.endsWith('.js') && !SELF.includes(n))) {

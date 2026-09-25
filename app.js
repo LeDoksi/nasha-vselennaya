@@ -1875,7 +1875,7 @@ function setTheme(t) {
     if (root) root.dataset.theme = t;
     const btn = $('#themeToggle');
     if (btn) {
-      btn.innerHTML = '<svg class="nav-icon" aria-hidden="true"><use href="#icon-' + (t === 'dark' ? 'sun' : 'moon') + '"></use></svg>';
+      render(btn, navIconHtml(t === 'dark' ? 'sun' : 'moon'));
       btn.setAttribute('aria-pressed', String(t === 'dark'));
     }
     const sbtn = $('#settingsThemeBtn');
@@ -1905,7 +1905,7 @@ const BOTTOM_PRIMARY = ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photo
 // с текстом кнопки (эмодзи так не умеют — оставались цветными в .active).
 // Полный текст остаётся для скринридеров через aria-label.
 function navIconHtml(id) {
-  return '<svg class="nav-icon" aria-hidden="true"><use href="#icon-' + id + '"></use></svg>';
+  return html`<svg class="nav-icon" aria-hidden="true"><use href="#icon-${id}"></use></svg>`;
 }
 const BOTTOM_ICON = {
   home: navIconHtml('home'),
@@ -1980,7 +1980,7 @@ function buildBottomNav() {
   const bar = $('#bottomNav');
   if (!bar || !bar.querySelectorAll) return;
   const navBtn = view => [...document.querySelectorAll('.nav-btn')].find(b => b.dataset && b.dataset.view === view);
-  bar.innerHTML = '';
+  render(bar, '');
   BOTTOM_PRIMARY.forEach(view => {
     const src = navBtn(view);
     const clone = src ? src.cloneNode(true) : document.createElement('button');
@@ -1992,7 +1992,7 @@ function buildBottomNav() {
     const label = clone.textContent.trim();
     clone.setAttribute('aria-label', label);
     clone.title = label;
-    clone.innerHTML = BOTTOM_ICON[view] || esc(label);
+    render(clone, BOTTOM_ICON[view] || html`${label}`);
     bar.appendChild(clone);
   });
 }
@@ -3780,34 +3780,35 @@ function noteAuthorName(n) {
 }
 function renderNotes() {
   const list = [...db.notes].sort((a, b) => b.pinned - a.pinned || (a.order ?? 1e9) - (b.order ?? 1e9) || b.ts - a.ts);
-  $('#notesGrid').innerHTML = list.length
-    ? list
-        .map(
-          n => `
-    <div class="note${n.pinned ? ' pinned' : ''}" data-id="${n.id}">
-      <div class="note-top">
-        <button class="drag-handle note-drag" data-note-drag="${n.id}" title="Перетащить">⠿</button>
-        <button class="mini-x" data-pin-note="${n.id}" title="${n.pinned ? 'Открепить' : 'Закрепить'}">${navIconHtml(n.pinned ? 'pin-fill' : 'pin')}</button>
-        <span class="note-author">${noteAuthorName(n)}</span>
-        <span class="note-date">${new Date(n.ts).toLocaleDateString('ru-RU')}</span>
-        <button class="mini-x" data-edit-note="${n.id}" title="Редактировать">${navIconHtml('pencil')}</button>
-        <button class="mini-x" data-del-note="${n.id}" title="Удалить">✕</button>
-      </div>
-      ${
+  render(
+    $('#notesGrid'),
+    list.length
+      ? html`${list.map(
+          n =>
+            html` <div class="note${n.pinned ? ' pinned' : ''}" data-id="${n.id}">
+              <div class="note-top">
+                <button class="drag-handle note-drag" data-note-drag="${n.id}" title="Перетащить">⠿</button>
+                <button class="mini-x" data-pin-note="${n.id}" title="${n.pinned ? 'Открепить' : 'Закрепить'}">${navIconHtml(n.pinned ? 'pin-fill' : 'pin')}</button>
+                <span class="note-author">${noteAuthorName(n)}</span>
+                <span class="note-date">${new Date(n.ts).toLocaleDateString('ru-RU')}</span>
+                <button class="mini-x" data-edit-note="${n.id}" title="Редактировать">${navIconHtml('pencil')}</button>
+                <button class="mini-x" data-del-note="${n.id}" title="Удалить">✕</button>
+              </div>
+              ${
         editingNoteId === n.id
-          ? `<div class="note-edit">
-             <textarea id="noteEdit-${n.id}" class="note-editor">${esc(n.text)}</textarea>
-             <div class="note-edit-btns">
-               <button class="btn btn-sm" data-save-note="${n.id}">💜 Сохранить</button>
-               <button class="mini-x" data-cancel-note title="Отмена">✕</button>
-             </div>
-           </div>`
-          : `<p>${esc(n.text)}</p>`
+          ? html`<div class="note-edit">
+              <textarea id="noteEdit-${n.id}" class="note-editor">${n.text}</textarea>
+              <div class="note-edit-btns">
+                <button class="btn btn-sm" data-save-note="${n.id}">💜 Сохранить</button>
+                <button class="mini-x" data-cancel-note title="Отмена">✕</button>
+              </div>
+            </div>`
+          : html`<p>${n.text}</p>`
       }
-    </div>`
-        )
-        .join('')
-    : '<div class="empty-state">Пока пусто. Напиши первую записку! 💌</div>';
+            </div>`
+        )}`
+      : html`<div class="empty-state">Пока пусто. Напиши первую записку! 💌</div>`
+  );
 }
 function addNote() {
   const t = $('#noteText').value.trim();
@@ -5782,7 +5783,7 @@ function lbRender() {
   if (pinBtn) {
     pinBtn.style.display = galleryPhoto ? '' : 'none';
     if (galleryPhoto) {
-      pinBtn.innerHTML = '<svg class="nav-icon" aria-hidden="true"><use href="#icon-' + (galleryPhoto.pinned ? 'star-fill' : 'star') + '"></use></svg>';
+      render(pinBtn, navIconHtml(galleryPhoto.pinned ? 'star-fill' : 'star'));
       pinBtn.classList.toggle('active', !!galleryPhoto.pinned);
       pinBtn.title = galleryPhoto.pinned ? 'Открепить' : 'Закрепить';
     }
