@@ -45,8 +45,9 @@ function makeSw(netImpl) {
     vm.createContext({ self, caches: { open: async () => cache, match: r => cache.match(r), keys: async () => [], delete: async () => true }, fetch: netImpl, URL, setTimeout, Promise })
   );
   const fetchEvent = (url, mode = 'no-cors') => {
-    const ev = { request: { url: new URL(url, SCOPE).href, method: 'GET', mode }, responded: null };
+    const ev = { request: { url: new URL(url, SCOPE).href, method: 'GET', mode }, responded: null, waited: null };
     ev.respondWith = p => (ev.responded = p);
+    ev.waitUntil = p => (ev.waited = p);
     handlers.fetch(ev);
     return ev;
   };
@@ -69,10 +70,13 @@ function makeSw(netImpl) {
   sw.store.set(sw.key('styles.css'), resp('из кэша'));
   assert((await sw.fetchEvent('styles.css').responded).body === 'из кэша', 'офлайн — отдаём кэш');
 
-  // 3. Сеть висит дольше таймаута — кэш
+  // 3. Сеть висит дольше таймаута — кэш, но потом обновляется в фоне
   sw = makeSw(() => new Promise(r => setTimeout(() => r(resp('поздно')), 200)));
   sw.store.set(sw.key('app.min.js'), resp('из кэша'));
-  assert((await sw.fetchEvent('app.min.js').responded).body === 'из кэша', 'сеть не ответила за таймаут — кэш');
+  ev = sw.fetchEvent('app.min.js');
+  assert((await ev.responded).body === 'из кэша', 'сеть не ответила за таймаут — кэш');
+  await ev.waited; // ждём пока фоновое обновление завершится
+  assert(sw.store.get(sw.key('app.min.js')).body === 'поздно', 'после таймаута кэш обновлен в фоне');
 
   // 4. Сеть висит, кэша нет — ждём сеть
   sw = makeSw(() => new Promise(r => setTimeout(() => r(resp('поздно')), 60)));

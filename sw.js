@@ -49,16 +49,21 @@ self.addEventListener('fetch', event => {
     return;
   }
   if (url.origin !== self.location.origin) return;
-  event.respondWith(networkFirst(req));
+  event.respondWith(networkFirst(event, req));
 });
 
-async function networkFirst(req) {
+async function networkFirst(event, req) {
   const cache = await caches.open(CACHE_NAME);
   const network = fetch(req).then(res => {
-    if (res && res.ok) cache.put(req, res.clone());
+    if (res && res.ok)
+      return cache
+        .put(req, res.clone())
+        .then(() => res)
+        .catch(() => res);
     return res;
   });
-  network.catch(() => {}); // отказ сети обработан ниже — не пускаем его в unhandledrejection
+  const waitPromise = network.catch(() => {});
+  event.waitUntil(waitPromise); // продлить жизнь воркера до завершения cache.put
   const timeout = new Promise(resolve => setTimeout(resolve, NET_TIMEOUT_MS, null));
   try {
     const res = await Promise.race([network, timeout]);
