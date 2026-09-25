@@ -1274,7 +1274,6 @@ async function migratePhotosToStore(store, db) {
   }
   return moved;
 }
-
 // ===== IDBPhotoStore =====
 const IDBPhotoStore = {
   db: null,
@@ -1552,7 +1551,6 @@ async function initPhotoStore() {
   await MemoryPhotoStore.init();
   photoStore = MemoryPhotoStore;
 }
-
 // ===== Вспомогательные функции для работы с фото =====
 
 // Создание миниатюры (Canvas, ~256px по длинной стороне)
@@ -1656,7 +1654,6 @@ function blobToDataUrl(blob) {
     reader.readAsDataURL(blob);
   });
 }
-
 // Кэш data-URL для миниатюр
 const thumbCache = new Map();
 function getThumbUrl(id) {
