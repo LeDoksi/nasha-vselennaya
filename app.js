@@ -291,7 +291,8 @@ function setUser(u) {
    умолчание, а не решение в каждом месте. esc() внутри html`` не нужен: это
    было бы двойное экранирование («&amp;lt;» на экране). Страж —
    tests/uni-render.js. SafeHtml — наследник String: .includes(), конкатенация
-   и ${} в обычном шаблоне работают как со строкой. */
+   и ${} в обычном шаблоне работают как со строкой. render() тоже экранирует
+   голую строку — не только html``/raw(). */
 class SafeHtml extends String {}
 const raw = s => new SafeHtml(s == null ? '' : s);
 function htmlValue(v) {
@@ -302,7 +303,7 @@ function htmlValue(v) {
 }
 const html = (strings, ...values) => raw(strings.reduce((out, s, i) => out + htmlValue(values[i - 1]) + s));
 function render(el, content) {
-  if (el) el.innerHTML = String(content);
+  if (el) el.innerHTML = content instanceof SafeHtml ? String(content) : esc(content);
 }
 /* ===== Гейт: вход только для двух Google-аккаунтов =====
    Раньше сайт был закрыт паролем (PBKDF2 + AES, свой пароль у каждого), а
@@ -3154,9 +3155,9 @@ function evThumbHTML(ref, altText) {
   return html`<img class="ev-thumb" src="${src}" alt="${altText}" data-photo="${attr}" loading="lazy" />`;
 }
 function evThumbs(e) {
-  if (!(e.photos && e.photos.length)) return raw('');
+  if (!(e.photos && e.photos.length)) return html``;
   const refs = thumbRefs(e.photos);
-  if (!refs.length) return raw('');
+  if (!refs.length) return html``;
   return html`<span class="ev-thumbs">${refs.map(ref => evThumbHTML(ref, e.title))}</span>`;
 }
 
@@ -3333,9 +3334,9 @@ function addDatePhotoQuick(dtId) {
 
 // Миниатюры фото свидания в панели дня
 function dtThumbs(dt) {
-  if (!(dt.photos && dt.photos.length)) return raw('');
+  if (!(dt.photos && dt.photos.length)) return html``;
   const refs = thumbRefs(dt.photos);
-  if (!refs.length) return raw('');
+  if (!refs.length) return html``;
   return html`<span class="ev-thumbs">${refs.map(ref => evThumbHTML(ref, ''))}</span>`;
 }
 /* ===== Кастомный date-picker в стиле сайта =====
@@ -3442,6 +3443,7 @@ function renderDatePop() {
   if (!pop) return;
   const ms = $('#dpMonth'),
     ys = $('#dpYear');
+  // selected — целый атрибут, а не значение: raw() из фиксированного литерала по флагу, не пользовательские данные.
   if (ms) render(ms, html`${MONTHS.map((n, i) => html`<option value="${i}"${i === dpM ? raw(' selected') : ''}>${n}</option>`)}`);
   if (ys) {
     const now = new Date();

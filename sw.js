@@ -36,7 +36,9 @@ self.addEventListener('activate', event => {
 // деплоя первый заход показывал прошлую версию, а index.html и app.min.js
 // могли оказаться из разных версий. Кэш отвечает, только если сеть упала или
 // не ответила за NET_TIMEOUT_MS (плохая мобильная связь не вешает запуск).
-// Firebase/Yandex/Google — чужой origin, не трогаем.
+// Смешение версий на медленной сети остаётся возможным: таймаут — на каждый
+// файл отдельно, а не на партию целиком (известная проблема, карточка NV-80,
+// чинится до фазы 4). Firebase/Yandex/Google — чужой origin, не трогаем.
 const NET_TIMEOUT_MS = 3000;
 
 self.addEventListener('fetch', event => {
@@ -54,7 +56,10 @@ self.addEventListener('fetch', event => {
 
 async function networkFirst(event, req) {
   const cache = await caches.open(CACHE_NAME);
-  const fetched = fetch(req);
+  // no-cache: условный запрос (304 дёшев) вместо ответа из HTTP-кэша браузера —
+  // GitHub Pages отдаёт Cache-Control: max-age=600, без этого «сеть первой»
+  // 10 минут подряд возвращала бы старый файл, не спрашивая сеть.
+  const fetched = fetch(req, { cache: 'no-cache' });
   const write = fetched.then(res => (res && res.ok ? cache.put(req, res.clone()).catch(() => {}) : undefined));
   event.waitUntil(write.catch(() => {}));
   fetched.catch(() => {}); // отказ сети обрабатывается ниже

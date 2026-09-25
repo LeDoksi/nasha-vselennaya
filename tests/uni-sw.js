@@ -59,10 +59,15 @@ function makeSw(netImpl, putDelay = 0) {
 
 (async () => {
   // 1. Сеть жива — свежий ответ, кэш обновлён
-  let sw = makeSw(async () => resp('новый'));
+  let lastInit = null;
+  let sw = makeSw(async (req, init) => {
+    lastInit = init;
+    return resp('новый');
+  });
   sw.store.set(sw.key('app.min.js'), resp('старый'));
   let ev = sw.fetchEvent('app.min.js');
   assert((await ev.responded).body === 'новый', 'сеть жива — отдаём свежий файл, не кэш');
+  assert(lastInit && lastInit.cache === 'no-cache', 'fetch идёт с cache: no-cache — обходит HTTP-кэш браузера');
   await new Promise(r => setTimeout(r, 5));
   assert(sw.store.get(sw.key('app.min.js')).body === 'новый', 'свежий файл положен в кэш');
 
