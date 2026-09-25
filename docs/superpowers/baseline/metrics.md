@@ -94,10 +94,16 @@ Lighthouse выше снят с `tools/demo.html` — стенда, которы
 
 Реальная production-страница дополнительно грузит то, чего стенд не видит:
 
-1. Firebase Compatibility SDK тремя тегами с `gstatic.com`
-   (`@firebase/app`, `@firebase/auth`, `@firebase/firestore`) — вес по
-   отдельности Lighthouse на стенде не измерял (его там нет), по данным
-   исходного метрик-документа фазы оценивается отдельно, ~184 КБ.
+1. Firebase Compatibility SDK (compat, версия 10.14.0) тремя тегами с `gstatic.com`
+   (`@firebase/app`, `@firebase/auth`, `@firebase/firestore`).
+
+   Замер 25.09.2026 (`curl` с gstatic, `gzip -9`), firebase 10.14.0 compat:
+   app 31.8 КБ / 10.0 КБ gz, auth 139.3 КБ / 39.4 КБ gz, firestore 343.8 КБ /
+   101.3 КБ gz — **итого 515 КБ, 151 КБ gz**. Для сравнения: модульный SDK,
+   собранный esbuild ровно под наши вызовы (initializeAuth + popup/redirect,
+   Firestore с persistentLocalCache), — 124 КБ gz. Переход отложен (NV-46),
+   выигрыш 27 КБ не окупает риск для входа.
+
 2. `app.min.js` (169 КБ), а не `app.js` в развёрнутом виде (331 КБ, см.
    «Вес сборки» выше) — на проде отдаётся минифицированный файл.
 
@@ -105,7 +111,7 @@ Lighthouse выше снят с `tools/demo.html` — стенда, которы
 production-вес с этим базлайном напрямую нельзя — обе стороны сравнения
 должны быть либо стендом, либо продом. 592.4 КБ — это стенд; production
 вес — это локальная сумма файлов (раздел «Вес передачи» выше, уже на
-`app.min.js`) плюс ~184 КБ Firebase SDK, которого стенд не грузит.
+`app.min.js`) плюс 151 КБ gz Firebase SDK, которого стенд не грузит.
 
 ---
 

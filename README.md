@@ -25,8 +25,13 @@
 ├── run-tests.cmd   ← двойной клик: запуск проверок
 ├── README.md
 ├── PROJECT-MEMORY.md  ← памятка для разработки: схема данных, механики, история, тесты
-├── src/            ← модули (00-core, 01-gate — Google-гейт, 03-firestore, 04-repo — слой данных,
-│                     05-photostore, 40-calendar, …, 95-photos-cloud, 96-push); собираются по алфавиту
+├── src/            ← модули; собираются по алфавиту: 00-core, 00-html, 01-gate, 03-firestore,
+│                     04-repo, 05-dnd, 05-photostore, 06-photostore-backends, 07-photo-media,
+│                     08-photo-cache, 20-theme-nav, 30-home, 35-memory, 40-calendar,
+│                     41-calendar-photos, 42-datepicker, 43-event-modal, 44-ics, 50-notes,
+│                     60-lists, 61-wishes, 62-global-clicks, 70-photos, 71-photo-grid,
+│                     72-photo-labels, 80-settings, 85-lightbox, 90-effects-init,
+│                     95-photos-cloud, 95-photos-sync
 ├── vendor/         ← SortableJS (drag&drop списков/фото/заметок), подключён отдельным <script>
 ├── functions/      ← Cloud Functions: photo-sign (подпись загрузки фото), send-push (push-уведомления)
 ├── tools/          ← разовые dev-скрипты (split.js — нарезка app.js обратно на src/)
