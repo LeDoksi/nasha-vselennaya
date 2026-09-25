@@ -39,7 +39,7 @@
 - Стратегия: сеть первой с таймаутом 3 с, кэш запасной
 - Офлайн-навигация → `index.html` (перенаправляет на главную)
 - Запись в кэш под `event.waitUntil`, не теряет запросы при сбое
-- `CACHE_NAME = 'v3'`
+- `CACHE_NAME = 'nasha-vselennaya-shell-v3'`
 - Тесты в `tests/uni-sw.js`
 
 **Firebase остаётся на Compatibility SDK (решение владельца 25.09.2026):**

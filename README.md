@@ -31,7 +31,7 @@
 │                     41-calendar-photos, 42-datepicker, 43-event-modal, 44-ics, 50-notes,
 │                     60-lists, 61-wishes, 62-global-clicks, 70-photos, 71-photo-grid,
 │                     72-photo-labels, 80-settings, 85-lightbox, 90-effects-init,
-│                     95-photos-cloud, 95-photos-sync
+│                     95-photos-cloud, 95-photos-sync, 96-push
 ├── vendor/         ← SortableJS (drag&drop списков/фото/заметок), подключён отдельным <script>
 ├── functions/      ← Cloud Functions: photo-sign (подпись загрузки фото), send-push (push-уведомления)
 ├── tools/          ← разовые dev-скрипты (split.js — нарезка app.js обратно на src/)
