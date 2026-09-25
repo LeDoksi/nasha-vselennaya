@@ -18,7 +18,7 @@ const resp = body => ({
   }
 });
 
-function makeSw(netImpl) {
+function makeSw(netImpl, putDelay = 0) {
   const store = new Map(); // url → ответ
   const handlers = {};
   const key = r => (typeof r === 'string' ? new URL(r, SCOPE).href : r.url);
@@ -27,6 +27,9 @@ function makeSw(netImpl) {
       return store.get(key(r));
     },
     async put(r, res) {
+      if (putDelay > 0) {
+        await new Promise(resolve => setTimeout(resolve, putDelay));
+      }
       store.set(key(r), res);
     },
     async addAll() {}
@@ -93,6 +96,14 @@ function makeSw(netImpl) {
   sw = makeSw(async () => resp('x'));
   ev = sw.fetchEvent('https://firestore.googleapis.com/v1/x');
   assert(ev.responded === null, 'чужой origin не перехватывается');
+
+  // 7. Сеть быстра, cache.put медленный — ответ не блокируется на запись
+  sw = makeSw(async () => resp('новый'), 100);
+  sw.store.set(sw.key('app.min.js'), resp('старый'));
+  ev = sw.fetchEvent('app.min.js');
+  assert((await ev.responded).body === 'новый', 'быстрая сеть не блокируется на cache.put');
+  await ev.waited; // дожидаемся завершения записи
+  assert(sw.store.get(sw.key('app.min.js')).body === 'новый', 'кэш обновлен после записи');
 
   if (failed) {
     console.log('FAIL: ' + failed);

@@ -54,23 +54,17 @@ self.addEventListener('fetch', event => {
 
 async function networkFirst(event, req) {
   const cache = await caches.open(CACHE_NAME);
-  const network = fetch(req).then(res => {
-    if (res && res.ok)
-      return cache
-        .put(req, res.clone())
-        .then(() => res)
-        .catch(() => res);
-    return res;
-  });
-  const waitPromise = network.catch(() => {});
-  event.waitUntil(waitPromise); // продлить жизнь воркера до завершения cache.put
+  const fetched = fetch(req);
+  const write = fetched.then(res => (res && res.ok ? cache.put(req, res.clone()).catch(() => {}) : undefined));
+  event.waitUntil(write.catch(() => {}));
+  fetched.catch(() => {}); // отказ сети обрабатывается ниже
   const timeout = new Promise(resolve => setTimeout(resolve, NET_TIMEOUT_MS, null));
   try {
-    const res = await Promise.race([network, timeout]);
+    const res = await Promise.race([fetched, timeout]);
     if (res) return res;
   } catch (e) {}
   const cached = (await cache.match(req)) || (req.mode === 'navigate' ? await cache.match('./index.html') : undefined);
-  return cached || network;
+  return cached || fetched;
 }
 
 self.addEventListener('push', event => {
