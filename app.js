@@ -285,6 +285,25 @@ function setUser(u) {
   renderHome();
   renderCalendar();
 }
+/* ===== Рендер разметки =====
+   Единственный способ писать HTML в DOM. html`…` экранирует всё подставленное,
+   кроме SafeHtml (результат другого html`` или raw()), поэтому экранирование —
+   умолчание, а не решение в каждом месте. esc() внутри html`` не нужен: это
+   было бы двойное экранирование («&amp;lt;» на экране). Страж —
+   tests/uni-render.js. SafeHtml — наследник String: .includes(), конкатенация
+   и ${} в обычном шаблоне работают как со строкой. */
+class SafeHtml extends String {}
+const raw = s => new SafeHtml(s == null ? '' : s);
+function htmlValue(v) {
+  if (v instanceof SafeHtml) return String(v);
+  if (Array.isArray(v)) return v.map(htmlValue).join('');
+  if (v == null || v === false) return '';
+  return esc(v);
+}
+const html = (strings, ...values) => raw(strings.reduce((out, s, i) => out + htmlValue(values[i - 1]) + s));
+function render(el, content) {
+  if (el) el.innerHTML = String(content);
+}
 /* ===== Гейт: вход только для двух Google-аккаунтов =====
    Раньше сайт был закрыт паролем (PBKDF2 + AES, свой пароль у каждого), а
    после — общим ключом пары, синхронизированным через Firebase Realtime
