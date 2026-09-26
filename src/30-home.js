@@ -68,13 +68,7 @@ function renderCompliment() {
   const key = new Date().toDateString(); // один и тот же комплимент весь день
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  render(
-    box,
-    html`<div class="compliment-card">
-      <h4>💌 Комплимент дня</h4>
-      <div class="compliment-text">${COMPLIMENTS[h % COMPLIMENTS.length]}</div>
-    </div>`
-  );
+  box.textContent = COMPLIMENTS[h % COMPLIMENTS.length];
 }
 
 /* ===== Таймер до события ===== */
@@ -110,13 +104,7 @@ function renderCountdown() {
   }
   countdownTarget = n.t;
   box.hidden = false;
-  render(
-    box,
-    html`<div class="compliment-card">
-      <h4>${n.emoji} До «${n.title}» осталось</h4>
-      <div class="countdown-time" id="countdownTick">…</div>
-    </div>`
-  );
+  render(box, html`<span class="now-label">${n.emoji} до «${n.title}»</span> <span class="now-tick" id="countdownTick">…</span>`);
   tickCountdown();
 }
 function tickCountdown() {
@@ -196,21 +184,20 @@ function renderDates() {
     .slice(0, 8);
   render(
     box,
-    html`<h3>💘 Наши свидания</h3>
-      ${
-        list.length
-          ? list.map(o => {
-              const d = o.d;
-              const who = getUser();
-              const resp = d.responses || {};
-              const from = d.from;
-              // Пригласивший уже согласился — ему кнопки «Да/Нет» не нужны
-              const status = p => (from === p ? (p === 'gosha' ? '💌 позвал' : '💌 позвала') : fmtResp(resp[p]));
-              // canAnswer: не только «не я позвал», но и «ещё не ответил» — иначе
-              // кнопки Да/Нет остаются после ответа и по ним можно кликать бесконечно (NV-11)
-              const canAnswer = (!from || from === 'both' || from !== who) && !resp[who];
-              const bothYes = resp.gosha === 'yes' && resp.dasha === 'yes';
-              return html`<div class="date-card">
+    html`${
+      list.length
+        ? list.map(o => {
+            const d = o.d;
+            const who = getUser();
+            const resp = d.responses || {};
+            const from = d.from;
+            // Пригласивший уже согласился — ему кнопки «Да/Нет» не нужны
+            const status = p => (from === p ? (p === 'gosha' ? '💌 позвал' : '💌 позвала') : fmtResp(resp[p]));
+            // canAnswer: не только «не я позвал», но и «ещё не ответил» — иначе
+            // кнопки Да/Нет остаются после ответа и по ним можно кликать бесконечно (NV-11)
+            const canAnswer = (!from || from === 'both' || from !== who) && !resp[who];
+            const bothYes = resp.gosha === 'yes' && resp.dasha === 'yes';
+            return html`<div class="date-card">
                 <div class="date-emoji">${d.emoji || '💘'}</div>
                 <div class="date-info">
                   <b>${fmtDateLong(d.date)}${o.days === 0 ? html`<span class="tag tag-today">сегодня</span>` : o.days === 1 ? html`<span class="tag">завтра</span>` : ''}</b>
@@ -233,9 +220,9 @@ function renderDates() {
                   }
                 </div>
               </div>`;
-            })
-          : html`<p class="cal-tip">Ближайших свиданий пока нет. Самое время назначить новое! ✨</p>`
-      }`
+          })
+        : html`<p class="cal-tip">Ближайших свиданий пока нет. Самое время назначить новое! ✨</p>`
+    }`
   );
 }
 

@@ -93,19 +93,21 @@
     </div>
     <!-- ===== ГЛАВНАЯ ===== -->
     <section class="view active" id="view-home">
-      <div class="hero-zone">
-        <div class="hero-card">
-          <h1>Наша вселенная</h1>
-          <p class="hero-names">Гоша <span>&</span> Даша</p>
-          <div class="progress-ring" id="progressRing"></div>
+      <!-- «Сейчас» (спека 2.2): орбита-счётчик, годовщина, таймер, комплимент -->
+      <div class="now">
+        <p class="hero-names">Гоша <span>&amp;</span> Даша</p>
+        <div class="orbit-block" id="progressRing"></div>
+        <p class="now-line" id="countdown" hidden></p>
+        <p class="now-compliment" id="compliment"></p>
+      </div>
+      <!-- «Ближайшее»: свидания, приглашения, кнопка назначить -->
+      <div class="home-zone">
+        <h2 class="zone-title">Ближайшее</h2>
+        <div class="date-bar">
+          <button class="btn btn-date" id="addDateBtn">💘 Назначить свидание</button>
         </div>
+        <div class="dates" id="dates"></div>
       </div>
-      <div class="countdown" id="countdown" hidden></div>
-      <div class="compliment" id="compliment"></div>
-      <div class="date-bar">
-        <button class="btn btn-date" id="addDateBtn">💘 Назначить свидание</button>
-      </div>
-      <div class="dates" id="dates"></div>
     </section>
 
     <!-- ===== КАЛЕНДАРЬ ===== -->

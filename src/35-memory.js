@@ -94,24 +94,33 @@ function plural(n, one, few, many) {
   if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
   return many;
 }
-function renderProgressRing(at) {
-  const box = $('#progressRing');
-  if (!box) return;
+// Круг до годовщины: сколько дней осталось, какая доля пройдена (at — для тестов).
+function anniversaryInfo(at) {
   const [sy, sm, sd] = START_DATE.split('-').map(Number);
-  const start = new Date(sy, sm - 1, sd);
-  const now = new Date();
+  const now = at || new Date();
   const cur = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const days = daysTogether(); // та же формула, что и раньше — не дублируем расчёт
-  let anniv = new Date(start);
+  const anniv = new Date(sy, sm - 1, sd);
   while (anniv.getTime() <= cur.getTime()) anniv.setFullYear(anniv.getFullYear() + 1);
   const prev = new Date(anniv);
   prev.setFullYear(prev.getFullYear() - 1);
   const total = Math.max(1, Math.round((anniv - prev) / 86400000));
-  const elapsed = Math.max(0, Math.round((cur - prev) / 86400000));
-  const pct = Math.max(0, Math.min(100, Math.round((elapsed / total) * 100)));
-  const R = 42,
-    CIRC = 2 * Math.PI * R;
-  const off = CIRC - (CIRC * pct) / 100;
+  const left = Math.round((anniv - cur) / 86400000);
+  const pct = Math.max(0, Math.min(100, Math.round(((total - left) / total) * 100)));
+  return { pct, left, total };
+}
+// Орбита в SVG 200×200 с центром (100,100): дуга прогресса и звезда на её конце.
+// Угол — от 12 часов по часовой (дуга повёрнута на -90° тем же способом).
+function orbitGeometry(pct, r) {
+  const circ = 2 * Math.PI * r;
+  const a = (pct / 100) * 2 * Math.PI - Math.PI / 2;
+  return { circ, off: circ - (circ * pct) / 100, x: 100 + r * Math.cos(a), y: 100 + r * Math.sin(a) };
+}
+function renderProgressRing(at) {
+  const box = $('#progressRing');
+  if (!box) return;
+  const days = daysTogether();
+  const info = anniversaryInfo(at);
+  const geo = orbitGeometry(info.pct, 92);
   const yearsTogether = Math.floor(days / 365.25);
   // Статистика под кольцом — чем заполнена наша история (v7)
   // Хотелки — чип с прогрессом исполненных (полоска + счётчик), кнопка 🎲 — перемес коллажа
@@ -121,11 +130,11 @@ function renderProgressRing(at) {
   const wishLabel = wishTotal ? wishDone + '/' + wishTotal : 'пока пусто';
   const wishTitle = wishTotal ? 'Исполнено ' + wishDone + ' из ' + wishTotal + ' хотелок' : 'Хотелок пока нет — загадай желание 💜';
   const stats = html`${[
-      ['📸', db.photos.length, 'фото', 'фото', 'фото'],
-      ['📅', db.events.length, 'событие', 'события', 'событий'],
-      ['💘', db.dates.length, 'свидание', 'свидания', 'свиданий'],
-      ['📝', db.notes.length, 'заметка', 'заметки', 'заметок']
-    ].map(a => html`<span class="hs-chip">${a[0]} ${a[1]} ${plural(a[1], a[2], a[3], a[4])}</span>`)}<span class="hs-chip hs-wish" title="${wishTitle}"
+    ['📸', db.photos.length, 'фото', 'фото', 'фото'],
+    ['📅', db.events.length, 'событие', 'события', 'событий'],
+    ['💘', db.dates.length, 'свидание', 'свидания', 'свиданий'],
+    ['📝', db.notes.length, 'заметка', 'заметки', 'заметок']
+  ].map(a => html`<span class="hs-chip">${a[0]} ${a[1]} ${plural(a[1], a[2], a[3], a[4])}</span>`)}<span class="hs-chip hs-wish" title="${wishTitle}"
       >🎁 ${wishLabel}<span class="hs-bar"><i style="width:${wishPct}%"></i></span></span
     ><span class="hs-chip hs-shuffle" id="shuffleHistoryBtn" role="button" tabindex="0" title="Перемешать фото коллажа">🎲 Перемешать</span>`;
   // «В этот день» (только когда есть события/свидания прошлых лет): чипы под кольцом.
@@ -140,22 +149,19 @@ function renderProgressRing(at) {
     : '';
   render(
     box,
-    html` <div class="history-main">
-        <div class="ring-wrap">
-          <svg class="ring-svg" viewBox="0 0 100 100" role="img" aria-label="Прогресс до годовщины: ${pct}%">
-            <circle class="ring-bg" cx="50" cy="50" r="${R}"></circle>
-            <circle class="ring-fg" cx="50" cy="50" r="${R}" stroke-dasharray="${CIRC}" stroke-dashoffset="${off}"></circle>
-          </svg>
-          <div class="ring-center"><b>${pct}%</b><small>до годовщины</small></div>
-        </div>
-        <div class="ring-info">
-          <h4>${yearsTogether > 0 ? yearsTogether + ' ' + pluralYears(yearsTogether) + ' вместе' : 'Наша история'}</h4>
-          <p>${days} ${pluralDays(days)} вместе</p>
-          <small>с ${fmtShort(START_DATE)}</small>
-        </div>
-        <div class="history-photos">${historyPhotosHtml(at)}</div>
+    html`<div class="orbit">
+        <svg class="orbit-ring" viewBox="0 0 200 200" role="img" aria-label="До годовщины ${info.left} ${pluralDays(info.left)}, пройдено ${info.pct}%">
+          <circle class="orbit-track" cx="100" cy="100" r="92"></circle>
+          <circle class="orbit-arc" cx="100" cy="100" r="92" transform="rotate(-90 100 100)" stroke-dasharray="${geo.circ}" stroke-dashoffset="${geo.off}"></circle>
+          <circle class="orbit-star" cx="${geo.x}" cy="${geo.y}" r="6"></circle>
+        </svg>
+        <div class="orbit-center"><b class="orbit-days">${days}</b><span>${pluralDays(days)} вместе</span></div>
       </div>
+      <p class="orbit-sub">
+        ${yearsTogether > 0 ? yearsTogether + ' ' + pluralYears(yearsTogether) + ' · ' : ''}до годовщины ${info.left} ${pluralDays(info.left)} · с ${fmtShort(START_DATE)}
+      </p>
       ${otdRow}
+      <div class="history-photos">${historyPhotosHtml(at)}</div>
       <div class="history-stats">${stats}</div>`
   );
 }

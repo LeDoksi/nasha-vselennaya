@@ -265,6 +265,7 @@ function __TEST__(s){
   s.renderMemory = renderMemory;
   s.memoryPhotosHtml = memoryPhotosHtml; s.toggleMemoryPhotos = toggleMemoryPhotos;
   s.renderProgressRing = renderProgressRing;
+  s.anniversaryInfo = anniversaryInfo; s.orbitGeometry = orbitGeometry; s.START_DATE = START_DATE;
   s.onThisDayPhotos = onThisDayPhotos; s.pickHistoryPhotos = pickHistoryPhotos;
   s.shuffleHistoryPhotos = shuffleHistoryPhotos; s.historyPhotosHtml = historyPhotosHtml;
   Object.defineProperty(s, 'historyCollage', { get: () => historyCollage, set: v => { historyCollage = v; }, configurable: true });
@@ -391,7 +392,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // --- Главная ---
   w('(s)=>s.renderHome()');
   assert(typeof w('(s)=>s.renderHome') === 'function', 'renderHome defined');
-  assert(registry['#compliment'].innerHTML.includes('Комплимент'), 'комплимент дня на главной');
+  assert(registry['#compliment'].textContent.trim().length > 0, 'комплимент дня на главной');
   assert(registry['#countdown'].hidden === true, 'таймер скрыт, если событий нет');
 
   // счётчик дней считаем динамически — тест не устаревает со временем
@@ -404,7 +405,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // Счётчик дней раньше дублировался: отдельно в hero-card (#daysCount) и в
   // .ring-info блока «Наша история» — блоки объединены, показывается один раз
   // внутри #progressRing (теперь живёт прямо в hero-card, см. index.html).
-  assert(registry['#progressRing'].innerHTML.includes(String(expDays) + ' '), 'счётчик дней виден в объединённом hero-блоке');
+  assert(registry['#progressRing'].innerHTML.includes('>' + expDays + '<'), 'счётчик дней — крупное число в центре орбиты');
 
   assert(registry['#dates'].innerHTML.includes('Свиданий пока нет'), 'empty dates state');
 
@@ -1291,7 +1292,18 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(registry['#progressRing'].innerHTML.includes('history-otd'), 'в этот день: чипы событий в блоке истории');
   assert(registry['#progressRing'].innerHTML.includes('Пикник'), 'в этот день: событие прошлого года видно в блоке истории');
   assert(registry['#progressRing'].innerHTML.includes('Кафе'), 'в этот день: свидание прошлого года — чип в блоке истории');
-  assert(registry['#progressRing'].innerHTML.includes('ring-svg'), 'кольцо прогресса рендерится');
+  // --- Фаза 5: орбита «Сейчас» ---
+  const [sy, sm, sd] = w('(s)=>s.START_DATE').split('-').map(Number);
+  const an0 = w(`(s)=>s.anniversaryInfo(new Date(${sy + 1}, ${sm - 1}, ${sd}))`);
+  assert(an0.pct === 0 && an0.left === an0.total, 'годовщина: в сам день начинается новый круг — 0%');
+  const an1 = w(`(s)=>s.anniversaryInfo(new Date(${sy + 1}, ${sm - 1}, ${sd - 1}))`);
+  assert(an1.left === 1 && an1.pct === 100, 'годовщина: накануне остался 1 день, круг пройден');
+  const g0 = w('(s)=>s.orbitGeometry(0, 92)');
+  assert(Math.abs(g0.x - 100) < 1e-9 && Math.abs(g0.y - 8) < 1e-9 && Math.abs(g0.off - g0.circ) < 1e-9, 'орбита: 0% — звезда на 12 часах, дуга пустая');
+  const g25 = w('(s)=>s.orbitGeometry(25, 92)');
+  assert(Math.abs(g25.x - 192) < 1e-9 && Math.abs(g25.y - 100) < 1e-9, 'орбита: 25% — звезда на 3 часах');
+  assert(registry['#progressRing'].innerHTML.includes('orbit-ring'), 'орбита рендерится');
+  assert(!registry['#progressRing'].innerHTML.includes('ring-svg'), 'старого кольца больше нет');
   w('(s)=>{s.renderHome(); return 1;}');
   assert(!registry['#onThisDay'] || registry['#onThisDay'].innerHTML === '', 'отдельный виджет «В этот день» больше не рендерится');
 
