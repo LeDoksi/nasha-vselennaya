@@ -236,7 +236,7 @@
   </main>
 
   <!-- ===== Модалка «добавить дату» ===== -->
-  <div class="overlay" id="eventOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="evModalTitle">
+  <dialog class="overlay" id="eventOverlay" hidden aria-labelledby="evModalTitle">
     <div class="modal event-modal">
       <div class="ev-head">
         <h3 id="evModalTitle">💜 Памятная дата</h3>
@@ -268,10 +268,10 @@
         <button class="btn ev-save" id="evSave">Сохранить 💜</button>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <!-- ===== Модалка «назначить свидание» ===== -->
-  <div class="overlay" id="dateOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="dtModalTitle">
+  <dialog class="overlay" id="dateOverlay" hidden aria-labelledby="dtModalTitle">
     <div class="modal">
       <button class="modal-x" data-close="dateOverlay">✕</button>
       <h3 id="dtModalTitle">💘 Назначить свидание</h3>
@@ -289,19 +289,19 @@
       <input type="text" id="dtEmoji" value="💘" maxlength="4">
       <button class="btn" id="dtSave">Сохранить свидание 💜</button>
     </div>
-  </div>
+  </dialog>
 
   <!-- ===== Модалка «приглашение на свидание» — не отвечено, всплывает при входе ===== -->
-  <div class="overlay" id="dateInviteOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="dateInviteTitle">
+  <dialog class="overlay" id="dateInviteOverlay" hidden aria-labelledby="dateInviteTitle">
     <div class="modal">
       <button class="modal-x" data-close="dateInviteOverlay">✕</button>
       <h3 id="dateInviteTitle">💘 Тебе назначили свидание!</h3>
       <div id="dateInviteList"></div>
     </div>
-  </div>
+  </dialog>
 
   <!-- ===== Модалка «Лейблы»: создание/переименование/цвет/удаление ===== -->
-  <div class="overlay" id="labelOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="labelModalTitle">
+  <dialog class="overlay" id="labelOverlay" hidden aria-labelledby="labelModalTitle">
     <div class="modal">
       <button class="modal-x" data-close="labelOverlay">✕</button>
       <h3 id="labelModalTitle">🏷 Лейблы</h3>
@@ -312,10 +312,10 @@
       </div>
       <div id="labelManageList"></div>
     </div>
-  </div>
+  </dialog>
 
   <!-- ===== Модалка «Применить лейблы» — чек-лист для выбранных фото / лайтбокса ===== -->
-  <div class="overlay" id="labelApplyOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="labelApplyTitle">
+  <dialog class="overlay" id="labelApplyOverlay" hidden aria-labelledby="labelApplyTitle">
     <div class="modal">
       <button class="modal-x" data-close="labelApplyOverlay">✕</button>
       <h3 id="labelApplyTitle">🏷 Применить лейблы</h3>
@@ -327,10 +327,10 @@
         <button class="btn album-add-btn" id="labelApplyNewBtn">＋ Создать и применить</button>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <!-- ===== Модалка «хотелка» ===== -->
-  <div class="overlay" id="wishOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="wishModalTitle">
+  <dialog class="overlay" id="wishOverlay" hidden aria-labelledby="wishModalTitle">
     <div class="modal">
       <button class="modal-x" data-close="wishOverlay">✕</button>
       <h3 id="wishModalTitle">🎁 Хотелка</h3>
@@ -346,10 +346,10 @@
       <p class="cal-tip" id="wishWhoNote" style="margin:10px 0 0">🎁 Хотелка попадёт в твой список — список того, кто сейчас вошёл.</p>
       <button class="btn" id="wishSave">Сохранить 💜</button>
     </div>
-  </div>
+  </dialog>
 
   <!-- ===== Просмотр фото (светбокс 2.0: стрелки, свайп, зум, счётчик, скачивание) ===== -->
-  <div class="overlay lightbox" id="lightbox" hidden role="dialog" aria-modal="true" aria-label="Просмотр фото">
+  <dialog class="overlay lightbox" id="lightbox" hidden aria-label="Просмотр фото">
     <button type="button" class="modal-x lb-close" data-close="lightbox" aria-label="Закрыть" title="Закрыть (Esc)">✕</button>
     <div class="lb-stage" id="lbStage">
       <button type="button" class="lb-btn lb-arrow lb-prev" id="lbPrev" aria-label="Предыдущее фото" title="Предыдущее (←)">‹</button>
@@ -364,7 +364,7 @@
         <button type="button" class="lb-btn lb-download" id="lbDownload" aria-label="Скачать оригинал" title="Скачать оригинал (полное качество)"><svg class="nav-icon" aria-hidden="true"><use href="#icon-download"></use></svg></button>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <!-- ===== Гейт: вход только для двух Google-аккаунтов (src/01-gate.js) ===== -->
   <section class="auth-screen" id="gateScreen" aria-label="Вход">
@@ -378,7 +378,7 @@
   </section>
 
   <!-- Кастомный календарь (вместо системного у input[type=date]) -->
-  <div class="date-pop" id="datePop" role="dialog" aria-modal="false" aria-label="Выбор даты" hidden>
+  <div class="date-pop" id="datePop" role="dialog" aria-modal="false" aria-label="Выбор даты" hidden popover="manual">
     <div class="dp-head">
       <button type="button" class="dp-nav" data-dp-nav="-1" aria-label="Предыдущий месяц" title="Предыдущий месяц">‹</button>
       <div class="dp-jump">
@@ -398,7 +398,7 @@
   <!-- ===== Нижняя навигация (мобильные): все вкладки в одном ряду ===== -->
   <nav class="bottom-nav" id="bottomNav" aria-label="Основная навигация"></nav>
 
-  <div id="appToast" class="app-toast" hidden role="status" aria-live="polite"></div>
+  <div id="appToast" class="app-toast" hidden role="status" aria-live="polite" popover="manual"></div>
 
   <!-- Firebase SDK (фаза B1, только сейф — фото идут в Yandex Object Storage):
        без интернета/на file:// не загрузятся — сайт останется локальным -->

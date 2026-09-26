@@ -60,7 +60,7 @@ function openLabelManageOverlay() {
   colorPickerLabelId = null;
   $('#labelNewName').value = '';
   renderLabelManageList();
-  $('#labelOverlay').hidden = false;
+  openOverlay('labelOverlay');
   $('#labelNewName').focus();
 }
 function renderLabelManageList() {
@@ -153,7 +153,7 @@ function openLabelApplyOverlay(ids) {
   if (!applyTargetIds.length) return;
   $('#labelApplyNewName').value = '';
   renderLabelApplyList();
-  $('#labelApplyOverlay').hidden = false;
+  openOverlay('labelApplyOverlay');
 }
 function renderLabelApplyList() {
   const box = $('#labelApplyList');

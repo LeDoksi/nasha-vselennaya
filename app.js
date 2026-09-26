@@ -60,15 +60,37 @@ let toastTimer = null;
 // — объявлено тут, а не там, чтобы прямая ссылка #/wishlist не ловила TDZ
 // (см. комментарий у renderWishlist). null → renderWishlist подставит getUser().
 let wishlistTab = null;
+// Поверх открытого <dialog> (top layer) z-index не пробивается — календарик
+// и тост поднимаются туда же как popover="manual". hidden держим в согласии:
+// на него смотрят тесты и CSS ([hidden]{display:none}).
+function setPopover(el, on) {
+  if (!el) return;
+  if (on) {
+    // Открытый модальный <dialog> делает inert всё, что не лежит внутри
+    // него (спека HTML) — иначе popover визуально поверх, но не кликается,
+    // не фокусируется и не читается скринридером. Переносим его в текущую
+    // верхнюю модалку (topOverlayEl, см. 62-global-clicks.js); нет открытой —
+    // оставляем в body, как раньше.
+    const host = (typeof topOverlayEl === 'function' && topOverlayEl()) || (typeof document !== 'undefined' ? document.body : null);
+    if (host && el.parentNode !== host && typeof host.appendChild === 'function') host.appendChild(el);
+  }
+  el.hidden = !on;
+  if (typeof el.showPopover !== 'function') return; // песочница тестов
+  try {
+    if (on) el.showPopover();
+    else el.hidePopover();
+  } catch (e) {} // уже открыт/закрыт — InvalidStateError, состояние и так нужное
+}
 function notify(msg, isError) {
   const t = $('#appToast');
   if (!t) return;
   t.textContent = msg;
   t.classList.toggle('toast-error', !!isError);
-  t.hidden = false;
+  setPopover(t, false);
+  setPopover(t, true); // скрыть и показать заново — встаёт поверх диалога, открытого позже него
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
-    t.hidden = true;
+    setPopover(t, false);
   }, 5000);
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
@@ -2321,7 +2343,7 @@ function renderDateInvites() {
   const list = $('#dateInviteList');
   render(list, html`${pending.map(dateInviteCardHTML)}`);
   const ov = $('#dateInviteOverlay');
-  if (ov && !ov.hidden && !pending.length) ov.hidden = true; // ответили на всё — закрываем само
+  if (ov && !ov.hidden && !pending.length) closeOverlay('dateInviteOverlay'); // ответили на всё — закрываем само
   return pending;
 }
 // «Закрыл не ответив» запоминаем на время сессии (sessionStorage — та же
@@ -2343,8 +2365,7 @@ function markInvitesDismissed(ids) {
 }
 function openDateInviteOverlay() {
   renderDateInvites();
-  const ov = $('#dateInviteOverlay');
-  if (ov) ov.hidden = false;
+  openOverlay('dateInviteOverlay');
 }
 // Вызывается один раз при входе (unlockApp): если есть приглашения, которые
 // ещё не показывали и не закрывали в этой сессии — всплывает окно.
@@ -2378,7 +2399,7 @@ function openDateModal(id) {
     $('#dtNote').value = '';
     $('#dtEmoji').value = '💘';
   }
-  $('#dateOverlay').hidden = false;
+  openOverlay('dateOverlay');
 }
 $('#addDateBtn').addEventListener('click', () => openDateModal());
 // Свидание всегда от имени вошедшего — выбора «кто приглашает» нет.
@@ -2398,7 +2419,7 @@ function saveDateFromModal() {
     existing.emoji = $('#dtEmoji').value.trim() || '💘';
     editingDateId = null;
     repoSet('dates', existing);
-    $('#dateOverlay').hidden = true;
+    closeOverlay('dateOverlay');
     renderHome();
     renderCalendar();
     return;
@@ -2423,7 +2444,7 @@ function saveDateFromModal() {
   };
   db.dates.push(dt);
   repoSet('dates', dt);
-  $('#dateOverlay').hidden = true;
+  closeOverlay('dateOverlay');
   renderHome();
   renderCalendar();
   // Пуш — без деталей свидания (дата/место/заметка), см. src/96-push.js
@@ -3521,7 +3542,7 @@ function pickDpDate(iso) {
 }
 function closeDatePop() {
   const pop = $('#datePop');
-  if (pop) pop.hidden = true;
+  setPopover(pop, false);
   dpInput = null;
 }
 function openDatePop(el) {
@@ -3543,7 +3564,7 @@ function openDatePop(el) {
     pop.setAttribute('aria-modal', 'false');
     pop.setAttribute('aria-label', 'Выбор даты');
   } catch (err) {}
-  pop.hidden = false;
+  setPopover(pop, true);
   focusDpDay(dpFocus);
   // ставим попап под полем, не вылезая за край экрана
   const r = el.getBoundingClientRect && el.getBoundingClientRect();
@@ -3649,7 +3670,7 @@ function openEventModal(id) {
       setEvPhotoCount();
     }
   }
-  $('#eventOverlay').hidden = false;
+  openOverlay('eventOverlay');
   $('#evTitle').focus();
 }
 $('#evPhoto').addEventListener('change', async e => {
@@ -3711,7 +3732,7 @@ function saveEventFromModal() {
   // repoSet выше пишет только сам документ события — метаданные свежих фото
   // (evPhotoData) addEventPhotosToGallery() уже сохранила сама через
   // repoSet('photos', ...) для каждого задетого фото.
-  $('#eventOverlay').hidden = true;
+  closeOverlay('eventOverlay');
   renderCalendar();
   renderHome();
   loadCalMonthNeighbors();
@@ -4333,7 +4354,7 @@ function openWishModal(id) {
   $('#wishLink').value = wish ? wish.link || '' : '';
   $('#wishPhotoName').textContent = wish && wish.photoId ? '✅ фото уже есть — выбери новое, чтобы заменить' : '';
   $('#wishPhoto').value = '';
-  $('#wishOverlay').hidden = false;
+  openOverlay('wishOverlay');
   $('#wishText').focus();
 }
 $('#addWishBtn').addEventListener('click', () => openWishModal());
@@ -4390,7 +4411,7 @@ async function saveWishFromModal() {
   }
   // коллекция в базе называется wishes, массив в памяти — db.wishlist (расхождение осознанное)
   repoSet('wishes', wish);
-  $('#wishOverlay').hidden = true;
+  closeOverlay('wishOverlay');
   renderWishlist();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
 }
@@ -4407,8 +4428,34 @@ function toggleDateDone(id) {
   return d.done;
 }
 /* ===== Глобальные клики ===== */
+// Модалки — нативные <dialog> (фаза 4). Атрибут hidden держим в согласии с
+// открытостью: на него смотрят тесты-песочницы и 90-effects-init.js
+// (.overlay:not([hidden])). Открывать и закрывать — только через эту пару.
+// Стек открытых модалок (в порядке открытия): пока модальный <dialog> открыт,
+// спека делает inert вообще всё, что не лежит внутри него, — в том числе
+// datePop/appToast (popover="manual") живут отдельным узлом от диалогов.
+// Inert-элемент нельзя ни кликнуть, ни сфокусировать, ни услышать
+// скринридером (aria-live), хотя визуально он и так поверх затемнения через
+// top layer. topOverlayEl() — куда setPopover() (00-core.js) должен на время
+// показа переносить такой popover, чтобы он не терял интерактивность.
+let openOverlayStack = [];
+function topOverlayEl() {
+  const id = openOverlayStack[openOverlayStack.length - 1];
+  return id ? $('#' + id) : null;
+}
+function openOverlay(id) {
+  const el = $('#' + id);
+  if (!el) return;
+  el.hidden = false;
+  if (typeof el.showModal === 'function' && !el.open) el.showModal();
+  if (openOverlayStack.indexOf(id) === -1) openOverlayStack.push(id);
+}
 function closeOverlay(id) {
-  $('#' + id).hidden = true;
+  const el = $('#' + id);
+  if (!el) return;
+  el.hidden = true;
+  if (typeof el.close === 'function' && el.open) el.close();
+  openOverlayStack = openOverlayStack.filter(x => x !== id);
   if (id === 'lightbox') lbResetState(); // светбокс закрыт — сбрасываем список и зум
   if (id === 'eventOverlay') editingEventId = null;
   // Закрыли не ответив — запоминаем на время сессии, чтобы не всплывало
@@ -4715,11 +4762,8 @@ if (listsWrapEl)
     if (card) startEditSubtask(card.dataset.id, li.dataset.item);
   });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    const open = document.querySelector('.overlay:not([hidden])');
-    if (open) closeOverlay(open.id);
-    return;
-  }
+  // Esc у модального <dialog> браузер сам превращает в событие cancel —
+  // ловит src/63-sheet.js. Ветку Escape тут убрали, чтобы не закрывать дважды.
   // Списки: Enter в поле подзадачи добавляет её
   if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('listInput-') === 0) {
     e.preventDefault();
@@ -4753,6 +4797,24 @@ document.addEventListener('keydown', e => {
       renderCalendar();
     }
   }
+});
+/* ===== Шторки: поведение нативных <dialog> (фаза 4) =====
+   Esc у модального <dialog> браузер превращает в событие cancel и закрывает
+   диалог сам — мимо closeOverlay, и тогда hidden и побочные эффекты
+   (сброс лайтбокса, «приглашение закрыто») разъехались бы с открытостью.
+   Поэтому cancel перехватываем и закрываем своим путём. Esc внутри
+   календарика гасится там же (datePopKeydown → preventDefault) — до cancel
+   дело не доходит, закрывается только календарик. */
+$$('dialog.overlay').forEach(dlg => {
+  dlg.addEventListener('cancel', e => {
+    e.preventDefault();
+    const pop = $('#datePop');
+    if (pop && !pop.hidden) {
+      closeDatePop();
+      return;
+    }
+    closeOverlay(dlg.id);
+  });
 });
 /* ===== Фото ===== */
 function readFile(file) {
@@ -5249,7 +5311,7 @@ function openLabelManageOverlay() {
   colorPickerLabelId = null;
   $('#labelNewName').value = '';
   renderLabelManageList();
-  $('#labelOverlay').hidden = false;
+  openOverlay('labelOverlay');
   $('#labelNewName').focus();
 }
 function renderLabelManageList() {
@@ -5342,7 +5404,7 @@ function openLabelApplyOverlay(ids) {
   if (!applyTargetIds.length) return;
   $('#labelApplyNewName').value = '';
   renderLabelApplyList();
-  $('#labelApplyOverlay').hidden = false;
+  openOverlay('labelApplyOverlay');
 }
 function renderLabelApplyList() {
   const box = $('#labelApplyList');
@@ -5717,8 +5779,7 @@ function openLightbox(ids, idx) {
   lightboxList = Array.isArray(ids) ? ids.slice() : [];
   lightboxIdx = Math.max(0, Math.min(idx || 0, lightboxList.length ? lightboxList.length - 1 : 0));
   lightboxZoom = 1;
-  const lb = $('#lightbox');
-  if (lb) lb.hidden = false;
+  openOverlay('lightbox');
   lbRender();
 }
 // Открытие по клику: листаем среди всех кликабельных фото текущей группы/вкладки
@@ -5738,9 +5799,7 @@ function lbResetState() {
   lightboxZoom = 1;
 }
 function lbClose() {
-  const lb = $('#lightbox');
-  if (lb) lb.hidden = true;
-  lbResetState();
+  closeOverlay('lightbox'); // сброс состояния (lbResetState) делает closeOverlay
 }
 function lbNav(dir) {
   if (!lightboxList.length) return;

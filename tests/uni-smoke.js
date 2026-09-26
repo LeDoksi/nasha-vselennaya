@@ -269,6 +269,7 @@ function __TEST__(s){
   s.shuffleHistoryPhotos = shuffleHistoryPhotos; s.historyPhotosHtml = historyPhotosHtml;
   Object.defineProperty(s, 'historyCollage', { get: () => historyCollage, set: v => { historyCollage = v; }, configurable: true });
   s.closeOverlay = closeOverlay;
+  s.openOverlay = openOverlay; s.setPopover = setPopover; s.notify = notify;
   s.buildBottomNav = buildBottomNav; s.onNavDocClick = onNavDocClick;
   s.BOTTOM_PRIMARY = BOTTOM_PRIMARY;
   s.OUR_TABS = OUR_TABS; s.resolveView = resolveView;
@@ -1398,6 +1399,32 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{s.closeOverlay("lightbox"); return 1;}');
   assert(registry['#lightbox'].hidden === true, 'светбокс закрывается');
   assert(w('(s)=>s.lightboxList.length') === 0, 'при закрытии список фото очищается');
+
+  // --- Фаза 4: модалки — нативный <dialog>, hidden и open всегда в согласии ---
+  const dlg = w('(s)=>s.document.querySelector("#wishOverlay")'); // registry заполняется лениво
+  let modalCalls = 0,
+    closeCalls = 0;
+  dlg.open = false;
+  dlg.showModal = () => {
+    modalCalls++;
+    dlg.open = true;
+  };
+  dlg.close = () => {
+    closeCalls++;
+    dlg.open = false;
+  };
+  w('(s)=>{s.openOverlay("wishOverlay"); return 1;}');
+  assert(dlg.hidden === false && modalCalls === 1, 'openOverlay: hidden снят и showModal вызван');
+  w('(s)=>{s.openOverlay("wishOverlay"); return 1;}');
+  assert(modalCalls === 1, 'openOverlay: повторно не открывает уже открытый диалог');
+  w('(s)=>{s.closeOverlay("wishOverlay"); return 1;}');
+  assert(dlg.hidden === true && closeCalls === 1, 'closeOverlay: hidden вернулся и close вызван');
+  const pop = w('(s)=>s.document.querySelector("#appToast")');
+  let popShown = 0;
+  pop.showPopover = () => popShown++;
+  pop.hidePopover = () => {};
+  w('(s)=>{s.notify("проверка"); return 1;}');
+  assert(pop.hidden === false && popShown === 1, 'тост поднимается в top layer как popover');
 
   // --- Модуль облака фото (src/95-photos-cloud.js) не падает на повторных
   // вызовах init/stop (например, при смене пользователя без перезагрузки) ---

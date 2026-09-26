@@ -539,12 +539,18 @@ img[data-photo-src]{visibility:hidden}
 .settings-btns{display:flex;gap:12px;flex-wrap:wrap}
 
 /* ===== Оверлеи / модалки ===== */
+/* Модалки — нативный <dialog> на весь экран (фаза 4): прозрачный слой-контейнер,
+   карточка .modal внутри. Клик мимо карточки попадает в сам диалог и закрывает
+   его (62-global-clicks.js). Затемнение — ::backdrop. */
 .overlay{
-  position:fixed;inset:0;z-index:100;background:oklch(from var(--void) l c h / .5);
-  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
-  display:grid;place-items:center;padding:20px;
+  position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;
+  padding:20px;border:0;background:transparent;color:inherit;
+  display:grid;place-items:center;overflow:hidden;
 }
-.overlay[hidden]{display:none}
+.overlay[hidden],.overlay:not([open]){display:none}
+.overlay::backdrop{background:oklch(from var(--void) l c h / .5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+/* Страница под открытой модалкой не прокручивается (на телефоне иначе едет фон) */
+html:has(.overlay[open]){overflow:hidden}
 .modal{
   background:var(--sky-1);border-radius:var(--radius-sheet);padding:28px;width:min(420px,100%);
   display:flex;flex-direction:column;gap:12px;position:relative;animation:pop .3s ease;
@@ -584,7 +590,8 @@ img[data-photo-src]{visibility:hidden}
 input[type=date]::-webkit-calendar-picker-indicator{display:none;-webkit-appearance:none}
 input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-button{display:none;-webkit-appearance:none}
 .date-pop{
-  position:fixed;z-index:200;background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);
+  inset:auto;margin:0;
+  position:fixed;background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);
   box-shadow:0 20px 50px oklch(from var(--night) l c h / .28);padding:14px;width:272px;animation:pop .18s ease;
 }
 .date-pop[hidden]{display:none}
@@ -607,17 +614,17 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .dp-mini.clear{color:var(--danger-ink)}
 /* Озвучка даты для скринридера: визуально скрыто, но читается (role=status) */
 .dp-live{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);border:0;white-space:nowrap}
-/* Ниже остальных .overlay (те держат общий z-index:100): любая модалка,
-   открытая ИЗ лайтбокса поверх уже открытого фото (например «Лейблы» по
-   кнопке 🏷), обязана лечь выше него. При равном z-index выигрывает тот, кто
-   позже в DOM — а лайтбокс в разметке идёт позже всех модалок, поэтому без
-   этого правила модалка визуально уходила под открытое фото. */
+/* Любая модалка, открытая ИЗ лайтбокса (например «Лейблы» по кнопке 🏷),
+   ложится выше него сама — открытый позже <dialog> в top layer всегда
+   поверх открытого раньше, z-index тут больше ни при чём. */
 /* Курсор zoom-out тут раньше стоял на весь фон оверлея — по клику ничего не
    уменьшалось (сам зум — только на фото, курсор там свой, динамический,
    см. lbRender()), а фон теперь по клику закрывает светбокс, не зумит.
    Лайтбокс — просмотрщик фото, его подложка всегда тёмная (--void),
-   независимо от активной темы сайта, иначе фото на светлом фоне теряются. */
-#lightbox{background:oklch(from var(--void) l c h / .9);padding:0;z-index:95}
+   независимо от активной темы сайта, иначе фото на светлом фоне теряются:
+   фон переносится в ::backdrop, сам диалог остаётся прозрачным. */
+#lightbox{padding:0}
+#lightbox::backdrop{background:oklch(from var(--void) l c h / .9)}
 .lb-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:56px 20px}
 .lb-stage img{
   /* Тень лайтбокса — чистый чёрный, не тонированный: единственный такой
@@ -931,8 +938,9 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 
 /* ===== Тост: ненавязчивые уведомления (ошибки хранилища и т.п.) ===== */
 .app-toast{
+  inset:auto;margin:0;
   position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
-  z-index:300;max-width:min(92vw,420px);
+  max-width:min(92vw,420px);
   background:var(--sky-1);color:var(--ink);border:1px solid var(--line);
   border-radius:var(--radius-card);padding:12px 18px;box-shadow:0 12px 34px oklch(from var(--void) l c h / .18);
   font-size:var(--text-base);font-weight:700;text-align:center;animation:pop .2s ease;

@@ -99,8 +99,7 @@ function openLightbox(ids, idx) {
   lightboxList = Array.isArray(ids) ? ids.slice() : [];
   lightboxIdx = Math.max(0, Math.min(idx || 0, lightboxList.length ? lightboxList.length - 1 : 0));
   lightboxZoom = 1;
-  const lb = $('#lightbox');
-  if (lb) lb.hidden = false;
+  openOverlay('lightbox');
   lbRender();
 }
 // Открытие по клику: листаем среди всех кликабельных фото текущей группы/вкладки
@@ -120,9 +119,7 @@ function lbResetState() {
   lightboxZoom = 1;
 }
 function lbClose() {
-  const lb = $('#lightbox');
-  if (lb) lb.hidden = true;
-  lbResetState();
+  closeOverlay('lightbox'); // сброс состояния (lbResetState) делает closeOverlay
 }
 function lbNav(dir) {
   if (!lightboxList.length) return;

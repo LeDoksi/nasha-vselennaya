@@ -280,7 +280,7 @@ function renderDateInvites() {
   const list = $('#dateInviteList');
   render(list, html`${pending.map(dateInviteCardHTML)}`);
   const ov = $('#dateInviteOverlay');
-  if (ov && !ov.hidden && !pending.length) ov.hidden = true; // ответили на всё — закрываем само
+  if (ov && !ov.hidden && !pending.length) closeOverlay('dateInviteOverlay'); // ответили на всё — закрываем само
   return pending;
 }
 // «Закрыл не ответив» запоминаем на время сессии (sessionStorage — та же
@@ -302,8 +302,7 @@ function markInvitesDismissed(ids) {
 }
 function openDateInviteOverlay() {
   renderDateInvites();
-  const ov = $('#dateInviteOverlay');
-  if (ov) ov.hidden = false;
+  openOverlay('dateInviteOverlay');
 }
 // Вызывается один раз при входе (unlockApp): если есть приглашения, которые
 // ещё не показывали и не закрывали в этой сессии — всплывает окно.
@@ -337,7 +336,7 @@ function openDateModal(id) {
     $('#dtNote').value = '';
     $('#dtEmoji').value = '💘';
   }
-  $('#dateOverlay').hidden = false;
+  openOverlay('dateOverlay');
 }
 $('#addDateBtn').addEventListener('click', () => openDateModal());
 // Свидание всегда от имени вошедшего — выбора «кто приглашает» нет.
@@ -357,7 +356,7 @@ function saveDateFromModal() {
     existing.emoji = $('#dtEmoji').value.trim() || '💘';
     editingDateId = null;
     repoSet('dates', existing);
-    $('#dateOverlay').hidden = true;
+    closeOverlay('dateOverlay');
     renderHome();
     renderCalendar();
     return;
@@ -382,7 +381,7 @@ function saveDateFromModal() {
   };
   db.dates.push(dt);
   repoSet('dates', dt);
-  $('#dateOverlay').hidden = true;
+  closeOverlay('dateOverlay');
   renderHome();
   renderCalendar();
   // Пуш — без деталей свидания (дата/место/заметка), см. src/96-push.js

@@ -1,6 +1,32 @@
 /* ===== Глобальные клики ===== */
+// Модалки — нативные <dialog> (фаза 4). Атрибут hidden держим в согласии с
+// открытостью: на него смотрят тесты-песочницы и 90-effects-init.js
+// (.overlay:not([hidden])). Открывать и закрывать — только через эту пару.
+// Стек открытых модалок (в порядке открытия): пока модальный <dialog> открыт,
+// спека делает inert вообще всё, что не лежит внутри него, — в том числе
+// datePop/appToast (popover="manual") живут отдельным узлом от диалогов.
+// Inert-элемент нельзя ни кликнуть, ни сфокусировать, ни услышать
+// скринридером (aria-live), хотя визуально он и так поверх затемнения через
+// top layer. topOverlayEl() — куда setPopover() (00-core.js) должен на время
+// показа переносить такой popover, чтобы он не терял интерактивность.
+let openOverlayStack = [];
+function topOverlayEl() {
+  const id = openOverlayStack[openOverlayStack.length - 1];
+  return id ? $('#' + id) : null;
+}
+function openOverlay(id) {
+  const el = $('#' + id);
+  if (!el) return;
+  el.hidden = false;
+  if (typeof el.showModal === 'function' && !el.open) el.showModal();
+  if (openOverlayStack.indexOf(id) === -1) openOverlayStack.push(id);
+}
 function closeOverlay(id) {
-  $('#' + id).hidden = true;
+  const el = $('#' + id);
+  if (!el) return;
+  el.hidden = true;
+  if (typeof el.close === 'function' && el.open) el.close();
+  openOverlayStack = openOverlayStack.filter(x => x !== id);
   if (id === 'lightbox') lbResetState(); // светбокс закрыт — сбрасываем список и зум
   if (id === 'eventOverlay') editingEventId = null;
   // Закрыли не ответив — запоминаем на время сессии, чтобы не всплывало
@@ -307,11 +333,8 @@ if (listsWrapEl)
     if (card) startEditSubtask(card.dataset.id, li.dataset.item);
   });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    const open = document.querySelector('.overlay:not([hidden])');
-    if (open) closeOverlay(open.id);
-    return;
-  }
+  // Esc у модального <dialog> браузер сам превращает в событие cancel —
+  // ловит src/63-sheet.js. Ветку Escape тут убрали, чтобы не закрывать дважды.
   // Списки: Enter в поле подзадачи добавляет её
   if (e.key === 'Enter' && e.target && e.target.id && e.target.id.indexOf('listInput-') === 0) {
     e.preventDefault();

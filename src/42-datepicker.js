@@ -165,7 +165,7 @@ function pickDpDate(iso) {
 }
 function closeDatePop() {
   const pop = $('#datePop');
-  if (pop) pop.hidden = true;
+  setPopover(pop, false);
   dpInput = null;
 }
 function openDatePop(el) {
@@ -187,7 +187,7 @@ function openDatePop(el) {
     pop.setAttribute('aria-modal', 'false');
     pop.setAttribute('aria-label', 'Выбор даты');
   } catch (err) {}
-  pop.hidden = false;
+  setPopover(pop, true);
   focusDpDay(dpFocus);
   // ставим попап под полем, не вылезая за край экрана
   const r = el.getBoundingClientRect && el.getBoundingClientRect();

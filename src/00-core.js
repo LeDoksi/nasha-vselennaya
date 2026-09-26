@@ -60,15 +60,37 @@ let toastTimer = null;
 // — объявлено тут, а не там, чтобы прямая ссылка #/wishlist не ловила TDZ
 // (см. комментарий у renderWishlist). null → renderWishlist подставит getUser().
 let wishlistTab = null;
+// Поверх открытого <dialog> (top layer) z-index не пробивается — календарик
+// и тост поднимаются туда же как popover="manual". hidden держим в согласии:
+// на него смотрят тесты и CSS ([hidden]{display:none}).
+function setPopover(el, on) {
+  if (!el) return;
+  if (on) {
+    // Открытый модальный <dialog> делает inert всё, что не лежит внутри
+    // него (спека HTML) — иначе popover визуально поверх, но не кликается,
+    // не фокусируется и не читается скринридером. Переносим его в текущую
+    // верхнюю модалку (topOverlayEl, см. 62-global-clicks.js); нет открытой —
+    // оставляем в body, как раньше.
+    const host = (typeof topOverlayEl === 'function' && topOverlayEl()) || (typeof document !== 'undefined' ? document.body : null);
+    if (host && el.parentNode !== host && typeof host.appendChild === 'function') host.appendChild(el);
+  }
+  el.hidden = !on;
+  if (typeof el.showPopover !== 'function') return; // песочница тестов
+  try {
+    if (on) el.showPopover();
+    else el.hidePopover();
+  } catch (e) {} // уже открыт/закрыт — InvalidStateError, состояние и так нужное
+}
 function notify(msg, isError) {
   const t = $('#appToast');
   if (!t) return;
   t.textContent = msg;
   t.classList.toggle('toast-error', !!isError);
-  t.hidden = false;
+  setPopover(t, false);
+  setPopover(t, true); // скрыть и показать заново — встаёт поверх диалога, открытого позже него
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
-    t.hidden = true;
+    setPopover(t, false);
   }, 5000);
 }
 if (typeof window !== 'undefined' && window.addEventListener) {

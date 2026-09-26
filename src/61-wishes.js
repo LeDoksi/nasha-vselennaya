@@ -87,7 +87,7 @@ function openWishModal(id) {
   $('#wishLink').value = wish ? wish.link || '' : '';
   $('#wishPhotoName').textContent = wish && wish.photoId ? '✅ фото уже есть — выбери новое, чтобы заменить' : '';
   $('#wishPhoto').value = '';
-  $('#wishOverlay').hidden = false;
+  openOverlay('wishOverlay');
   $('#wishText').focus();
 }
 $('#addWishBtn').addEventListener('click', () => openWishModal());
@@ -144,7 +144,7 @@ async function saveWishFromModal() {
   }
   // коллекция в базе называется wishes, массив в памяти — db.wishlist (расхождение осознанное)
   repoSet('wishes', wish);
-  $('#wishOverlay').hidden = true;
+  closeOverlay('wishOverlay');
   renderWishlist();
   if (typeof schedulePhotoSync === 'function') schedulePhotoSync();
 }

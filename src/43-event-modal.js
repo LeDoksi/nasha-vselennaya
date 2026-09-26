@@ -31,7 +31,7 @@ function openEventModal(id) {
       setEvPhotoCount();
     }
   }
-  $('#eventOverlay').hidden = false;
+  openOverlay('eventOverlay');
   $('#evTitle').focus();
 }
 $('#evPhoto').addEventListener('change', async e => {
@@ -93,7 +93,7 @@ function saveEventFromModal() {
   // repoSet выше пишет только сам документ события — метаданные свежих фото
   // (evPhotoData) addEventPhotosToGallery() уже сохранила сама через
   // repoSet('photos', ...) для каждого задетого фото.
-  $('#eventOverlay').hidden = true;
+  closeOverlay('eventOverlay');
   renderCalendar();
   renderHome();
   loadCalMonthNeighbors();
