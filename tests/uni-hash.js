@@ -188,3 +188,26 @@ try {
   console.log('FAIL: ' + e.message);
   process.exit(1);
 }
+
+// Сценарий 3 (G2/G8, ревью фазы 5): прямая ссылка #/memory — «Память» больше не
+// отдельная вкладка (NV-52, живёт на оси Главной), своего <section> у неё нет.
+// $('#view-memory') должен НЕ находиться — иначе initial-блок в 20-theme-nav.js
+// вызвал бы showView('memory') и увёл активный экран с Главной. querySelector
+// в makeCtx по умолчанию возвращает элемент на любой селектор — здесь его
+// точечно переопределяем для '#view-memory', имитируя реальную разметку.
+try {
+  const ctx3 = makeCtx('#/memory', false);
+  const realQuerySelector = ctx3.document.querySelector;
+  ctx3.document.querySelector = sel => (sel === '#view-memory' ? null : realQuerySelector(sel));
+  vm.createContext(ctx3);
+  vm.runInContext(src, ctx3, { filename: file });
+  const av3 = vm.runInContext('activeView', ctx3);
+  if (av3 !== 'home') {
+    console.log('FAIL: активная вкладка не «home» после старта по неизвестной ссылке #/memory');
+    process.exit(1);
+  }
+  console.log('OK: старт по неизвестной ссылке #/memory без TDZ-ошибки; activeView = ' + av3 + ' (Главная осталась активной)');
+} catch (e) {
+  console.log('FAIL: ' + e.message);
+  process.exit(1);
+}

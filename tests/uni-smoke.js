@@ -200,7 +200,7 @@ function __TEST__(s){
   s.toggleSubtask = toggleSubtask; s.delSubtask = delSubtask; s.completeList = completeList;
   s.startEditSubtask = startEditSubtask; s.saveSubtaskEdit = saveSubtaskEdit; s.cancelSubtaskEdit = cancelSubtaskEdit;
   s.renderWishlist = renderWishlist; s.renderCountdown = renderCountdown; s.tickCountdown = tickCountdown; s.renderSettings = renderSettings;
-  s.renderCompliment = renderCompliment;
+  s.renderCompliment = renderCompliment; s.COMPLIMENTS = COMPLIMENTS;
   s.go = go; s.daysTogether = daysTogether; s.iso = iso;
   s.jumpCalendar = jumpCalendar; s.eventsOn = eventsOn; s.fmtShort = fmtShort; s.saveEventFromModal = saveEventFromModal;
   s.setUser = setUser; s.getUser = getUser;
@@ -389,7 +389,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // --- Главная ---
   w('(s)=>s.renderHome()');
   assert(typeof w('(s)=>s.renderHome') === 'function', 'renderHome defined');
-  assert(registry['#compliment'].textContent.trim().length > 0, 'комплимент дня на главной');
+  assert(w('(s)=>s.COMPLIMENTS').includes(registry['#compliment'].textContent.trim()), 'комплимент дня на главной — одна из фраз COMPLIMENTS');
   assert(registry['#countdown'].hidden === true, 'таймер скрыт, если событий нет');
 
   // счётчик дней считаем динамически — тест не устаревает со временем
@@ -1242,6 +1242,30 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(axisHtml.includes('axis-year-label') && axisHtml.includes('axis-now'), 'ось: метки годов и точка «сейчас» на Главной');
   assert(axisHtml.includes('axis-day'), '«Память» рисуется тем же кодом оси');
   w(`(s)=>{ s.db.events = s.db.events.filter(e => e.id !== 'axis1'); return 1; }`);
+  w('(s)=>{s.renderHome(); return 1;}');
+  assert(registry['#homeTimeline'].innerHTML.includes('class="axis"') && registry['#homeTimeline'].innerHTML.includes('tl-card'), 'renderHome() заполняет #homeTimeline разметкой оси');
+
+  // --- Фаза 5: страницы оси — раскрытие по TIMELINE_PAGE, повторный рендер не схлопывает глубину ---
+  const pageSize = w('(s)=>s.TIMELINE_PAGE');
+  w(`(s)=>{
+    const pad = n => String(n).padStart(2, '0');
+    const base = new Date(2010, 0, 1);
+    const evs = [];
+    for (let i = 0; i < 70; i++) {
+      const d = new Date(base.getTime() + i * 86400000);
+      evs.push({ id: 'pg' + i, title: 'Пейджинг ' + i, date: d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()), emoji: '💜', repeat: false });
+    }
+    s.db.events.push(...evs);
+    return evs.length;
+  }`);
+  const axisBox = () => registry['#homeTimeline'].innerHTML;
+  w(`(s)=>{ s.renderTimeline(s.document.querySelector('#homeTimeline')); return 1; }`);
+  assert((axisBox().match(/axis-day/g) || []).length === pageSize, 'ось: первая страница — ' + pageSize + ' дней (TIMELINE_PAGE)');
+  w(`(s)=>{ s.renderTimeline(s.document.querySelector('#homeTimeline'), true); return 1; }`);
+  assert((axisBox().match(/axis-day/g) || []).length === pageSize * 2, 'ось: догрузка ещё одной страницы — вдвое больше дней');
+  w(`(s)=>{ s.renderTimeline(s.document.querySelector('#homeTimeline')); return 1; }`);
+  assert((axisBox().match(/axis-day/g) || []).length === pageSize * 2, 'ось: повторный рендер без more НЕ схлопывает уже раскрытую глубину');
+  w(`(s)=>{ s.db.events = s.db.events.filter(e => !e.id.startsWith('pg')); return 1; }`);
 
   // --- Память: фото ряда сворачиваются (3 сразу, остальные за кнопкой «ещё») ---
   w('(s)=>{s.db.photos=' + JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ id: 'mp' + i, takenAt: new Date(2025, 7, 7).getTime(), title: 'Ф' + i }))) + '; return 1;}');
@@ -1255,26 +1279,24 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
     'memoryPhotosHtml: кнопка показывает число скрытых'
   );
   assert(!w('(s)=>s.memoryPhotosHtml([{id:"a",title:"1"},{id:"b",title:"2"}],"g2","tl-photos")').includes('data-tl-expand'), 'memoryPhotosHtml: при <=3 фото кнопки нет');
-  // toggleMemoryPhotos принимает саму строку, а не groupId: #homeTimeline и
-  // #memoryFeed рендерят один и тот же memoryByDay() и получают одинаковые
-  // groupId (day0, dt1, ev2…) — поиск по groupId находил ПЕРВУЮ попавшуюся
-  // копию (обычно скрытую на Главной), а не ту, где реально кликнули (ревью, round 1).
+  // toggleMemoryPhotos принимает саму строку, а не groupId: ось на Главной
+  // (#homeTimeline, контейнер с data-axis) — поиск по groupId находил бы ПЕРВУЮ
+  // попавшуюся копию, а не ту, где реально кликнули (историческая находка ревью, round 1).
   const toggleRes = w(`(s)=>{
     const mkRow = () => ({
       dataset: { moreCount: '1' }, _hidden: [{ style: {} }], _btn: { textContent: '' },
       querySelectorAll(sel) { return sel === '.tl-more-photo' ? this._hidden : sel === '[data-tl-expand]' ? [this._btn] : []; }
     });
-    const home = mkRow(), memory = mkRow();
+    const memory = mkRow();
     const r1 = s.toggleMemoryPhotos(memory);
     const r2 = s.toggleMemoryPhotos(memory);
-    return { r1, r2, homeUntouched: home.dataset.expanded === undefined, memoryBtnText: memory._btn.textContent };
+    return { r1, r2, memoryBtnText: memory._btn.textContent };
   }`);
   assert(toggleRes.r1 === 'more' && toggleRes.r2 === 'less', 'память: первый клик раскрывает скрытые фото, повторный — сворачивает');
-  assert(toggleRes.homeUntouched, 'toggleMemoryPhotos правит только переданную строку — одноимённая копия в другом контейнере не трогается');
   assert(toggleRes.memoryBtnText === 'Показать ещё 1', 'после сворачивания кнопка возвращает исходный счётчик');
   // Проверка на уровне делегата (не просто toggleMemoryPhotos напрямую, а через
   // onTlExpandClick — тот же путь, что и реальный клик): rowA и rowB имитируют
-  // #homeTimeline и #memoryFeed с ОДИНАКОВЫМ data-photo-group ("day0"); клик по
+  // две карточки оси с ОДИНАКОВЫМ data-photo-group ("day0"); клик по
   // кнопке rowB должен раскрыть rowB, а не rowA — даже когда document.querySelector
   // по этому groupId (старый глобальный поиск) намеренно возвращает rowA, чтобы
   // сымитировать баг ревью round 1. Тест дублирует продовый маршрут
@@ -1311,6 +1333,16 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(an0.pct === 0 && an0.left === an0.total, 'годовщина: в сам день начинается новый круг — 0%');
   const an1 = w(`(s)=>s.anniversaryInfo(new Date(${sy + 1}, ${sm - 1}, ${sd - 1}))`);
   assert(an1.left === 1 && an1.pct === 100, 'годовщина: накануне остался 1 день, круг пройден');
+  // G4: в сам день годовщины — «сегодня годовщина» вместо отсчёта дней; годы считаются по календарю
+  w(`(s)=>{ s.renderProgressRing(new Date(${sy + 1}, ${sm - 1}, ${sd})); return 1; }`);
+  const annivHtml = registry['#progressRing'].innerHTML;
+  assert(annivHtml.includes('сегодня годовщина'), 'в день годовщины текст — «сегодня годовщина», а не отсчёт дней');
+  assert(!annivHtml.includes('до годовщины'), 'в день годовщины старой фразы «до годовщины» больше нет');
+  assert(annivHtml.includes('1 год'), 'в день первой годовщины полный год посчитан по календарю (1 год), а не floor(days/365.25)');
+  w(`(s)=>{ s.renderProgressRing(new Date(${sy + 1}, ${sm - 1}, ${sd - 1})); return 1; }`);
+  const dayBeforeAnnivHtml = registry['#progressRing'].innerHTML;
+  assert(dayBeforeAnnivHtml.includes('до годовщины 1 день'), 'накануне годовщины — обычный отсчёт, не «сегодня»');
+  assert(!dayBeforeAnnivHtml.includes('1 год'), 'накануне годовщины год ещё не засчитан');
   const g0 = w('(s)=>s.orbitGeometry(0, 92)');
   assert(Math.abs(g0.x - 100) < 1e-9 && Math.abs(g0.y - 8) < 1e-9 && Math.abs(g0.off - g0.circ) < 1e-9, 'орбита: 0% — звезда на 12 часах, дуга пустая');
   const g25 = w('(s)=>s.orbitGeometry(25, 92)');
