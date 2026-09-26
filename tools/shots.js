@@ -11,8 +11,8 @@ const VIEWS = ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'sett
 const SIZES = { phone: { width: 390, height: 844 }, desk: { width: 1280, height: 900 } };
 const dir = path.join(__dirname, '..', 'docs', 'superpowers', 'baseline', process.argv[2] || 'shot');
 
-// Math.random с фиксированным зерном (mulberry32): сердечки, конфетти и
-// выборка фото в коллаже Главной каждый прогон одни и те же.
+// Math.random с фиксированным зерном (mulberry32): сердечки и конфетти
+// каждый прогон одни и те же.
 function seedRandom() {
   let a = 42;
   Math.random = () => {
@@ -35,13 +35,12 @@ function seedRandom() {
 const HIDE_FLAKY = '#appToast{display:none!important}*,*::before,*::after{animation:none!important;transition:none!important}';
 // Сердечки (src/90-effects-init.js, setInterval(…, 3800)) спавнятся по
 // реальному времени и на каждый спавн съедают 4 вызова Math.random() —
-// сколько успеет спавниться между стартом стенда и снимком коллажа Главной
-// (shufflePick через Math.random в src/30-home.js) зависит от скорости
-// машины, а не от зерна: сдвигает всю последовательность псевдослучайных
-// чисел и меняет выборку фото в коллаже между прогонами. Глушим сам интервал
-// спавна (не CSS: скрытый спавн всё равно ест Math.random), единичный вызов
-// spawnHeart() при загрузке скрипта (детерминированный, одна и та же точка
-// последовательности) не трогаем.
+// сколько успеет спавниться между стартом стенда и снимком зависит от
+// скорости машины, а не от зерна: сдвигает всю последовательность
+// псевдослучайных чисел между прогонами. Глушим сам интервал спавна (не CSS:
+// скрытый спавн всё равно ест Math.random), единичный вызов spawnHeart() при
+// загрузке скрипта (детерминированный, одна и та же точка последовательности)
+// не трогаем.
 function disableHeartInterval() {
   const real = window.setInterval.bind(window);
   window.setInterval = (fn, delay, ...args) => (delay === 3800 ? 0 : real(fn, delay, ...args));
