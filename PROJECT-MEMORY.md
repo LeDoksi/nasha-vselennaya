@@ -6,9 +6,18 @@
 
 ---
 
+## 0g-5. ⚡ Фаза 5 редизайна влита (27.09.2026)
+
+- Блок «Сейчас» на Главной сохранён без правок: `anniversaryInfo`, `orbitGeometry`, ids `#progressRing`/`#countdown`/`#compliment` — те же, что и раньше.
+- Ось времени на Главной: `renderTimeline(box, more)` (`src/36-timeline.js`), разметка через `data-axis`, страницами по `TIMELINE_PAGE = 30` дней; липкие метки года — `--header-h`, проставляется `ResizeObserver` на шапке.
+- Коллаж «Наша история» снят (Task 6).
+- Вкладки «Память» больше нет — решение владельца 26.09.2026 (NV-52): «Память» живёт на оси Главной, отдельной вкладки не нужно. `#/memory` ведёт на Главную (как любая неизвестная вкладка).
+
+---
+
 ## 0g-4. ⚡ Фаза 4 редизайна влита (26.09.2026)
 
-- Навигация: `BOTTOM_PRIMARY = ['home','calendar','photos','our','memory']`. `our` — псевдо-вкладка, `resolveView()` раскрывает её в последний из `OUR_TABS` (ключ `universe_our_tab`). `activeView` всегда настоящий экран, адрес — `#/notes` и т.п.
+- Навигация: `BOTTOM_PRIMARY = ['home','calendar','photos','our']`. `our` — псевдо-вкладка, `resolveView()` раскрывает её в последний из `OUR_TABS` (ключ `universe_our_tab`). `activeView` всегда настоящий экран, адрес — `#/notes` и т.п.
 - Модалки — нативные `<dialog class="overlay">`. Открывать/закрывать **только** `openOverlay(id)` / `closeOverlay(id)`: они держат `hidden` в согласии с `open` (на `hidden` смотрят тесты и `90-effects-init.js`). Esc → `cancel` → `closeOverlay` (`src/63-sheet.js`).
 - Календарик `#datePop` и тост `#appToast` — `popover="manual"` через `setPopover(el, on)`: иначе они под затемнением top layer.
 - `setPopover(el, true)` переносит попап в `topOverlayEl()` (открытый модальный `<dialog>` делает inert всё вне себя), а `closeOverlay` при закрытии этой модалки переносит тост обратно / закрывает календарик — любой новый попап обязан идти через `setPopover`, напрямую `showPopover`/`hidePopover` не дёргать.
