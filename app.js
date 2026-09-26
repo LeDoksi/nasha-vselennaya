@@ -2711,10 +2711,14 @@ function toggleMemoryPhotos(row) {
   }
   return collapse ? 'less' : 'more';
 }
-document.addEventListener('click', e => {
+// Вынесена именованной функцией (не инлайн в addEventListener), чтобы тест мог
+// дёрнуть делегат напрямую — в песочнице тестов document.addEventListener
+// не хранит обработчики (см. tests/uni-smoke.js).
+function onTlExpandClick(e) {
   const btn = e.target && e.target.closest ? e.target.closest('[data-tl-expand]') : null;
   if (btn) toggleMemoryPhotos(btn.closest('[data-photo-group]'));
-});
+}
+document.addEventListener('click', onTlExpandClick);
 /* ===== Ось времени: Главная продолжается в прошлое (фаза 5, спека 2.2) =====
    Те же дни, что у «Памяти» (memoryByDay), одной колонкой: световая нить
    слева, точки-дни, липкая метка года. Страницами по TIMELINE_PAGE дней:

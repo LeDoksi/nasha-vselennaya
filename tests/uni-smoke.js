@@ -264,7 +264,7 @@ function __TEST__(s){
   s.photoDate = photoDate; s.onThisDayItems = onThisDayItems; s.memoryByDay = memoryByDay;
   s.renderMemory = renderMemory;
   s.timelineYears = timelineYears; s.renderTimeline = renderTimeline; s.TIMELINE_PAGE = TIMELINE_PAGE;
-  s.memoryPhotosHtml = memoryPhotosHtml; s.toggleMemoryPhotos = toggleMemoryPhotos;
+  s.memoryPhotosHtml = memoryPhotosHtml; s.toggleMemoryPhotos = toggleMemoryPhotos; s.onTlExpandClick = onTlExpandClick;
   s.renderProgressRing = renderProgressRing;
   s.anniversaryInfo = anniversaryInfo; s.orbitGeometry = orbitGeometry; s.START_DATE = START_DATE;
   s.closeOverlay = closeOverlay;
@@ -1274,6 +1274,34 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(toggleRes.r1 === 'more' && toggleRes.r2 === 'less', 'память: первый клик раскрывает скрытые фото, повторный — сворачивает');
   assert(toggleRes.homeUntouched, 'toggleMemoryPhotos правит только переданную строку — одноимённая копия в другом контейнере не трогается');
   assert(toggleRes.memoryBtnText === 'Показать ещё 1', 'после сворачивания кнопка возвращает исходный счётчик');
+  // Проверка на уровне делегата (не просто toggleMemoryPhotos напрямую, а через
+  // onTlExpandClick — тот же путь, что и реальный клик): rowA и rowB имитируют
+  // #homeTimeline и #memoryFeed с ОДИНАКОВЫМ data-photo-group ("day0"); клик по
+  // кнопке rowB должен раскрыть rowB, а не rowA — даже когда document.querySelector
+  // по этому groupId (старый глобальный поиск) намеренно возвращает rowA, чтобы
+  // сымитировать баг ревью round 1. Тест дублирует продовый маршрут
+  // e.target.closest('[data-tl-expand]') → btn.closest('[data-photo-group]').
+  const delegateRes = w(`(s)=>{
+    const mkRow = () => ({
+      dataset: { moreCount: '1' }, _hidden: [{ style: {} }], _btn: null,
+      querySelectorAll(sel) { return sel === '.tl-more-photo' ? this._hidden : sel === '[data-tl-expand]' ? (this._btn ? [this._btn] : []) : []; }
+    });
+    const rowA = mkRow();
+    const rowB = mkRow();
+    const btnB = {
+      dataset: { tlExpand: 'day0' }, textContent: '',
+      closest(sel) { return sel === '[data-tl-expand]' ? btnB : sel === '[data-photo-group]' ? rowB : null; }
+    };
+    rowB._btn = btnB;
+    const origQS = s.document.querySelector;
+    s.document.querySelector = sel => (sel === '[data-photo-group="day0"]' ? rowA : origQS(sel));
+    s.onTlExpandClick({ target: btnB });
+    s.document.querySelector = origQS;
+    return { rowBExpanded: rowB.dataset.expanded, rowAUntouched: rowA.dataset.expanded === undefined, rowBShown: rowB._hidden[0].style.display === '' };
+  }`);
+  assert(delegateRes.rowBExpanded === '1', 'клик по кнопке в конкретной строке раскрывает именно её (через closest, не глобальный поиск)');
+  assert(delegateRes.rowAUntouched, 'одноимённая копия data-photo-group в другом контейнере кликом не трогается');
+  assert(delegateRes.rowBShown, 'скрытые фото нажатой строки показаны после клика');
   // «В этот день» больше не отдельный виджет: события прошлых лет — чипами в блоке «Наша история»
   w('(s)=>{s.renderProgressRing(new Date(2026,7,7)); return 1;}');
   assert(registry['#progressRing'].innerHTML.includes('history-otd'), 'в этот день: чипы событий в блоке истории');
