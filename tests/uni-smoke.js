@@ -271,6 +271,7 @@ function __TEST__(s){
   s.closeOverlay = closeOverlay;
   s.buildBottomNav = buildBottomNav; s.onNavDocClick = onNavDocClick;
   s.BOTTOM_PRIMARY = BOTTOM_PRIMARY;
+  s.OUR_TABS = OUR_TABS; s.resolveView = resolveView;
   Object.defineProperty(s, 'activeView', { get: () => activeView, set: v => { activeView = v; }, configurable: true });
   Object.defineProperty(s, 'lightboxList', { get: () => lightboxList, set: v => { lightboxList = v; }, configurable: true });
   Object.defineProperty(s, 'lightboxIdx', { get: () => lightboxIdx, set: v => { lightboxIdx = v; }, configurable: true });
@@ -1092,7 +1093,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(true, 'celebrate не бросает исключений');
 
   // --- Все вкладки рендерятся ---
-  for (const v of ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'memory', 'settings']) {
+  for (const v of ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'memory', 'our', 'settings']) {
     w('(s)=>s.go(' + JSON.stringify(v) + ')');
   }
   assert(true, 'all views rendered without errors');
@@ -1340,15 +1341,16 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   const mbDeleted = w('(s)=>s.memoryByDay()');
   assert(!mbDeleted.some(d => d.dates && d.dates.length > 0), 'память: после удаления свиданий — пусто');
 
-  // --- Фаза C: нижняя навигация — раньше «5 + Ещё», теперь все вкладки в один
-  // ряд (шторка убрана, «Песня» снесена, «Настройки» переехали в шапку) ---
-  assert(w('(s)=>s.BOTTOM_PRIMARY.length') === 7, 'навигация: 7 вкладок в нижней панели (без «Ещё»)');
-  assert(
-    JSON.stringify(w('(s)=>s.BOTTOM_PRIMARY')) === '["home","calendar","notes","lists","wishlist","photos","memory"]',
-    'навигация: состав нижней панели — Главная, Календарь, Заметки, Списки, Хотелки, Фото, Память'
-  );
+  // --- Навигация фаз 4–6: пять вкладок, «Наше» собирает три экрана ---
+  assert(JSON.stringify(w('(s)=>s.BOTTOM_PRIMARY')) === '["home","calendar","photos","our","memory"]', 'навигация: Главная, Календарь, Фото, Наше, Память');
   assert(w('(s)=>s.BOTTOM_PRIMARY').length === new Set(w('(s)=>s.BOTTOM_PRIMARY')).size, 'навигация: вкладки без повторов');
-  assert(w('(s)=>typeof s.BOTTOM_MORE') === 'undefined', 'навигация: BOTTOM_MORE и шторка «Ещё» убраны совсем');
+  w('(s)=>{s.localStorage.removeItem("universe_our_tab"); return 1;}');
+  assert(w('(s)=>s.resolveView("our")') === 'notes', '«Наше» без истории открывает Заметки');
+  w('(s)=>{s.go("lists"); return 1;}');
+  assert(w('(s)=>s.activeView') === 'lists', 'go("lists") открывает Списки');
+  w('(s)=>{s.go("home"); s.go("our"); return 1;}');
+  assert(w('(s)=>s.activeView') === 'lists', '«Наше» помнит последний экран — Списки');
+  assert(w('(s)=>s.resolveView("calendar")') === 'calendar', 'resolveView не трогает обычные вкладки');
   w('(s)=>{s.buildBottomNav(); return 1;}');
   assert(true, 'buildBottomNav не падает в песочнице');
   // Клик по вкладке в нижней панели переходит на неё (шторки для этого больше не нужно)

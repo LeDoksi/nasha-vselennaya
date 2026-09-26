@@ -246,6 +246,12 @@ body{
    currentColor (эмодзи оставались цветными в .active, эти — нет). */
 .nav-icon{width:1.15em;height:1.15em;display:inline-block;vertical-align:-0.2em;fill:currentColor}
 
+/* Переключатель «Наше» (фаза 4): сегменты-пилюли, активный — акцент */
+.our-switch{display:flex;gap:4px;width:max-content;max-width:100%;margin:0 auto 24px;padding:4px;background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-pill)}
+.our-switch[hidden]{display:none}
+.our-tab{min-height:40px;padding:8px 16px;border:0;border-radius:var(--radius-pill);background:none;color:var(--ink-2);font:inherit;font-size:var(--text-sm);font-weight:700;cursor:pointer}
+.our-tab.active{background:var(--star);color:var(--void)}
+
 /* ===== Общее ===== */
 main{max-width:1100px;margin:0 auto;padding:28px 20px 90px}
 .view{display:none}

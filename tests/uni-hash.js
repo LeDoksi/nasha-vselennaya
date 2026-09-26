@@ -143,12 +143,12 @@ try {
   // как это делал window-блок на старте — открываем вкладку по прямой ссылке
   vm.runInContext('showView("wishlist")', ctx);
   const av = vm.runInContext('activeView', ctx);
-  const idx = vm.runInContext('BOTTOM_PRIMARY.indexOf("wishlist")', ctx);
+  const idx = vm.runInContext('BOTTOM_PRIMARY.indexOf("our")', ctx);
   if (av !== 'wishlist' || idx < 0) {
-    console.log('FAIL: активная вкладка не «wishlist», BOTTOM_PRIMARY не на месте');
+    console.log('FAIL: активная вкладка не «wishlist» или в BOTTOM_PRIMARY нет «Наше»');
     process.exit(1);
   }
-  console.log('OK: старт по ссылке #/wishlist без TDZ-ошибки; activeView = ' + av + '; BOTTOM_PRIMARY.indexOf(wishlist) = ' + idx);
+  console.log('OK: старт по ссылке #/wishlist без TDZ-ошибки; activeView = ' + av + '; BOTTOM_PRIMARY.indexOf(our) = ' + idx);
 } catch (e) {
   console.log('FAIL: ' + e.message);
   process.exit(1);

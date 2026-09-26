@@ -48,8 +48,11 @@ async function dragTo(page, fromSel, toSel) {
 }
 
 async function checkNotesReorder(page, log) {
-  await page.click('.nav-btn[data-view="notes"]');
-  await page.waitForTimeout(150);
+  await page.evaluate(() => go('notes'));
+  // .view.active анимируется 0.4s (fadeIn, translateY 14px→0, styles.css) — раньше
+  // клик по .nav-btn сам по себе съедал эту паузу, go() через evaluate() мгновенный,
+  // и boundingBox() до конца анимации даёт координаты, которые к началу драга уже устарели.
+  await page.waitForTimeout(450);
   // renderNotes() всегда ставит закреплённые (pinned) заметки первыми — драг
   // закреплённой карточки визуально не двигает её с места (демо-фикстуры
   // держат note-1 закреплённой специально, как и в реальных данных). Берём
@@ -69,8 +72,8 @@ async function checkNotesReorder(page, log) {
 }
 
 async function checkListsReorder(page, log) {
-  await page.click('.nav-btn[data-view="lists"]');
-  await page.waitForTimeout(150);
+  await page.evaluate(() => go('lists'));
+  await page.waitForTimeout(450); // см. комментарий в checkNotesReorder про fadeIn
   const before = await page.$$eval('#listsWrap .list-card', els => els.map(el => el.dataset.id));
   if (before.length < 2) {
     log.push('SKIP списки: меньше двух карточек — нечего тащить');

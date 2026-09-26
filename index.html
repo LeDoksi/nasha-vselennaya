@@ -67,10 +67,8 @@
       <nav class="nav">
         <button class="nav-btn active" data-view="home">Главная</button>
         <button class="nav-btn" data-view="calendar">Календарь</button>
-        <button class="nav-btn" data-view="notes">Заметки</button>
-        <button class="nav-btn" data-view="lists">Списки</button>
-        <button class="nav-btn" data-view="wishlist">Хотелки</button>
         <button class="nav-btn" data-view="photos">Фото</button>
+        <button class="nav-btn" data-view="our">Наше</button>
         <button class="nav-btn" data-view="memory">Память</button>
       </nav>
       <div class="header-actions">
@@ -86,6 +84,13 @@
   </header>
 
   <main>
+    <!-- Переключатель внутри «Наше» (спека 2.1): виден только на трёх экранах
+         раздела, см. showView в src/20-theme-nav.js -->
+    <div class="our-switch" id="ourSwitch" role="tablist" aria-label="Наше" hidden>
+      <button type="button" class="our-tab" role="tab" data-our="notes">Заметки</button>
+      <button type="button" class="our-tab" role="tab" data-our="lists">Списки</button>
+      <button type="button" class="our-tab" role="tab" data-our="wishlist">Хотелки</button>
+    </div>
     <!-- ===== ГЛАВНАЯ ===== -->
     <section class="view active" id="view-home">
       <div class="hero-zone">

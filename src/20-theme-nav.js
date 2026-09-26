@@ -67,14 +67,20 @@ function toggleTheme() {
 
 /* ===== Навигация ===== */
 let activeView = 'home'; // текущая вкладка — для hash-роутинга и кнопки «назад»
-// Вкладки нижней навигации — раньше было «5 + Ещё» (шторка с оставшимися 4),
-// пользователь попросил убрать шторку: «Песня» снесена отдельно, «Настройки»
-// переехали в шапку отдельной иконкой (.settings-btn) — остаётся 7 вкладок,
-// все помещаются в один ряд на типичных 360-430px (иконки без текста, ~20px
-// каждая). BOTTOM_PRIMARY объявлен ДО showView: он на него смотрит при
-// открытии по прямой ссылке (#/wishlist) — если бы const стоял ниже, в этот
-// момент была бы TDZ-ошибка.
-const BOTTOM_PRIMARY = ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'memory'];
+// Нижняя панель (спека 2.1): Главная · Календарь · Фото · Наше, плюс «Память»
+// пятой — до фазы 5, где она уезжает в ось времени на Главной (решение
+// владельца 26.09.2026, NV-52). Объявлено ДО showView: он читает эти
+// константы при открытии по прямой ссылке (#/wishlist) — ниже была бы TDZ.
+const BOTTOM_PRIMARY = ['home', 'calendar', 'photos', 'our', 'memory'];
+// «Наше» — одна вкладка на три экрана. Своего <section> у неё нет: 'our'
+// раскрывается в последний открытый из трёх, адрес остаётся #/notes и т.п.
+const OUR_TABS = ['notes', 'lists', 'wishlist'];
+const OUR_KEY = 'universe_our_tab';
+function resolveView(view) {
+  if (view !== 'our') return view;
+  const last = store.get(OUR_KEY);
+  return OUR_TABS.includes(last) ? last : 'notes';
+}
 // Иконки для нижней панели (мобильные): текстовые подписи физически не
 // помещаются в ряд на узком экране без обрезки («Календ…» — было). Раньше
 // тут были эмодзи — заменены на SVG из общего sprite в index.html (Фаза 4):
@@ -87,18 +93,25 @@ function navIconHtml(id) {
 const BOTTOM_ICON = {
   home: navIconHtml('home'),
   calendar: navIconHtml('calendar'),
-  notes: navIconHtml('notes'),
-  lists: navIconHtml('lists'),
-  wishlist: navIconHtml('wishlist'),
   photos: navIconHtml('photos'),
+  our: navIconHtml('notes'),
   memory: navIconHtml('memory')
 };
 function showView(view) {
+  view = resolveView(view);
   if (!$('#view-' + view)) return; // неизвестная вкладка — не трогаем экран
   activeView = view;
+  const inOur = OUR_TABS.includes(view);
+  if (inOur) store.set(OUR_KEY, view);
   const apply = () => {
     $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
-    $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+    $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view || (inOur && b.dataset.view === 'our')));
+    const sw = $('#ourSwitch');
+    if (sw) sw.hidden = !inOur;
+    $$('.our-tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.our === view);
+      b.setAttribute('aria-selected', String(b.dataset.our === view));
+    });
     if (view === 'home') renderHome();
     if (view === 'calendar') {
       calY = new Date().getFullYear();
@@ -120,6 +133,7 @@ function showView(view) {
   if (!runViewTransition(apply)) apply();
 }
 function go(view) {
+  view = resolveView(view);
   showView(view);
   // hash-роутинг: #/view — кнопка «назад» в браузере и прямые ссылки на вкладку.
   // location нет в песочнице тестов — там остаёмся на синхронном показе.
@@ -145,13 +159,13 @@ if (typeof window !== 'undefined' && window.addEventListener) {
   if (initial && initial !== 'home' && $('#view-' + initial)) showView(initial);
 }
 $$('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
+$$('.our-tab').forEach(b => b.addEventListener('click', () => go(b.dataset.our)));
 
 /* ===== Нижняя навигация на мобильных: все вкладки в одном ряду =====
-   Раньше было «5 + Ещё» (шторка с оставшимися 4 вкладками) — пользователь
-   попросил убрать шторку. «Песня» снесена отдельно, «Настройки» переехали в
-   шапку отдельной иконкой (.settings-btn, вне BOTTOM_PRIMARY), поэтому
-   оставшиеся 7 вкладок помещаются в один ряд без «Ещё». Кнопки клонируются
-   из шапки, поэтому active-подсветка и клики работают как у оригинала. */
+   Пять вкладок (спека 2.1): Главная, Календарь, Фото, Наше, Память. «Наше»
+   раскрывается в последний из трёх экранов (Заметки/Списки/Хотелки) — см.
+   resolveView. Кнопки клонируются из шапки, поэтому active-подсветка и
+   клики работают как у оригинала. */
 
 function buildBottomNav() {
   const bar = $('#bottomNav');
@@ -162,7 +176,8 @@ function buildBottomNav() {
     const src = navBtn(view);
     const clone = src ? src.cloneNode(true) : document.createElement('button');
     clone.type = 'button';
-    clone.className = 'nav-btn bottom-nav-btn' + (view === activeView ? ' active' : '');
+    const isActive = view === activeView || (view === 'our' && OUR_TABS.includes(activeView));
+    clone.className = 'nav-btn bottom-nav-btn' + (isActive ? ' active' : '');
     if (!src) clone.dataset.view = view;
     // Иконка вместо текста (см. BOTTOM_ICON) — полный текст остаётся в
     // aria-label для скринридеров и как title для десктопных мышиных наведений.
