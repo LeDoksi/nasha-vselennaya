@@ -267,9 +267,6 @@ function __TEST__(s){
   s.memoryPhotosHtml = memoryPhotosHtml; s.toggleMemoryPhotos = toggleMemoryPhotos;
   s.renderProgressRing = renderProgressRing;
   s.anniversaryInfo = anniversaryInfo; s.orbitGeometry = orbitGeometry; s.START_DATE = START_DATE;
-  s.onThisDayPhotos = onThisDayPhotos; s.pickHistoryPhotos = pickHistoryPhotos;
-  s.shuffleHistoryPhotos = shuffleHistoryPhotos; s.historyPhotosHtml = historyPhotosHtml;
-  Object.defineProperty(s, 'historyCollage', { get: () => historyCollage, set: v => { historyCollage = v; }, configurable: true });
   s.closeOverlay = closeOverlay;
   s.sheetShouldClose = sheetShouldClose;
   s.openOverlay = openOverlay; s.setPopover = setPopover; s.notify = notify;
@@ -537,42 +534,6 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(wishWithPhoto.data === undefined, 'сырого base64 в самой хотелке больше нет');
   assert((await w(`(s)=>s.photoStore.getMeta("${wishWithPhoto.photoId}")`)) !== null, 'фото хотелки реально лежит в photoStore');
   assert(!w(`(s)=>s.db.photos.some(p=>p.id==="${wishWithPhoto.photoId}")`), 'фото хотелки НЕ попадает в общую галерею db.photos');
-
-  // --- Коллаж «Наша история»: 2-3 случайных фото с асимметрией в блоке прогресса ---
-  w(
-    '(s)=>{s.db.photos=[{id:"p1",title:"Лето",data:"data:image/jpeg;base64,AA==",pinned:false,ts:1},{id:"p2",title:"Парк",data:"data:image/jpeg;base64,BB==",pinned:false,ts:2}];s.renderProgressRing();return 1;}'
-  );
-  const hisHtml = registry['#progressRing'].innerHTML;
-  assert((hisHtml.match(/class="history-photo"/g) || []).length === 2, 'коллаж показывает столько фото, сколько есть (2 из 3 слотов)');
-  assert(hisHtml.includes('data-photo="p1"') && hisHtml.includes('data-photo="p2"'), 'фото коллажа кликабельны (lightbox)');
-  assert(hisHtml.includes('data-photo-src'), 'без прогретого кэша миниатюр — fallback data-photo-src');
-  assert(hisHtml.includes('rotate:-7deg') && hisHtml.includes('rotate:5deg'), 'коллаж асимметричный: повороты у фото разные');
-  assert(hisHtml.includes('history-stats') && hisHtml.includes('hs-chip') && hisHtml.includes('📸 2'), 'в блоке «Наша история» — статистика счётчиков');
-  // Выбор фото стабилен в течение дня (seed по дате) — повторный рендер не меняет коллаж
-  w('(s)=>{s.renderProgressRing();return 1;}');
-  assert(registry['#progressRing'].innerHTML === hisHtml, 'коллаж стабилен при повторном рендере в тот же день');
-
-  // --- Коллаж: фото «в этот день» из прошлых лет приоритетнее случайных ---
-  w(
-    '(s)=>{const t=new Date();const d=new Date(t.getFullYear()-1,t.getMonth(),t.getDate());s.db.photos.push({id:"phOtd",title:"В этот день год назад",pinned:false,ts:9,takenAt:d.getTime()});s.renderProgressRing();return 1;}'
-  );
-  const hisOtd = registry['#progressRing'].innerHTML;
-  assert(hisOtd.includes('data-photo="phOtd"'), 'коллаж приоритетно показывает фото «в этот день»');
-  assert(hisOtd.includes('hp-badge') && hisOtd.includes('В этот день'), 'при фото «в этот день» на коллаже есть бейдж');
-  assert(hisOtd.includes('shuffleHistoryBtn'), 'в блоке «Наша история» есть кнопка «🎲 Перемешать»');
-  w('(s)=>{s.renderProgressRing();return 1;}');
-  assert(registry['#progressRing'].innerHTML === hisOtd, 'коллаж с «в этот день» стабилен при повторном рендере');
-
-  // --- Кнопка «🎲 Перемешать»: фиксирует новый выбор на день, «в этот день» не выкидывает ---
-  w('(s)=>{s.shuffleHistoryPhotos();return 1;}');
-  const afterIds = w('(s)=>s.historyCollage.ids.join(",")');
-  assert(typeof afterIds === 'string' && afterIds.length > 0 && afterIds.split(',').length === 3, 'перемес даёт полный набор из 3 фото');
-  assert(afterIds.includes('phOtd'), 'перемес не выкидывает фото «в этот день»');
-  assert(w('(s)=>s.historyCollage.day') === new Date().toDateString(), 'перемес закреплён до конца дня');
-  assert(((registry['#progressRing']._handlers || {}).click || []).length >= 1, 'кнопка «🎲 Перемешать» подключена через делегирование');
-  const hisSh = registry['#progressRing'].innerHTML;
-  w('(s)=>{s.renderProgressRing();return 1;}');
-  assert(registry['#progressRing'].innerHTML === hisSh, 'после перемеса коллаж стабилен при повторном рендере');
 
   // --- Прогресс хотелок в статистике: счётчик 2/3 и полоска 67% ---
   w('(s)=>{s.db.wishlist=[{id:"w1",text:"К1",done:true,owner:"gosha"},{id:"w2",text:"К2",done:true,owner:"gosha"},{id:"w3",text:"К3",done:false,owner:"gosha"}];s.renderProgressRing();return 1;}');

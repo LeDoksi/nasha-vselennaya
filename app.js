@@ -2114,8 +2114,6 @@ function renderHome() {
   // Фаза B: кольцо прогресса (в блоке — коллаж фото, события «в этот день», статистика)
   renderProgressRing();
   renderTimeline($('#homeTimeline'));
-  // Фото с data-photo-src (кэш миниатюр не прогрет) — заполняем src асинхронно
-  hydratePhotoImgs($('#progressRing'));
   maybeCelebrateAnniversary(rem);
 }
 
@@ -2455,118 +2453,6 @@ function saveDateFromModal() {
   notifyPartner('💘 Тебе назначили свидание', 'Открой приложение, чтобы посмотреть детали 💜');
 }
 $('#dtSave').addEventListener('click', saveDateFromModal);
-
-/* ===== Коллаж «Наша история»: фото «в этот день» + случайные, с асимметрией ===== */
-// Фото живут внутри блока «Наша история» (#progressRing): разный размер,
-// поворот и вертикальный сдвиг — без ровных рядов. В приоритете — фото
-// «в этот день» из прошлых лет (EXIF/дата события/свидания), остальные
-// слоты заполняются случайными. Выбор стабилен в течение дня (seed по дате);
-// кнопка «🎲 Перемешать» меняет коллаж вручную, но тоже фиксирует его до конца дня.
-const HISTORY_PHOTO_SLOTS = [
-  { st: 'left:1%; top:16%; width:84px; height:84px; rotate:-7deg', dur: 6.4, delay: 0 },
-  { st: 'left:29%; top:5%; width:100px; height:100px; rotate:5deg', dur: 5.8, delay: 0.6 },
-  { st: 'left:58%; top:24%; width:72px; height:72px; rotate:-3deg', dur: 6.9, delay: 1.2 }
-];
-function daySeed(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
-  return h;
-}
-function mulberry32(a) {
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-// Фото «в этот день» из прошлых лет (по EXIF или дате события/свидания)
-function onThisDayPhotos(at) {
-  return onThisDayItems(at)
-    .filter(it => it.kind === 'photo' && it.p)
-    .map(it => it.p);
-}
-// Зафиксированный на день выбор коллажа {day, sig, ids}; ручной перемес живёт до полуночи.
-// sig — сигнатура состава галереи: при добавлении/удалении фото коллаж пересобирается.
-let historyCollage = null;
-function photoSignature() {
-  return [...db.photos]
-    .map(p => p.id)
-    .sort()
-    .join(',');
-}
-function shufflePick(photos, rnd) {
-  for (let i = photos.length - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1));
-    [photos[i], photos[j]] = [photos[j], photos[i]];
-  }
-}
-// «В этот день» встают первыми (до 3 слотов), остальные — случайные из перетасованного списка
-function pinOnThisDay(photos, n, at) {
-  const picks = [];
-  const otd = onThisDayPhotos(at);
-  for (const p of otd) {
-    if (picks.length >= n) break;
-    if (!picks.includes(p)) picks.push(p);
-  }
-  for (const p of photos) {
-    if (picks.length >= n) break;
-    if (!picks.includes(p)) picks.push(p);
-  }
-  return picks;
-}
-function pickHistoryPhotos(at) {
-  const dayStr = (at || new Date()).toDateString();
-  const sig = photoSignature();
-  if (historyCollage && historyCollage.day === dayStr && historyCollage.sig === sig) {
-    const byId = new Map(db.photos.map(p => [p.id, p]));
-    return historyCollage.ids.map(id => byId.get(id)).filter(Boolean);
-  }
-  const photos = [...db.photos];
-  const n = Math.min(HISTORY_PHOTO_SLOTS.length, photos.length);
-  shufflePick(photos, mulberry32(daySeed(dayStr) + n * 7919));
-  const picks = pinOnThisDay(photos, n, at);
-  historyCollage = { day: dayStr, sig, ids: picks.map(p => p.id) };
-  return picks;
-}
-// «🎲 Перемешать коллаж» — заново тасует случайную часть; фото «в этот день» остаются
-function shuffleHistoryPhotos() {
-  const photos = [...db.photos];
-  const n = Math.min(HISTORY_PHOTO_SLOTS.length, photos.length);
-  shufflePick(photos, mulberry32((Math.random() * 0xffffffff) >>> 0));
-  const picks = pinOnThisDay(photos, n);
-  historyCollage = { day: new Date().toDateString(), sig: photoSignature(), ids: picks.map(p => p.id) };
-  renderProgressRing();
-  hydratePhotoImgs($('#progressRing'));
-}
-function historyPhotosHtml(at) {
-  const picks = pickHistoryPhotos(at);
-  const otdIds = new Set(onThisDayPhotos(at).map(p => p.id));
-  const badge = picks.some(p => otdIds.has(p.id));
-  return html`${badge ? html`<span class="hp-badge">✨ В этот день</span>` : ''}${picks.map((p, i) => {
-    const s = HISTORY_PHOTO_SLOTS[i];
-    const url = photoSrc(p); // кэш миниатюр может быть не прогрет — ставим fallback
-    return html`<img
-      class="history-photo"
-      data-photo="${p.id}"
-      alt="${p.title || ''}"
-      ${url ? html` src="${url}"` : html` data-photo-src="${p.id}"`}
-      style="${s.st}animation-duration:${s.dur}s;animation-delay:${s.delay}s"
-      loading="lazy"
-    />`;
-  })}`;
-}
-// Делегирование: render() перерисовывает #progressRing на каждом рендере
-$('#progressRing').addEventListener('click', e => {
-  if (e.target.closest && e.target.closest('#shuffleHistoryBtn')) shuffleHistoryPhotos();
-});
-$('#progressRing').addEventListener('keydown', e => {
-  if ((e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('#shuffleHistoryBtn')) {
-    e.preventDefault();
-    shuffleHistoryPhotos();
-  }
-});
 /* ===== Фаза B: «В этот день», кольцо отношений, трекер настроения, лента «Память» =====
    Решение 07.08.2026: дата фото для «В этот день» — ТОЛЬКО EXIF (p.takenAt)
    ИЛИ дата события/свидания, к которому фото привязано. Если есть только дата
@@ -2692,7 +2578,6 @@ function renderProgressRing(at) {
   const geo = orbitGeometry(info.pct, 92);
   const yearsTogether = Math.floor(days / 365.25);
   // Статистика под кольцом — чем заполнена наша история (v7)
-  // Хотелки — чип с прогрессом исполненных (полоска + счётчик), кнопка 🎲 — перемес коллажа
   const wishDone = db.wishlist.filter(w => w.done).length;
   const wishTotal = db.wishlist.length;
   const wishPct = wishTotal ? Math.round((wishDone / wishTotal) * 100) : 0;
@@ -2705,7 +2590,7 @@ function renderProgressRing(at) {
     ['📝', db.notes.length, 'заметка', 'заметки', 'заметок']
   ].map(a => html`<span class="hs-chip">${a[0]} ${a[1]} ${plural(a[1], a[2], a[3], a[4])}</span>`)}<span class="hs-chip hs-wish" title="${wishTitle}"
       >🎁 ${wishLabel}<span class="hs-bar"><i style="width:${wishPct}%"></i></span></span
-    ><span class="hs-chip hs-shuffle" id="shuffleHistoryBtn" role="button" tabindex="0" title="Перемешать фото коллажа">🎲 Перемешать</span>`;
+    >`;
   // «В этот день» (только когда есть события/свидания прошлых лет): чипы под кольцом.
   // Фото «в этот день» уже встали в коллаж выше — здесь только события и свидания, без дублей.
   const otdEvents = onThisDayItems(at || new Date()).filter(it => it.kind === 'event' || it.kind === 'date');
@@ -2730,7 +2615,6 @@ function renderProgressRing(at) {
         ${yearsTogether > 0 ? yearsTogether + ' ' + pluralYears(yearsTogether) + ' · ' : ''}до годовщины ${info.left} ${pluralDays(info.left)} · с ${fmtShort(START_DATE)}
       </p>
       ${otdRow}
-      <div class="history-photos">${historyPhotosHtml(at)}</div>
       <div class="history-stats">${stats}</div>`
   );
 }

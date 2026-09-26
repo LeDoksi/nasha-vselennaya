@@ -123,7 +123,6 @@ function renderProgressRing(at) {
   const geo = orbitGeometry(info.pct, 92);
   const yearsTogether = Math.floor(days / 365.25);
   // Статистика под кольцом — чем заполнена наша история (v7)
-  // Хотелки — чип с прогрессом исполненных (полоска + счётчик), кнопка 🎲 — перемес коллажа
   const wishDone = db.wishlist.filter(w => w.done).length;
   const wishTotal = db.wishlist.length;
   const wishPct = wishTotal ? Math.round((wishDone / wishTotal) * 100) : 0;
@@ -136,7 +135,7 @@ function renderProgressRing(at) {
     ['📝', db.notes.length, 'заметка', 'заметки', 'заметок']
   ].map(a => html`<span class="hs-chip">${a[0]} ${a[1]} ${plural(a[1], a[2], a[3], a[4])}</span>`)}<span class="hs-chip hs-wish" title="${wishTitle}"
       >🎁 ${wishLabel}<span class="hs-bar"><i style="width:${wishPct}%"></i></span></span
-    ><span class="hs-chip hs-shuffle" id="shuffleHistoryBtn" role="button" tabindex="0" title="Перемешать фото коллажа">🎲 Перемешать</span>`;
+    >`;
   // «В этот день» (только когда есть события/свидания прошлых лет): чипы под кольцом.
   // Фото «в этот день» уже встали в коллаж выше — здесь только события и свидания, без дублей.
   const otdEvents = onThisDayItems(at || new Date()).filter(it => it.kind === 'event' || it.kind === 'date');
@@ -161,7 +160,6 @@ function renderProgressRing(at) {
         ${yearsTogether > 0 ? yearsTogether + ' ' + pluralYears(yearsTogether) + ' · ' : ''}до годовщины ${info.left} ${pluralDays(info.left)} · с ${fmtShort(START_DATE)}
       </p>
       ${otdRow}
-      <div class="history-photos">${historyPhotosHtml(at)}</div>
       <div class="history-stats">${stats}</div>`
   );
 }
