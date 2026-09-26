@@ -903,7 +903,7 @@ body:not(.auth) .auth-screen{display:none}
   display:flex;flex-direction:column;gap:12px;animation:pop .4s ease;
 }
 .auth-logo{font-size:44px;line-height:1}
-.auth-card h1{font-family:var(--font-display);font-size:28px;font-weight:400;color:var(--star-ink)}
+.auth-card h1{font-family:var(--font-display);font-size:28px;font-weight:400;color:var(--star)}
 .auth-sub{color:var(--ink-2);font-size:var(--text-base);margin:-4px 0 6px;line-height:1.5}
 .auth-card input[type=password],.auth-card select{width:100%;text-align:center;font-size:var(--text-md);letter-spacing:2px}
 .auth-card select{letter-spacing:normal;text-align:left}
