@@ -8,9 +8,10 @@
    установка кэша не должна падать из-за одного файла; в кэш они попадают при первом
    показе через обработчик fetch.
 
-   CACHE_NAME версионируется вручную — меняешь состав SHELL_FILES или логику
-   fetch, бампни версию, иначе часть пользователей будет обслуживаться старым
-   активным воркером до следующей полной перезагрузки. */
+   Версия проставляется на деплое (tools/stamp-version.js, NV-80): app.min.js и
+   styles.css получают ?v=<хэш оболочки> и в index.html, и в SHELL_FILES ниже,
+   CACHE_NAME — тот же хэш в хвосте. Руками CACHE_NAME не бампать; переименовал
+   его или файлы — поправь замены в stamp-version.js (он упадёт, если не найдёт). */
 const CACHE_NAME = 'nasha-vselennaya-shell-v3';
 const SHELL_FILES = ['./', './index.html', './app.min.js', './styles.css', './icon.svg', './manifest.webmanifest', './vendor/sortable.min.js'];
 
@@ -18,7 +19,9 @@ self.addEventListener('install', event => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then(cache => cache.addAll(SHELL_FILES))
+      // reload: мимо HTTP-кэша браузера — иначе в новый кэш мог лечь index.html
+      // прошлой версии рядом со свежим app.min.js?v=…
+      .then(cache => cache.addAll(SHELL_FILES.map(f => new Request(f, { cache: 'reload' }))))
       .then(() => self.skipWaiting())
   );
 });
@@ -36,9 +39,9 @@ self.addEventListener('activate', event => {
 // деплоя первый заход показывал прошлую версию, а index.html и app.min.js
 // могли оказаться из разных версий. Кэш отвечает, только если сеть упала или
 // не ответила за NET_TIMEOUT_MS (плохая мобильная связь не вешает запуск).
-// Смешение версий на медленной сети остаётся возможным: таймаут — на каждый
-// файл отдельно, а не на партию целиком (известная проблема, карточка NV-80,
-// чинится до фазы 4). Firebase/Yandex/Google — чужой origin, не трогаем.
+// Таймаут — на каждый файл отдельно, но смешения версий нет: свежий index.html
+// ссылается на app.min.js?v=<новый>, такого адреса в кэше нет — ждём сеть
+// (штамп на деплое, NV-80). Firebase/Yandex/Google — чужой origin, не трогаем.
 const NET_TIMEOUT_MS = 3000;
 
 self.addEventListener('fetch', event => {

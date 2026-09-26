@@ -18,7 +18,7 @@ const resp = body => ({
   }
 });
 
-function makeSw(netImpl, putDelay = 0) {
+function makeSw(netImpl, putDelay = 0, swSrc = fs.readFileSync('sw.js', 'utf8')) {
   const store = new Map(); // url → ответ
   const handlers = {};
   const key = r => (typeof r === 'string' ? new URL(r, SCOPE).href : r.url);
@@ -42,7 +42,7 @@ function makeSw(netImpl, putDelay = 0) {
     registration: {}
   };
   // Таймаут в тесте — 30 мс вместо 3 с, иначе сценарий «сеть висит» ждал бы 3 секунды.
-  const src = fs.readFileSync('sw.js', 'utf8').replace(/NET_TIMEOUT_MS = \d+/, 'NET_TIMEOUT_MS = 30');
+  const src = swSrc.replace(/NET_TIMEOUT_MS = \d+/, 'NET_TIMEOUT_MS = 30');
   vm.runInContext(
     src,
     vm.createContext({ self, caches: { open: async () => cache, match: r => cache.match(r), keys: async () => [], delete: async () => true }, fetch: netImpl, URL, setTimeout, Promise })
@@ -109,6 +109,20 @@ function makeSw(netImpl, putDelay = 0) {
   assert((await ev.responded).body === 'новый', 'быстрая сеть не блокируется на cache.put');
   await ev.waited; // дожидаемся завершения записи
   assert(sw.store.get(sw.key('app.min.js')).body === 'новый', 'кэш обновлен после записи');
+
+  // 8. Штамп деплоя (NV-80): index.html и sw.js получают одну версию
+  const { stamp } = require('../tools/stamp-version.js');
+  const files = {};
+  for (const f of ['index.html', 'app.min.js', 'styles.css', 'sw.js']) files[f] = fs.readFileSync(f, 'utf8');
+  const st = stamp(files);
+  assert(st.html.includes(`src="app.min.js?v=${st.v}"`) && st.html.includes(`href="styles.css?v=${st.v}"`), 'штамп: index.html ссылается на ?v=<хэш>');
+  assert(st.sw.includes(`'./app.min.js?v=${st.v}'`) && st.sw.includes(`'./styles.css?v=${st.v}'`), 'штамп: SHELL_FILES кэширует те же адреса');
+  assert(st.sw.includes(`-shell-v3-${st.v}'`), 'штамп: CACHE_NAME несёт хэш');
+  assert(stamp({ ...files, 'app.min.js': files['app.min.js'] + ' ' }).v !== st.v, 'штамп: новый app.min.js — новая версия');
+  // Свежий index.html просит новый адрес; в кэше только старый — ждём сеть, не старый скрипт
+  sw = makeSw(() => new Promise(r => setTimeout(() => r(resp('новый')), 60)), 0, st.sw);
+  sw.store.set(sw.key('app.min.js?v=old'), resp('старый'));
+  assert((await sw.fetchEvent(`app.min.js?v=${st.v}`).responded).body === 'новый', 'новая версия скрипта не подменяется старой из кэша');
 
   if (failed) {
     console.log('FAIL: ' + failed);
