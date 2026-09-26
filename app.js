@@ -70,9 +70,13 @@ function setPopover(el, on) {
     // него (спека HTML) — иначе popover визуально поверх, но не кликается,
     // не фокусируется и не читается скринридером. Переносим его в текущую
     // верхнюю модалку (topOverlayEl, см. 62-global-clicks.js); нет открытой —
-    // оставляем в body, как раньше.
+    // оставляем в body, как раньше. el._popoverHost — куда именно переехал:
+    // closeOverlay сверяется с этим (не с DOM-деревом — appendChild в
+    // песочнице тестов не настоящий), чтобы перенести popover ещё раз,
+    // если модалка-хозяин закрылась, а сам popover остался «открытым».
     const host = (typeof topOverlayEl === 'function' && topOverlayEl()) || (typeof document !== 'undefined' ? document.body : null);
     if (host && el.parentNode !== host && typeof host.appendChild === 'function') host.appendChild(el);
+    el._popoverHost = host;
   }
   el.hidden = !on;
   if (typeof el.showPopover !== 'function') return; // песочница тестов
@@ -3627,7 +3631,16 @@ document.addEventListener('pointerdown', e => {
   if (pop && !pop.hidden && !pop.contains(e.target)) closeDatePop();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeDatePop();
+  if (e.key !== 'Escape') return;
+  const pop = $('#datePop');
+  if (!pop || pop.hidden) return;
+  closeDatePop();
+  // preventDefault гасит default action Escape у модального <dialog>-родителя
+  // (fire cancel) — иначе он срабатывает следом за этим keydown и закрывает
+  // модалку вместе с календариком одним нажатием (фокус на месяце/годе/
+  // стрелках/«Сегодня»/«Очистить» не ловится datePopKeydown — он висит
+  // только на #dpDays).
+  e.preventDefault();
 });
 // Поля дат в модалках открывают свой календарь вместо системного
 ['#evDate', '#evEnd', '#dtDate'].forEach(sel => {
@@ -4449,6 +4462,11 @@ function openOverlay(id) {
   el.hidden = false;
   if (typeof el.showModal === 'function' && !el.open) el.showModal();
   if (openOverlayStack.indexOf(id) === -1) openOverlayStack.push(id);
+  // Новая модалка легла поверх — если тост сейчас показан, он мог остаться
+  // в предыдущей верхней (уже не самой верхней) и оказаться inert под этой.
+  // Поднимаем его заново — setPopover переносит в новую верхнюю сам.
+  const toast = $('#appToast');
+  if (toast && !toast.hidden) setPopover(toast, true);
 }
 function closeOverlay(id) {
   const el = $('#' + id);
@@ -4456,6 +4474,19 @@ function closeOverlay(id) {
   el.hidden = true;
   if (typeof el.close === 'function' && el.open) el.close();
   openOverlayStack = openOverlayStack.filter(x => x !== id);
+  // Тост/календарик на время показа переезжают в текущую верхнюю модалку
+  // (setPopover, 00-core.js), иначе спека делает их inert под открытым
+  // <dialog>. Если ИМЕННО ЭТА модалка их сейчас приютила, а теперь
+  // закрылась — popover остаётся формально «открытым» (hidden/showPopover
+  // не менялись), но физически внутри уже display:none диалога: невидим
+  // (checkVisibility() лжёт про hidden), недоступен, озвучка скринридером
+  // молчит. Тост — самостоятельное сообщение, поднимаем заново (переедет в
+  // новую верхнюю модалку или в body). Календарик привязан к полю именно
+  // этой модалки — поле закрылось вместе с ней, поэтому его просто закрываем.
+  const toast = $('#appToast');
+  if (toast && !toast.hidden && toast._popoverHost === el) setPopover(toast, true);
+  const pop = $('#datePop');
+  if (pop && !pop.hidden && pop._popoverHost === el) closeDatePop();
   if (id === 'lightbox') lbResetState(); // светбокс закрыт — сбрасываем список и зум
   if (id === 'eventOverlay') editingEventId = null;
   // Закрыли не ответив — запоминаем на время сессии, чтобы не всплывало
@@ -4802,17 +4833,13 @@ document.addEventListener('keydown', e => {
    Esc у модального <dialog> браузер превращает в событие cancel и закрывает
    диалог сам — мимо closeOverlay, и тогда hidden и побочные эффекты
    (сброс лайтбокса, «приглашение закрыто») разъехались бы с открытостью.
-   Поэтому cancel перехватываем и закрываем своим путём. Esc внутри
-   календарика гасится там же (datePopKeydown → preventDefault) — до cancel
-   дело не доходит, закрывается только календарик. */
+   Поэтому cancel перехватываем и закрываем своим путём. Esc, пока открыт
+   календарик, гасится раньше — document-level keydown в 42-datepicker.js
+   закрывает его и вызывает preventDefault(), так что cancel у диалога вообще
+   не срабатывает; сюда доходит только Esc без открытого календарика. */
 $$('dialog.overlay').forEach(dlg => {
   dlg.addEventListener('cancel', e => {
     e.preventDefault();
-    const pop = $('#datePop');
-    if (pop && !pop.hidden) {
-      closeDatePop();
-      return;
-    }
     closeOverlay(dlg.id);
   });
 });

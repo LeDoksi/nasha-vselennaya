@@ -1426,6 +1426,29 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{s.notify("проверка"); return 1;}');
   assert(pop.hidden === false && popShown === 1, 'тост поднимается в top layer как popover');
 
+  // --- Ревью раунд 1: тост переживает закрытие модалки, в которую был
+  // поднят (иначе остаётся «открытым» внутри уже display:none диалога —
+  // невидим и недоступен, хотя hidden/showPopover думают, что всё хорошо),
+  // и переезжает в новую верхнюю модалку, если та открылась поверх ---
+  const dlgA = w('(s)=>s.document.querySelector("#testDialogA")');
+  const dlgB = w('(s)=>s.document.querySelector("#testDialogB")');
+  [dlgA, dlgB].forEach(d => {
+    d.open = false;
+    d.showModal = () => {
+      d.open = true;
+    };
+    d.close = () => {
+      d.open = false;
+    };
+  });
+  w('(s)=>{s.openOverlay("testDialogA"); s.notify("A"); return 1;}');
+  assert(pop._popoverHost === dlgA, 'тост поднят в открывшуюся модалку A');
+  w('(s)=>{s.closeOverlay("testDialogA"); return 1;}');
+  assert(pop._popoverHost !== dlgA && pop.hidden === false, 'после закрытия A тост уже не внутри неё и всё ещё показан');
+  w('(s)=>{s.openOverlay("testDialogA"); s.notify("A2"); s.openOverlay("testDialogB"); return 1;}');
+  assert(pop._popoverHost === dlgB, 'открытие B поверх A переносит тост в новую верхнюю модалку');
+  w('(s)=>{s.closeOverlay("testDialogB"); s.closeOverlay("testDialogA"); return 1;}'); // прибраться за собой
+
   // --- Модуль облака фото (src/95-photos-cloud.js) не падает на повторных
   // вызовах init/stop (например, при смене пользователя без перезагрузки) ---
   w('(s)=>{s.initPhotoSync(); s.stopPhotoSync(); return 1;}');

@@ -70,9 +70,13 @@ function setPopover(el, on) {
     // него (спека HTML) — иначе popover визуально поверх, но не кликается,
     // не фокусируется и не читается скринридером. Переносим его в текущую
     // верхнюю модалку (topOverlayEl, см. 62-global-clicks.js); нет открытой —
-    // оставляем в body, как раньше.
+    // оставляем в body, как раньше. el._popoverHost — куда именно переехал:
+    // closeOverlay сверяется с этим (не с DOM-деревом — appendChild в
+    // песочнице тестов не настоящий), чтобы перенести popover ещё раз,
+    // если модалка-хозяин закрылась, а сам popover остался «открытым».
     const host = (typeof topOverlayEl === 'function' && topOverlayEl()) || (typeof document !== 'undefined' ? document.body : null);
     if (host && el.parentNode !== host && typeof host.appendChild === 'function') host.appendChild(el);
+    el._popoverHost = host;
   }
   el.hidden = !on;
   if (typeof el.showPopover !== 'function') return; // песочница тестов

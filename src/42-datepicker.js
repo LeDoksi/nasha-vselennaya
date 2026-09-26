@@ -250,7 +250,16 @@ document.addEventListener('pointerdown', e => {
   if (pop && !pop.hidden && !pop.contains(e.target)) closeDatePop();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeDatePop();
+  if (e.key !== 'Escape') return;
+  const pop = $('#datePop');
+  if (!pop || pop.hidden) return;
+  closeDatePop();
+  // preventDefault гасит default action Escape у модального <dialog>-родителя
+  // (fire cancel) — иначе он срабатывает следом за этим keydown и закрывает
+  // модалку вместе с календариком одним нажатием (фокус на месяце/годе/
+  // стрелках/«Сегодня»/«Очистить» не ловится datePopKeydown — он висит
+  // только на #dpDays).
+  e.preventDefault();
 });
 // Поля дат в модалках открывают свой календарь вместо системного
 ['#evDate', '#evEnd', '#dtDate'].forEach(sel => {

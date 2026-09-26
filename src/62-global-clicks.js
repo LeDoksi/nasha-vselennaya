@@ -20,6 +20,11 @@ function openOverlay(id) {
   el.hidden = false;
   if (typeof el.showModal === 'function' && !el.open) el.showModal();
   if (openOverlayStack.indexOf(id) === -1) openOverlayStack.push(id);
+  // Новая модалка легла поверх — если тост сейчас показан, он мог остаться
+  // в предыдущей верхней (уже не самой верхней) и оказаться inert под этой.
+  // Поднимаем его заново — setPopover переносит в новую верхнюю сам.
+  const toast = $('#appToast');
+  if (toast && !toast.hidden) setPopover(toast, true);
 }
 function closeOverlay(id) {
   const el = $('#' + id);
@@ -27,6 +32,19 @@ function closeOverlay(id) {
   el.hidden = true;
   if (typeof el.close === 'function' && el.open) el.close();
   openOverlayStack = openOverlayStack.filter(x => x !== id);
+  // Тост/календарик на время показа переезжают в текущую верхнюю модалку
+  // (setPopover, 00-core.js), иначе спека делает их inert под открытым
+  // <dialog>. Если ИМЕННО ЭТА модалка их сейчас приютила, а теперь
+  // закрылась — popover остаётся формально «открытым» (hidden/showPopover
+  // не менялись), но физически внутри уже display:none диалога: невидим
+  // (checkVisibility() лжёт про hidden), недоступен, озвучка скринридером
+  // молчит. Тост — самостоятельное сообщение, поднимаем заново (переедет в
+  // новую верхнюю модалку или в body). Календарик привязан к полю именно
+  // этой модалки — поле закрылось вместе с ней, поэтому его просто закрываем.
+  const toast = $('#appToast');
+  if (toast && !toast.hidden && toast._popoverHost === el) setPopover(toast, true);
+  const pop = $('#datePop');
+  if (pop && !pop.hidden && pop._popoverHost === el) closeDatePop();
   if (id === 'lightbox') lbResetState(); // светбокс закрыт — сбрасываем список и зум
   if (id === 'eventOverlay') editingEventId = null;
   // Закрыли не ответив — запоминаем на время сессии, чтобы не всплывало
