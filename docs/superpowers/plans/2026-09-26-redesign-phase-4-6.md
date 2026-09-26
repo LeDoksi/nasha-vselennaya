@@ -4,7 +4,7 @@
 
 **Goal:** Сайт получает новую структуру: пять вкладок вместо семи («Наше» собирает Заметки, Списки и Хотелки), модалки становятся нативными `<dialog>` и на телефоне — шторками со свайпом, Главная — блоком «Сейчас» с орбитой-счётчиком и осью времени, уходящей в прошлое, галерея — плитками разного размера, долгим нажатием и переходом плитка → лайтбокс общим элементом.
 
-**Architecture:** Всё на существующем стеке: `src/*.js` склеиваются `build.js` в `app.js`, разметка в `index.html`, стили в `styles.css` (`@layer components`). Новых зависимостей нет. Навигация: псевдо-вкладка `our` раскрывается в последний открытый из трёх экранов, адрес остаётся `#/notes` и т.п. Модалки: единая пара `openOverlay(id)` / `closeOverlay(id)`, которая держит в согласии атрибут `hidden` (на него смотрят тесты и `90-effects-init.js`) и `showModal()/close()`. Ось времени — новый модуль `src/36-timeline.js`, рисует дни из существующего `memoryByDay()` страницами через `IntersectionObserver`; вкладка «Память» рисуется тем же кодом, поэтому откат по NV-52 — удалить одну из двух точек входа, а не переписывать.
+**Architecture:** Всё на существующем стеке: `src/*.js` склеиваются `build.js` в `app.js`, разметка в `index.html`, стили в `styles.css` (`@layer components`). Новых зависимостей нет. Навигация: псевдо-вкладка `our` раскрывается в последний открытый из трёх экранов, адрес остаётся `#/notes` и т.п. Модалки: единая пара `openOverlay(id)` / `closeOverlay(id)`, которая держит в согласии атрибут `hidden` (на него смотрят тесты и `90-effects-init.js`) и `showModal()/close()`. Ось времени — новый модуль `src/36-timeline.js`, рисует дни из существующего `memoryByDay()` страницами через `IntersectionObserver`; вкладка «Память» рисуется тем же кодом до Task 7, где она удаляется (решение владельца 26.09.2026, NV-52).
 
 **Tech Stack:** vanilla JS (конкатенация `src/*.js` → `app.js` через `build.js` + esbuild minify), CSS без препроцессора (`<dialog>`, `popover`, `@starting-style`, View Transitions, `content-visibility` — без полифилов, спека §7), тесты — самописные node-скрипты с `vm`-песочницей, Playwright для стенда (`tools/shots.js`, `tools/browser-check.js`).
 
@@ -38,7 +38,7 @@
 - **`tools/browser-check.js` — приёмочный тест перетаскивания и новых жестов.** Запускается (при поднятом `tools/serve.js`) в конце каждой задачи, которая трогает галерею, «Наше» или модалки. Итог должен быть `ИТОГ: OK`.
 - **Содержимое экранов «Наше», Календаря и Настроек не перерисовывается** — это фаза 7 (NV-57, NV-58, NV-59). Здесь только оболочка вокруг них.
 - **Настройки уже в шапке** (иконка `.settings-btn`, проверено на стенде 26.09.2026) — пункт спеки 2.1 «Настройки уходят в шапку» работы не требует.
-- **Решения владельца не принимаются агентом.** Task 7 останавливает работу и ждёт ответа (NV-52).
+- **Решения владельца по NV-52 уже приняты (26.09.2026):** «Память» — на оси Главной, отдельной вкладки нет; коллаж «Наша история» убирается. Task 7 их применяет, повторно не спрашивает.
 
 ---
 
@@ -140,8 +140,8 @@ Expected: `FAIL` на «навигация: Главная, Календарь, 
 
 ```js
 // Нижняя панель (спека 2.1): Главная · Календарь · Фото · Наше, плюс «Память»
-// пятой — до фазы 5, где она уезжает в ось времени на Главной (или остаётся
-// пятой по решению владельца, NV-52). Объявлено ДО showView: он читает эти
+// пятой — до фазы 5, где она уезжает в ось времени на Главной (решение
+// владельца 26.09.2026, NV-52). Объявлено ДО showView: он читает эти
 // константы при открытии по прямой ссылке (#/wishlist) — ниже была бы TDZ.
 const BOTTOM_PRIMARY = ['home', 'calendar', 'photos', 'our', 'memory'];
 // «Наше» — одна вкладка на три экрана. Своего <section> у неё нет: 'our'
@@ -912,9 +912,9 @@ git commit -m "Feat: блок «Сейчас» — орбита-счётчик, 
 
 Спека 2.2: ниже «Ближайшего» Главная продолжается в прошлое. Слева тонкая световая нить (сверху янтарная, книзу гаснет в фиолетовый), дни — точки на ней, у каждого года липкая метка. Данные — те же, что у «Памяти» (`memoryByDay()`: события, прошедшие свидания, фото с EXIF-датой), фото на оси — миниатюрами (`memoryPhotosHtml`). Лента подгружается страницами по 30 дней: метка в конце ленты попадает в экран (с запасом 600 px) — дорисовывается следующая страница.
 
-«Память» в этой задаче не удаляется: её вкладка рисуется **тем же** `renderTimeline`, только в `#memoryFeed`. Поэтому решение NV-52 в Task 7 — убрать одну из двух точек входа, без переписывания.
+«Память» в этой задаче не удаляется: её вкладка рисуется **тем же** `renderTimeline`, только в `#memoryFeed`, и уходит в Task 7 (решение владельца 26.09.2026, NV-52) без правок оси.
 
-Коллаж «Наша история» (`historyPhotosHtml` и кнопка «🎲 Перемешать») уходит с Главной отдельным коммитом (шаг 8): фото теперь живут на оси. Отдельный коммит — чтобы по ответу владельца в Task 7 его можно было вернуть одним `git revert`.
+Коллаж «Наша история» (`historyPhotosHtml` и кнопка «🎲 Перемешать») уходит с Главной отдельным коммитом (шаг 9): фото теперь живут на оси — решение владельца 26.09.2026.
 
 **Files:**
 - Create: `src/36-timeline.js`
@@ -961,7 +961,7 @@ Expected: падение — `timelineYears is not defined`.
    метка [data-axis-more] в конце попадает в экран — дорисовываем следующую
    (IntersectionObserver, как в галерее; ноль обработчиков scroll, спека 3.2).
    Рисуется в любой контейнер с атрибутом data-axis: #homeTimeline на Главной
-   и #memoryFeed во вкладке «Память» — один код, откат NV-52 без переписывания. */
+   и #memoryFeed во вкладке «Память» (до Task 7 фаз 4–6, потом только Главная). */
 const TIMELINE_PAGE = 30;
 const timelineShown = new Map(); // контейнер → сколько дней уже раскрыто
 
@@ -1140,75 +1140,74 @@ git add src/30-home.js src/35-memory.js styles.css tests/uni-smoke.js app.js
 git commit -m "Refactor: коллаж «Наша история» уходит с Главной — фото живут на оси (NV-51)"
 ```
 
-Записать SHA этого коммита в отчёт задачи — он нужен Task 7.
 
-### Task 7: Точка отката — решение владельца по Памяти, закрыть фазу 5
+### Task 7: «Память» на Главной — убрать пятую вкладку, закрыть фазу 5
 
-**Это решение не принимает агент** (NV-52, согласовано с владельцем 21.09.2026). Спека 2.2: «если лента делает Главную тяжёлой или мешает быстрым действиям (назначить свидание, посмотреть ближайшее), Память возвращается пятой вкладкой». Решается глядя на живой экран, а не на бумаге. Поэтому фаза 5 сначала выкатывается **с обеими точками входа** (ось на Главной и вкладка «Память») — сайт цел, у владельца есть день-два посмотреть на телефоне, — и только потом применяется решение.
+**Решение владельца 26.09.2026 (NV-52):** «Память» живёт на оси Главной, отдельной вкладки нет — четыре вкладки, как в спеке 2.1. Коллаж «Наша история» тоже не возвращается (снят в Task 6). Спрашивать повторно не нужно.
+
+До этой задачи вкладка «Память» оставалась, чтобы сайт не терял раздел между фазами; теперь ось на Главной его заменяет. Ось и вкладка рисовались одним `renderTimeline`, поэтому вкладка удаляется без правок оси.
 
 **Files:**
-- Modify (после ответа): `src/20-theme-nav.js`, `index.html`, `src/30-home.js` или `src/35-memory.js`, `tests/uni-smoke.js`, `README.md`, `PROJECT-MEMORY.md`
+- Modify: `src/20-theme-nav.js` (`BOTTOM_PRIMARY`, `BOTTOM_ICON`, `showView`)
+- Modify: `index.html` (кнопка `data-view="memory"`, `<section id="view-memory">`)
+- Modify: `src/35-memory.js` (`renderMemory`)
+- Modify: `styles.css` (`.memory-feed`)
+- Modify: `tests/uni-smoke.js`, `tools/shots.js`, `tools/css-coverage.js`
+- Modify: `README.md`, `PROJECT-MEMORY.md`
 
-- [ ] **Step 1: Документация фазы 5**
+**Interfaces:**
+- Produces: `BOTTOM_PRIMARY = ['home', 'calendar', 'photos', 'our']`
+- Сохраняется: `renderTimeline`, `memoryByDay`, `memoryPhotosHtml`, `toggleMemoryPhotos` — ими живёт ось Главной
+- Ссылка `#/memory` ведёт на Главную: `showView` выходит на `if (!$('#view-memory')) return;`, активной остаётся Главная — как у любой неизвестной вкладки
 
-`README.md`: в список модулей — `36-timeline.js — ось времени: Главная и «Память» одним кодом`. `PROJECT-MEMORY.md`: над `## 0g-4` вставить `## 0g-5. ⚡ Фаза 5 редизайна влита (дата)` с пунктами: блок «Сейчас» (`anniversaryInfo`, `orbitGeometry`, ids `#progressRing/#countdown/#compliment` сохранены); ось (`renderTimeline(box, more)`, `data-axis`, `TIMELINE_PAGE = 30`, `--header-h` от `ResizeObserver`); коллаж снят коммитом `<SHA из Task 6>`; решение по «Памяти» — ждёт владельца (NV-52).
+- [ ] **Step 1: Поправить ожидания в tests/uni-smoke.js**
+
+- Ожидание `BOTTOM_PRIMARY` → `'["home","calendar","photos","our"]'`, подпись `'навигация: Главная, Календарь, Фото, Наше'`.
+- Проверку `'«Память» рисуется тем же кодом оси'` (Task 6) и проверки `'дерево «Память» рендерит карточки'` и соседние по `#memoryFeed` (~стр. 1269–1280) перевести на `s.renderTimeline(s.document.querySelector('#homeTimeline'))` / `registry['#homeTimeline']`; экспорт `s.renderMemory` удалить.
+- Из цикла «Все вкладки рендерятся» убрать `'memory'`.
+
+Run: `node build.js && node tests/uni-smoke.js app.js 2>&1 | grep -E "FAIL|навигация"`
+Expected: `FAIL: навигация: Главная, Календарь, Фото, Наше` (в коде ещё пять вкладок).
+
+- [ ] **Step 2: Убрать вкладку**
+
+- `src/20-theme-nav.js`: `const BOTTOM_PRIMARY = ['home', 'calendar', 'photos', 'our'];`; из `BOTTOM_ICON` удалить `memory`; комментарий над `BOTTOM_PRIMARY` — «Главная · Календарь · Фото · Наше (спека 2.1). «Память» живёт на оси Главной — решение владельца 26.09.2026, NV-52»; в `showView` удалить `if (view === 'memory') renderMemory();`.
+- `index.html`: удалить кнопку `<button class="nav-btn" data-view="memory">Память</button>` и весь `<section class="view" id="view-memory">…</section>` вместе с комментарием `<!-- ===== ПАМЯТЬ ===== -->`.
+- `src/35-memory.js`: удалить `renderMemory` и комментарий над ней — после правок выше `grep -rn "renderMemory" src` должен быть пуст.
+- `styles.css`: удалить правила `.memory-feed`, если `grep -rn "memory-feed" src index.html` пуст.
+- `tools/shots.js` и `tools/css-coverage.js`: убрать `'memory'` из `VIEWS`.
+
+- [ ] **Step 3: Прогнать всё**
+
+Run: `npm run check` → exit 0, `OK: навигация: Главная, Календарь, Фото, Наше`.
+Run: `node tools/browser-check.js` → `ИТОГ: OK`.
+Run: `node tools/shots.js task-7 && node tools/shots-diff.js task-6-axis task-7` → `DIFF` у всех снимков (нижняя панель/шапка), снимков `*-memory.png` в `task-7` нет. Глазами: `phone-dark-home.png` — в нижней панели 4 иконки; на стенде адрес `#/memory` открывает Главную.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/20-theme-nav.js index.html src/35-memory.js styles.css tests/uni-smoke.js tools/shots.js tools/css-coverage.js app.js
+git commit -m "Feat: «Память» живёт на оси Главной — четыре вкладки (NV-52)"
+```
+
+- [ ] **Step 5: Документация фазы 5**
+
+`README.md`: в список модулей — `36-timeline.js — ось времени на Главной (бывшая вкладка «Память»)`; описание навигации — «четыре вкладки: Главная, Календарь, Фото, Наше». `PROJECT-MEMORY.md`: над `## 0g-4` вставить `## 0g-5. ⚡ Фаза 5 редизайна влита (дата)` с пунктами: блок «Сейчас» (`anniversaryInfo`, `orbitGeometry`, ids `#progressRing/#countdown/#compliment` сохранены); ось (`renderTimeline(box, more)`, `data-axis`, `TIMELINE_PAGE = 30`, `--header-h` от `ResizeObserver`); коллаж «Наша история» снят; вкладки «Память» нет — решение владельца 26.09.2026 (NV-52), `#/memory` ведёт на Главную. В `0g-4` поправить `BOTTOM_PRIMARY` на итоговый.
 
 ```bash
 git add README.md PROJECT-MEMORY.md
-git commit -m "Docs: фаза 5 — «Сейчас», ось времени, ожидание решения по Памяти"
+git commit -m "Docs: фаза 5 — «Сейчас», ось времени, Память на Главной"
 ```
 
-- [ ] **Step 2: Мёрж и деплой с обеими точками входа**
+- [ ] **Step 6: Мёрж и деплой**
 
-Run: `npm run check` → exit 0; `node tools/browser-check.js` → `ИТОГ: OK`.
-
-Скилл `superpowers:finishing-a-development-branch`: мёрж `redesign-phase-5` в `main`, push. Проверить: `gh run list --limit 2` — оба прогона `success`.
-
-- [ ] **Step 3: Показать владельцу и спросить — СТОП**
-
-Снять `node tools/shots.js phase-5-owner` и приложить в чат `phone-dark-home.png`, `phone-light-home.png`, `desk-dark-home.png`. Задать вопросы дословно:
-
-> Фаза 5 на сайте. Главная теперь: сверху «Сейчас» (орбита с числом дней), ниже «Ближайшее» (свидания), ещё ниже — ось времени, уходящая в прошлое. Вкладка «Память» пока тоже есть и показывает ту же ось.
-> Посмотри на телефоне пару дней и реши:
-> 1. **Память:** оставить ось на Главной и убрать вкладку «Память» (4 вкладки, как в спеке) — или убрать ось с Главной и вернуть «Память» отдельной вкладкой (5 вкладок)? Критерий из спеки: не стала ли Главная тяжёлой, не мешает ли быстро назначить свидание и увидеть ближайшее.
-> 2. **Коллаж «Наша история»** (три фото с кнопкой «🎲 Перемешать») с Главной убран — фото теперь на оси. Вернуть?
-
-Карточку NV-52 перевести в `waiting` с комментарием «Спросил владельца <дата>: Память и коллаж, фаза 5 выкачена с обеими точками входа». **Работу остановить** до ответа.
-
-- [ ] **Step 4 (по ответу, вариант A — «Память» внутри Главной):**
-
-- `src/20-theme-nav.js`: `const BOTTOM_PRIMARY = ['home', 'calendar', 'photos', 'our'];`, из `BOTTOM_ICON` удалить `memory`, комментарий «Память пятой — до фазы 5» → «Память живёт на оси Главной (решение владельца <дата>, NV-52)».
-- `index.html`: удалить кнопку `data-view="memory"` из `.nav` и весь `<section class="view" id="view-memory">…</section>`.
-- `src/20-theme-nav.js`, `showView`: удалить `if (view === 'memory') renderMemory();`. Ссылка `#/memory` после этого ведёт на Главную сама: `showView` выходит на `if (!$('#view-memory')) return;`, а активной остаётся Главная — поведение совпадает с любой неизвестной вкладкой.
-- `src/35-memory.js`: удалить `renderMemory`, если `grep -rn "renderMemory" src` пуст после правок выше; в `tests/uni-smoke.js` — проверки `renderMemory` и `#memoryFeed` перевести на `renderTimeline($('#homeTimeline'))` / `#homeTimeline`, экспорт `s.renderMemory` удалить. Из цикла «Все вкладки рендерятся» убрать `'memory'`.
-- `tests/uni-smoke.js`: ожидание `BOTTOM_PRIMARY` → `'["home","calendar","photos","our"]'`, подпись `'навигация: Главная, Календарь, Фото, Наше'`.
-- `tools/shots.js` и `tools/css-coverage.js`: убрать `'memory'` из `VIEWS`.
-
-- [ ] **Step 4 (по ответу, вариант B — «Память» пятой вкладкой):**
-
-- `src/30-home.js`, `renderHome`: удалить `renderTimeline($('#homeTimeline'));`. `index.html`: удалить `<div class="home-timeline" id="homeTimeline" data-axis></div>` и комментарий над ним.
-- `tests/uni-smoke.js`: проверку `'ось: метки годов и точка «сейчас» на Главной'` перевести на `#memoryFeed`.
-- `src/20-theme-nav.js`: комментарий над `BOTTOM_PRIMARY` — «Память — пятая вкладка по решению владельца <дата> (NV-52)».
-- `.home-timeline` в `styles.css` удалить.
-
-- [ ] **Step 5 (по ответу про коллаж):** если «вернуть» — `git revert <SHA из Task 6>` и `npm run check`. Если «не возвращать» — ничего.
-
-- [ ] **Step 6: Прогнать, закоммитить, выкатить**
-
-Run: `npm run check` → exit 0; `node tools/browser-check.js` → `ИТОГ: OK`; `node tools/shots.js task-7` и глазами `phone-dark-home.png` + нижняя панель на любом экране.
-
-```bash
-git add -A src index.html styles.css tests tools/shots.js tools/css-coverage.js app.js PROJECT-MEMORY.md
-git commit -m "Feat: решение владельца по Памяти — <вариант A|B> (NV-52)"
-```
-
-В `PROJECT-MEMORY.md` раздел `0g-5`: строку «ждёт владельца» заменить на решение и дату. Ветка — короткая (`redesign-phase-5-decision` от `main`), мёрж и деплой через `superpowers:finishing-a-development-branch`, `gh run list --limit 2` → `success`. Карточку NV-52 — комментарий с решением, `done`.
+Скилл `superpowers:finishing-a-development-branch`: мёрж `redesign-phase-5` в `main`, push. `gh run list --limit 2` → оба прогона `success`. Карточку NV-52 — комментарий «Выполнено: вкладка убрана, ось на Главной, фаза 5 выкачена», `done`.
 
 ---
 
 # ФАЗА 6 — Фото
 
-Ветка `redesign-phase-6` от `main` (с влитой фазой 5 и решением NV-52). Перед Task 8: `node tools/shots.js phase-6-start`.
+Ветка `redesign-phase-6` от `main` (с влитой фазой 5). Перед Task 8: `node tools/shots.js phase-6-start`.
 
 ### Task 8: Плитки разного размера и content-visibility
 
