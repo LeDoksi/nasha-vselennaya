@@ -128,8 +128,11 @@ async function checkPhotosReorder(page, log) {
     // View Transitions API — проверке не нужен crossfade между вкладками,
     // только стабильный DOM сразу после переключения (runViewTransition
     // в src/20-theme-nav.js без startViewTransition применяет изменения сразу).
+    // Именно присваивание, не delete: метод живёт на Document.prototype, delete
+    // с экземпляра ничего не снимал — переход шёл, и 320 мс ::view-transition
+    // глотали мышь драга заметок и списков (NV-79).
     await page.evaluate(() => {
-      delete document.startViewTransition;
+      document.startViewTransition = undefined;
       const ov = document.getElementById('dateInviteOverlay');
       if (ov) ov.hidden = true;
     });
