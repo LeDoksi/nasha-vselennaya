@@ -261,10 +261,15 @@ if (lbStageEl)
     if (e.target === lbStageEl) closeOverlay('lightbox');
   });
 if (typeof document !== 'undefined' && document.addEventListener) {
-  // Клавиатура: ←/→ листают, +/−/0 зум, Esc закрывает (обработчик Esc — в 60-lists-wishes)
+  // Клавиатура: ←/→ листают, +/−/0 зум, Esc закрывает (обработчик cancel — в src/63-sheet.js)
   document.addEventListener('keydown', e => {
     const lb = $('#lightbox');
     if (!lb || lb.hidden) return;
+    // Поверх светбокса может быть открыта ещё одна модалка (например, «Новый
+    // лейбл» из lbLabelBtn) — тогда светбокс лишь не скрыт (hidden не про
+    // это), но не самый верхний диалог. Без проверки топа стрелки/зум ловили
+    // бы ввод, пока пользователь печатает в поле над светбоксом.
+    if (topOverlayEl() !== lb) return;
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
       lbNav(-1);
