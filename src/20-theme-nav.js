@@ -67,11 +67,11 @@ function toggleTheme() {
 
 /* ===== Навигация ===== */
 let activeView = 'home'; // текущая вкладка — для hash-роутинга и кнопки «назад»
-// Нижняя панель (спека 2.1): Главная · Календарь · Фото · Наше, плюс «Память»
-// пятой — до фазы 5, где она уезжает в ось времени на Главной (решение
-// владельца 26.09.2026, NV-52). Объявлено ДО showView: он читает эти
-// константы при открытии по прямой ссылке (#/wishlist) — ниже была бы TDZ.
-const BOTTOM_PRIMARY = ['home', 'calendar', 'photos', 'our', 'memory'];
+// Главная · Календарь · Фото · Наше (спека 2.1). «Память» живёт на оси
+// Главной — решение владельца 26.09.2026, NV-52. Объявлено ДО showView: он
+// читает эти константы при открытии по прямой ссылке (#/wishlist) — ниже
+// была бы TDZ.
+const BOTTOM_PRIMARY = ['home', 'calendar', 'photos', 'our'];
 // «Наше» — одна вкладка на три экрана. Своего <section> у неё нет: 'our'
 // раскрывается в последний открытый из трёх, адрес остаётся #/notes и т.п.
 const OUR_TABS = ['notes', 'lists', 'wishlist'];
@@ -94,8 +94,7 @@ const BOTTOM_ICON = {
   home: navIconHtml('home'),
   calendar: navIconHtml('calendar'),
   photos: navIconHtml('photos'),
-  our: navIconHtml('notes'),
-  memory: navIconHtml('memory')
+  our: navIconHtml('notes')
 };
 function showView(view) {
   view = resolveView(view);
@@ -123,7 +122,6 @@ function showView(view) {
     if (view === 'lists') renderLists();
     if (view === 'wishlist') renderWishlist();
     if (view === 'photos') renderPhotos();
-    if (view === 'memory') renderMemory();
     if (view === 'settings') renderSettings();
   };
   // Фаза D: View Transitions API — плавная смена вкладок (crossfade всего экрана).
@@ -162,7 +160,7 @@ $$('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)
 $$('.our-tab').forEach(b => b.addEventListener('click', () => go(b.dataset.our)));
 
 /* ===== Нижняя навигация на мобильных: все вкладки в одном ряду =====
-   Пять вкладок (спека 2.1): Главная, Календарь, Фото, Наше, Память. «Наше»
+   Четыре вкладки (спека 2.1): Главная, Календарь, Фото, Наше. «Наше»
    раскрывается в последний из трёх экранов (Заметки/Списки/Хотелки) — см.
    resolveView. Кнопки клонируются из шапки, поэтому active-подсветка и
    клики работают как у оригинала. */

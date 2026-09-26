@@ -211,11 +211,6 @@ function memoryByDay() {
   }
   return [...map.values()].filter(d => d.events.length || d.dates.length || d.photos.length).sort((a, b) => b.date.localeCompare(a.date));
 }
-// Вкладка «Память» — та же ось, что на Главной (src/36-timeline.js).
-function renderMemory() {
-  renderTimeline($('#memoryFeed'));
-}
-
 /* ===== Превью фото в «Памяти» ===== */
 // Сразу показываем не больше MEMORY_PHOTOS_PREVIEW фото в ряду; остальные —
 // скрыты и раскрываются кнопкой «Показать ещё N» (клик ловит делегат ниже).

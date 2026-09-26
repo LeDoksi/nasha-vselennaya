@@ -7,7 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
-const VIEWS = ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'memory', 'settings'];
+const VIEWS = ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'settings'];
 const SIZES = { phone: { width: 390, height: 844 }, desk: { width: 1280, height: 900 } };
 const dir = path.join(__dirname, '..', 'docs', 'superpowers', 'baseline', process.argv[2] || 'shot');
 

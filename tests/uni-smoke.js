@@ -262,7 +262,6 @@ function __TEST__(s){
   s.initPhotoStore = initPhotoStore; s.getThumbUrl = getThumbUrl; s.setThumbUrl = setThumbUrl;
   s.makeThumbBlob = makeThumbBlob; s.canDraw = canDraw;
   s.photoDate = photoDate; s.onThisDayItems = onThisDayItems; s.memoryByDay = memoryByDay;
-  s.renderMemory = renderMemory;
   s.timelineYears = timelineYears; s.renderTimeline = renderTimeline; s.TIMELINE_PAGE = TIMELINE_PAGE;
   s.memoryPhotosHtml = memoryPhotosHtml; s.toggleMemoryPhotos = toggleMemoryPhotos; s.onTlExpandClick = onTlExpandClick;
   s.renderProgressRing = renderProgressRing;
@@ -1058,7 +1057,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(true, 'celebrate не бросает исключений');
 
   // --- Все вкладки рендерятся ---
-  for (const v of ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'memory', 'our', 'settings']) {
+  for (const v of ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'our', 'settings']) {
     w('(s)=>s.go(' + JSON.stringify(v) + ')');
   }
   assert(true, 'all views rendered without errors');
@@ -1232,8 +1231,8 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
 
   // Рендер памяти-дерева не падает
   w('(s)=>{s.db.photos=[{id:"ph1", takenAt:new Date(2025,7,7).getTime(), title:"Лето"}]; return 1;}');
-  w('(s)=>{s.renderMemory(); return 1;}');
-  assert(registry['#memoryFeed'].innerHTML.includes('tl-card'), 'дерево «Память» рендерит карточки');
+  w('(s)=>{s.renderTimeline(s.document.querySelector("#homeTimeline")); return 1;}');
+  assert(registry['#homeTimeline'].innerHTML.includes('tl-card'), 'дерево «Память» рендерит карточки');
 
   // --- Фаза 5: ось времени ---
   const ty = w(`(s)=>s.timelineYears([{date:'2026-05-01'},{date:'2026-01-02'},{date:'2025-12-31'},{date:'2024-03-01'}])`);
@@ -1241,14 +1240,13 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w(`(s)=>{ s.db.events.push({ id: 'axis1', title: 'Ось', date: '2025-05-01', emoji: '💜', repeat: false }); s.renderTimeline(s.document.querySelector('#homeTimeline')); return 1; }`);
   const axisHtml = registry['#homeTimeline'].innerHTML;
   assert(axisHtml.includes('axis-year-label') && axisHtml.includes('axis-now'), 'ось: метки годов и точка «сейчас» на Главной');
-  w('(s)=>{s.renderMemory(); return 1;}');
-  assert(registry['#memoryFeed'].innerHTML.includes('axis-day'), '«Память» рисуется тем же кодом оси');
+  assert(axisHtml.includes('axis-day'), '«Память» рисуется тем же кодом оси');
   w(`(s)=>{ s.db.events = s.db.events.filter(e => e.id !== 'axis1'); return 1; }`);
 
   // --- Память: фото ряда сворачиваются (3 сразу, остальные за кнопкой «ещё») ---
   w('(s)=>{s.db.photos=' + JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ id: 'mp' + i, takenAt: new Date(2025, 7, 7).getTime(), title: 'Ф' + i }))) + '; return 1;}');
-  w('(s)=>{s.renderMemory(); return 1;}');
-  const memHtml = registry['#memoryFeed'].innerHTML;
+  w('(s)=>{s.renderTimeline(s.document.querySelector("#homeTimeline")); return 1;}');
+  const memHtml = registry['#homeTimeline'].innerHTML;
   assert((memHtml.match(/data-tl-expand/g) || []).length === 1, 'память: при 10 фото дня есть одна кнопка «ещё»');
   assert((memHtml.match(/tl-more-photo/g) || []).length === 7, 'память: скрыты фото сверх превью (10−3=7)');
   assert((memHtml.match(/<img/g) || []).length === 10, 'память: в HTML остаются все фото, скрытые — display:none');
@@ -1371,7 +1369,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(!mbDeleted.some(d => d.dates && d.dates.length > 0), 'память: после удаления свиданий — пусто');
 
   // --- Навигация фаз 4–6: пять вкладок, «Наше» собирает три экрана ---
-  assert(JSON.stringify(w('(s)=>s.BOTTOM_PRIMARY')) === '["home","calendar","photos","our","memory"]', 'навигация: Главная, Календарь, Фото, Наше, Память');
+  assert(JSON.stringify(w('(s)=>s.BOTTOM_PRIMARY')) === '["home","calendar","photos","our"]', 'навигация: Главная, Календарь, Фото, Наше');
   assert(w('(s)=>s.BOTTOM_PRIMARY').length === new Set(w('(s)=>s.BOTTOM_PRIMARY')).size, 'навигация: вкладки без повторов');
   w('(s)=>{s.localStorage.removeItem("universe_our_tab"); return 1;}');
   assert(w('(s)=>s.resolveView("our")') === 'notes', '«Наше» без истории открывает Заметки');

@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 
-const VIEWS = ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'memory', 'settings'];
+const VIEWS = ['home', 'calendar', 'notes', 'lists', 'wishlist', 'photos', 'settings'];
 const SIZES = { phone: { width: 390, height: 844 }, desk: { width: 1280, height: 900 } };
 const CSS_PATH = path.join(__dirname, '..', 'styles.css');
 
