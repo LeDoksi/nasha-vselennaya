@@ -6,6 +6,15 @@
 
 ---
 
+## 0g-4. ⚡ Фаза 4 редизайна влита (26.09.2026)
+
+- Навигация: `BOTTOM_PRIMARY = ['home','calendar','photos','our','memory']`. `our` — псевдо-вкладка, `resolveView()` раскрывает её в последний из `OUR_TABS` (ключ `universe_our_tab`). `activeView` всегда настоящий экран, адрес — `#/notes` и т.п.
+- Модалки — нативные `<dialog class="overlay">`. Открывать/закрывать **только** `openOverlay(id)` / `closeOverlay(id)`: они держат `hidden` в согласии с `open` (на `hidden` смотрят тесты и `90-effects-init.js`). Esc → `cancel` → `closeOverlay` (`src/63-sheet.js`).
+- Календарик `#datePop` и тост `#appToast` — `popover="manual"` через `setPopover(el, on)`: иначе они под затемнением top layer.
+- Шторка на ≤820 px: ручка `.sheet-grip`, `sheetShouldClose(dy, ms)` (96 px или 0.6 px/мс).
+
+---
+
 ## 0f. ⚡ Снимок состояния (25.09.2026) — САМЫЙ СВЕЖИЙ, читай сначала этот
 
 **Фазы 2–3 рефакторинга: распил кода на модули, архитектурные уточнения, ветка фаз 2–3 (`worktree-redesign-phase-2-3`).**
