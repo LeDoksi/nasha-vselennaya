@@ -163,7 +163,7 @@
 } /* /tokens */
 
 @layer base {
-html{scroll-behavior:smooth}
+html{scroll-behavior:smooth;scrollbar-gutter:stable}
 body{
   font-family:var(--font-ui);
   background:var(--sky-0);
@@ -554,7 +554,7 @@ html:has(.overlay[open]){overflow:hidden}
 .modal{
   background:var(--sky-1);border-radius:var(--radius-sheet);padding:28px;width:min(420px,100%);
   display:flex;flex-direction:column;gap:12px;position:relative;animation:pop .3s ease;
-  max-height:92vh;overflow-y:auto;
+  max-height:92vh;overflow-y:auto;overscroll-behavior:contain;
 }
 @keyframes pop{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}
 .modal h3{font-size:var(--text-lg)}
@@ -572,7 +572,7 @@ html:has(.overlay[open]){overflow:hidden}
 .ev-head{flex:none;background:var(--star);color:var(--void);padding:22px 26px 18px;border-bottom:1px solid oklch(from var(--void) l c h / .2)}
 .ev-head h3{color:var(--void);font-size:var(--text-lg)}
 .ev-head-sub{color:oklch(from var(--void) l c h / .78);font-size:var(--text-sm);font-weight:600;margin-top:2px}
-.event-modal .modal-x{top:16px;right:16px;background:oklch(from var(--void) l c h / .14);border-color:transparent;color:var(--void)}
+.event-modal .modal-x{top:16px;right:16px;z-index:2;background:oklch(from var(--void) l c h / .14);border-color:transparent;color:var(--void)}
 .event-modal .modal-x:hover{background:oklch(from var(--void) l c h / .26)}
 .ev-body{flex:1;min-height:0;overflow-y:auto;padding:22px 26px 26px;display:flex;flex-direction:column;gap:12px}
 .ev-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -600,7 +600,10 @@ html:has(.overlay[open]){overflow:hidden}
   }
   .overlay:not(.lightbox) .modal.sheet-dragging{transition:none}
   @starting-style{.overlay[open]:not(.lightbox) .modal{transform:translateY(100%)}}
-  .sheet-grip{display:block;flex:none;height:28px;margin:-28px -28px 0;touch-action:none;cursor:grab}
+  /* sticky — иначе ручка была обычным первым child внутри прокручиваемого
+     .modal (overflow-y:auto) и уезжала вместе с контентом, забирая с собой
+     единственный способ смахнуть шторку пальцем вниз. */
+  .sheet-grip{display:block;flex:none;height:28px;margin:-28px -28px 0;touch-action:none;cursor:grab;position:sticky;top:0;z-index:1}
   .sheet-grip::before{content:'';display:block;width:40px;height:4px;margin:12px auto 0;border-radius:var(--radius-pill);background:var(--line)}
   .event-modal .sheet-grip{margin:0;position:absolute;inset:0 0 auto;z-index:1}
 }
