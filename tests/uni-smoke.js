@@ -269,6 +269,7 @@ function __TEST__(s){
   s.shuffleHistoryPhotos = shuffleHistoryPhotos; s.historyPhotosHtml = historyPhotosHtml;
   Object.defineProperty(s, 'historyCollage', { get: () => historyCollage, set: v => { historyCollage = v; }, configurable: true });
   s.closeOverlay = closeOverlay;
+  s.sheetShouldClose = sheetShouldClose;
   s.openOverlay = openOverlay; s.setPopover = setPopover; s.notify = notify;
   s.buildBottomNav = buildBottomNav; s.onNavDocClick = onNavDocClick;
   s.BOTTOM_PRIMARY = BOTTOM_PRIMARY;
@@ -1448,6 +1449,12 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{s.openOverlay("testDialogA"); s.notify("A2"); s.openOverlay("testDialogB"); return 1;}');
   assert(pop._popoverHost === dlgB, 'открытие B поверх A переносит тост в новую верхнюю модалку');
   w('(s)=>{s.closeOverlay("testDialogB"); s.closeOverlay("testDialogA"); return 1;}'); // прибраться за собой
+
+  // --- Фаза 4: свайп шторки ---
+  assert(w('(s)=>s.sheetShouldClose(120, 400)') === true, 'шторка: протянули дальше порога — закрыть');
+  assert(w('(s)=>s.sheetShouldClose(40, 30)') === true, 'шторка: быстрый смах коротким ходом — закрыть');
+  assert(w('(s)=>s.sheetShouldClose(40, 400)') === false, 'шторка: медленно и недалеко — вернуть на место');
+  assert(w('(s)=>s.sheetShouldClose(10, 5)') === false, 'шторка: дрожь пальца не закрывает');
 
   // --- Модуль облака фото (src/95-photos-cloud.js) не падает на повторных
   // вызовах init/stop (например, при смене пользователя без перезагрузки) ---

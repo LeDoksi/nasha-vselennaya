@@ -108,6 +108,41 @@ async function checkPhotosReorder(page, log) {
   return ok;
 }
 
+// Шторка (фаза 4): на ширине телефона короткий медленный рывок за ручку
+// возвращает шторку, длинный — закрывает.
+async function checkSheetSwipe(browser, log) {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => window.__demoReady === true, null, { timeout: 15000 });
+  await page.evaluate(() => {
+    document.startViewTransition = undefined;
+    closeOverlay('dateInviteOverlay');
+    openDateModal();
+  });
+  await page.waitForTimeout(600); // пружина появления
+  const drag = async (dy, stepMs) => {
+    const g = await page.locator('#dateOverlay .sheet-grip').boundingBox();
+    const x = g.x + g.width / 2,
+      y = g.y + g.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i++) {
+      await page.mouse.move(x, y + (dy * i) / 10);
+      await page.waitForTimeout(stepMs);
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+  };
+  await drag(40, 60);
+  const stayed = !(await page.evaluate(() => document.getElementById('dateOverlay').hidden));
+  await drag(220, 15);
+  const closed = await page.evaluate(() => document.getElementById('dateOverlay').hidden);
+  await page.close();
+  const ok = stayed && closed;
+  log.push((ok ? 'OK' : 'FAIL') + ' шторка: короткий рывок — осталась=' + stayed + ', длинный — закрылась=' + closed);
+  return ok;
+}
+
 (async () => {
   const log = [];
   const scriptErrors = [];
@@ -146,6 +181,7 @@ async function checkPhotosReorder(page, log) {
     allOk = (await checkNotesReorder(page, log)) && allOk;
     allOk = (await checkListsReorder(page, log)) && allOk;
     allOk = (await checkPhotosReorder(page, log)) && allOk;
+    allOk = (await checkSheetSwipe(browser, log)) && allOk;
   } catch (e) {
     allOk = false;
     log.push('FAIL исключение: ' + (e && e.message ? e.message : String(e)));

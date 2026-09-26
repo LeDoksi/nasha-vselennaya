@@ -586,6 +586,24 @@ html:has(.overlay[open]){overflow:hidden}
 .event-modal input[type=date]{color-scheme:dark}
 [data-theme="light"] .event-modal input[type=date]{color-scheme:light}
 @media (max-width:420px){.ev-grid{grid-template-columns:1fr}}
+/* Шторка (фаза 4, спека 2.3): на телефоне модалка прижата к низу, приезжает
+   пружиной, тянется за ручку. Длительности — литералы до токенов фазы 8 (NV-60). */
+.sheet-grip{display:none}
+@media (max-width:820px){
+  .overlay:not(.lightbox){padding:0;place-items:end stretch}
+  .overlay:not(.lightbox) .modal{
+    width:100%;max-height:92dvh;animation:none;
+    border-radius:var(--radius-sheet) var(--radius-sheet) 0 0;
+    padding-bottom:calc(28px + env(safe-area-inset-bottom));
+    transform:translateY(var(--sheet-dy,0px));
+    transition:transform .42s cubic-bezier(.2,.8,.2,1);
+  }
+  .overlay:not(.lightbox) .modal.sheet-dragging{transition:none}
+  @starting-style{.overlay[open]:not(.lightbox) .modal{transform:translateY(100%)}}
+  .sheet-grip{display:block;flex:none;height:28px;margin:-28px -28px 0;touch-action:none;cursor:grab}
+  .sheet-grip::before{content:'';display:block;width:40px;height:4px;margin:12px auto 0;border-radius:var(--radius-pill);background:var(--line)}
+  .event-modal .sheet-grip{margin:0;position:absolute;inset:0 0 auto;z-index:1}
+}
 /* Кастомный date-picker (вместо системного календаря браузера) */
 input[type=date]::-webkit-calendar-picker-indicator{display:none;-webkit-appearance:none}
 input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-button{display:none;-webkit-appearance:none}
