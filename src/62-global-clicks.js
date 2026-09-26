@@ -9,7 +9,9 @@
 // скринридером (aria-live), хотя визуально он и так поверх затемнения через
 // top layer. topOverlayEl() — куда setPopover() (00-core.js) должен на время
 // показа переносить такой popover, чтобы он не терял интерактивность.
-let openOverlayStack = [];
+// openOverlayStack — в src/00-core.js (та же причина TDZ, что у toastTimer/
+// wishlistTab там: setPopover читает topOverlayEl() из top-level кода
+// 20-theme-nav.js раньше, чем выполнится этот файл).
 function topOverlayEl() {
   const id = openOverlayStack[openOverlayStack.length - 1];
   return id ? $('#' + id) : null;

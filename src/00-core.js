@@ -60,6 +60,14 @@ let toastTimer = null;
 // — объявлено тут, а не там, чтобы прямая ссылка #/wishlist не ловила TDZ
 // (см. комментарий у renderWishlist). null → renderWishlist подставит getUser().
 let wishlistTab = null;
+// Стек открытых модалок (используется topOverlayEl/openOverlay/closeOverlay,
+// см. src/62-global-clicks.js) — объявлен тут, а не там, по той же причине,
+// что toastTimer/wishlistTab выше: прямая ссылка #/notes|#/lists|#/wishlist
+// вызывает showView() из top-level кода 20-theme-nav.js ДО того, как
+// выполнится 62-global-clicks.js, а setPopover ниже уже читает
+// topOverlayEl() → без переноса сюда это TDZ (ReferenceError на
+// «openOverlayStack»), которая до старта интерфейса рвёт весь app.js.
+let openOverlayStack = [];
 // Поверх открытого <dialog> (top layer) z-index не пробивается — календарик
 // и тост поднимаются туда же как popover="manual". hidden держим в согласии:
 // на него смотрят тесты и CSS ([hidden]{display:none}).
@@ -74,7 +82,11 @@ function setPopover(el, on) {
     // closeOverlay сверяется с этим (не с DOM-деревом — appendChild в
     // песочнице тестов не настоящий), чтобы перенести popover ещё раз,
     // если модалка-хозяин закрылась, а сам popover остался «открытым».
-    const host = (typeof topOverlayEl === 'function' && topOverlayEl()) || (typeof document !== 'undefined' ? document.body : null);
+    // topOverlayEl — обычная function-декларация (поднимается целиком), а
+    // openOverlayStack, которую она читает, теперь лежит здесь же, в
+    // 00-core.js — TDZ ей не грозит, поэтому typeof-проверки самой функции
+    // не нужно (раньше она ничего не защищала: функция всегда была видна).
+    const host = topOverlayEl() || (typeof document !== 'undefined' ? document.body : null);
     if (host && el.parentNode !== host && typeof host.appendChild === 'function') host.appendChild(el);
     el._popoverHost = host;
   }
