@@ -11,6 +11,7 @@
 - Навигация: `BOTTOM_PRIMARY = ['home','calendar','photos','our','memory']`. `our` — псевдо-вкладка, `resolveView()` раскрывает её в последний из `OUR_TABS` (ключ `universe_our_tab`). `activeView` всегда настоящий экран, адрес — `#/notes` и т.п.
 - Модалки — нативные `<dialog class="overlay">`. Открывать/закрывать **только** `openOverlay(id)` / `closeOverlay(id)`: они держат `hidden` в согласии с `open` (на `hidden` смотрят тесты и `90-effects-init.js`). Esc → `cancel` → `closeOverlay` (`src/63-sheet.js`).
 - Календарик `#datePop` и тост `#appToast` — `popover="manual"` через `setPopover(el, on)`: иначе они под затемнением top layer.
+- `setPopover(el, true)` переносит попап в `topOverlayEl()` (открытый модальный `<dialog>` делает inert всё вне себя), а `closeOverlay` при закрытии этой модалки переносит тост обратно / закрывает календарик — любой новый попап обязан идти через `setPopover`, напрямую `showPopover`/`hidePopover` не дёргать.
 - Шторка на ≤820 px: ручка `.sheet-grip`, `sheetShouldClose(dy, ms)` (96 px или 0.6 px/мс).
 
 ---
