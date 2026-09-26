@@ -263,6 +263,7 @@ function __TEST__(s){
   s.makeThumbBlob = makeThumbBlob; s.canDraw = canDraw;
   s.photoDate = photoDate; s.onThisDayItems = onThisDayItems; s.memoryByDay = memoryByDay;
   s.renderMemory = renderMemory;
+  s.timelineYears = timelineYears; s.renderTimeline = renderTimeline; s.TIMELINE_PAGE = TIMELINE_PAGE;
   s.memoryPhotosHtml = memoryPhotosHtml; s.toggleMemoryPhotos = toggleMemoryPhotos;
   s.renderProgressRing = renderProgressRing;
   s.anniversaryInfo = anniversaryInfo; s.orbitGeometry = orbitGeometry; s.START_DATE = START_DATE;
@@ -1272,6 +1273,16 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{s.db.photos=[{id:"ph1", takenAt:new Date(2025,7,7).getTime(), title:"Лето"}]; return 1;}');
   w('(s)=>{s.renderMemory(); return 1;}');
   assert(registry['#memoryFeed'].innerHTML.includes('tl-card'), 'дерево «Память» рендерит карточки');
+
+  // --- Фаза 5: ось времени ---
+  const ty = w(`(s)=>s.timelineYears([{date:'2026-05-01'},{date:'2026-01-02'},{date:'2025-12-31'},{date:'2024-03-01'}])`);
+  assert(JSON.stringify(ty.map(y => [y.year, y.days.length])) === '[["2026",2],["2025",1],["2024",1]]', 'ось: дни группируются по годам подряд, порядок сохранён');
+  w(`(s)=>{ s.db.events.push({ id: 'axis1', title: 'Ось', date: '2025-05-01', emoji: '💜', repeat: false }); s.renderTimeline(s.document.querySelector('#homeTimeline')); return 1; }`);
+  const axisHtml = registry['#homeTimeline'].innerHTML;
+  assert(axisHtml.includes('axis-year-label') && axisHtml.includes('axis-now'), 'ось: метки годов и точка «сейчас» на Главной');
+  w('(s)=>{s.renderMemory(); return 1;}');
+  assert(registry['#memoryFeed'].innerHTML.includes('axis-day'), '«Память» рисуется тем же кодом оси');
+  w(`(s)=>{ s.db.events = s.db.events.filter(e => e.id !== 'axis1'); return 1; }`);
 
   // --- Память: фото ряда сворачиваются (3 сразу, остальные за кнопкой «ещё») ---
   w('(s)=>{s.db.photos=' + JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ id: 'mp' + i, takenAt: new Date(2025, 7, 7).getTime(), title: 'Ф' + i }))) + '; return 1;}');

@@ -213,59 +213,9 @@ function memoryByDay() {
   }
   return [...map.values()].filter(d => d.events.length || d.dates.length || d.photos.length).sort((a, b) => b.date.localeCompare(a.date));
 }
+// Вкладка «Память» — та же ось, что на Главной (src/36-timeline.js).
 function renderMemory() {
-  const feed = $('#memoryFeed');
-  if (!feed) return;
-  const days = memoryByDay();
-  if (!days.length) {
-    render(feed, html`<div class="empty-state rem-empty">Пока пусто 💜<br />Добавляйте события и фото — здесь сложится история вашей вселенной.</div>`);
-    return;
-  }
-  const groups = [];
-  let side = 0;
-  let gid = 0;
-  for (const day of days) {
-    const dt = parseLocalIso(day.date);
-    const label = dt ? dt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : day.date;
-    const cls = side % 2 === 0 ? 'tl-left' : 'tl-right';
-    const card = [html`<div class="tl-date">${label}</div>`];
-    if (day.photos.length) {
-      card.push(memoryPhotosHtml(day.photos, 'day' + gid++, 'tl-photos'));
-    }
-    for (const d of day.dates) {
-      const info = [d.place, d.time].filter(Boolean).join(' · ');
-      card.push(html`<div class="tl-item"><span class="tl-item-emoji">${d.emoji}</span><b>Свидание${info ? html` · ${info}` : ''}</b></div>`);
-      if (d.photos && d.photos.length) {
-        card.push(memoryPhotosHtml(d.photos, 'dt' + gid++, 'tl-item-photos'));
-      }
-    }
-    for (const ev of day.events) {
-      card.push(html`<div class="tl-item"><span class="tl-item-emoji">${ev.emoji}</span><b>${ev.title}</b></div>`);
-      if (ev.photos.length) {
-        card.push(memoryPhotosHtml(ev.photos, 'ev' + gid++, 'tl-item-photos'));
-      }
-    }
-    groups.push(
-      html`<div class="${cls}">
-        <div class="tl-dot"></div>
-        <div class="tl-card">${card}</div>
-      </div>`
-    );
-    side++;
-  }
-  render(
-    feed,
-    html`<div class="tl">
-      <div class="tl-stem"></div>
-      ${groups}
-    </div>`
-  );
-  hydratePhotoImgs(feed);
-  feed.querySelectorAll('[data-lightbox]').forEach(function (img) {
-    img.addEventListener('click', function () {
-      openLightboxFrom(img);
-    });
-  });
+  renderTimeline($('#memoryFeed'));
 }
 
 /* ===== Превью фото в «Памяти» ===== */

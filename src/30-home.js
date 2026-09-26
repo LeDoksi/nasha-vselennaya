@@ -34,6 +34,7 @@ function renderHome() {
   renderCountdown();
   // Фаза B: кольцо прогресса (в блоке — коллаж фото, события «в этот день», статистика)
   renderProgressRing();
+  renderTimeline($('#homeTimeline'));
   // Фото с data-photo-src (кэш миниатюр не прогрет) — заполняем src асинхронно
   hydratePhotoImgs($('#progressRing'));
   maybeCelebrateAnniversary(rem);

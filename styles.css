@@ -1025,14 +1025,23 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 /* Таймлайн-дерево «Память» */
 .view-title{font-family:var(--font-display);font-weight:400;font-size:var(--text-display);text-align:center;margin:6px 0 2px;color:var(--star)}
 .rem-empty{text-align:center;padding:40px 20px;color:var(--ink-2);font-size:var(--text-base)}
-.tl{position:relative;max-width:720px;margin:16px auto 40px;padding:10px 0}
-.tl-stem{position:absolute;left:50%;top:0;bottom:0;width:3px;background:var(--night);border-radius:var(--radius-pill);transform:translateX(-50%)}
-.tl-left,.tl-right{position:relative;width:50%;margin-bottom:28px}
-.tl-left{padding-right:28px}
-.tl-right{margin-left:50%;padding-left:28px}
-.tl-dot{position:absolute;top:16px;width:14px;height:14px;background:var(--star);border:3px solid var(--sky-0);border-radius:var(--radius-pill);z-index:2}
-.tl-left .tl-dot{right:-7px}
-.tl-right .tl-dot{left:-7px}
+/* Ось времени (фаза 5): световая нить, точки-дни, липкие годы */
+.home-timeline{margin-top:48px}
+.axis{position:relative;padding-left:32px}
+.axis::before{
+  content:'';position:absolute;left:11px;top:6px;bottom:0;width:2px;border-radius:var(--radius-pill);
+  background:linear-gradient(to bottom,var(--star),oklch(from var(--night) l c h / .6) 160px,oklch(from var(--night) l c h / .15));
+}
+.axis-dot{position:absolute;left:-26px;top:.4em;width:12px;height:12px;border-radius:var(--radius-pill);background:var(--sky-0);border:2px solid oklch(from var(--night) l c h / .8)}
+.axis-now{position:relative;margin-bottom:24px;font-size:var(--text-xs);font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--star-ink)}
+.axis-now .axis-dot{background:var(--star);border-color:var(--star);box-shadow:0 0 12px var(--star)}
+.axis-year-label{
+  position:sticky;top:calc(var(--header-h,64px) + 8px);z-index:2;width:max-content;margin:0 0 16px -32px;padding:4px 12px;
+  font-family:var(--font-display);font-size:var(--text-display);line-height:1;color:var(--ink);background:var(--sky-0);border-radius:var(--radius-pill);
+}
+.axis-day{position:relative;margin-bottom:24px}
+.axis-day .tl-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:16px}
+.axis-more{height:1px}
 .tl-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:14px;box-shadow:0 2px 12px oklch(from var(--night) l c h / .06);text-align:left}
 .tl-date{font-weight:800;color:var(--star-ink);margin-bottom:8px;font-size:var(--text-base)}
 .tl-photos{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;padding:2px 0}
@@ -1045,11 +1054,6 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .tl-item-photos img{height:70px;border-radius:var(--radius-media);object-fit:cover;flex-shrink:0;cursor:pointer}
 .tl-more-btn{align-self:center;border:1px dashed var(--star);background:transparent;color:var(--star-ink);border-radius:var(--radius-pill);padding:6px 10px;font-size:var(--text-sm);cursor:pointer;flex-shrink:0}
 .tl-more-btn:hover{background:var(--sky-0)}
-@media(max-width:640px){
-  .tl-stem{left:16px}
-  .tl-left,.tl-right{width:100%;margin-left:0!important;padding-left:42px!important;padding-right:0!important}
-  .tl-left .tl-dot,.tl-right .tl-dot{left:9px;right:auto}
-}
 
 /* ===== Фаза D: Glass-карточки — полупрозрачные + размытие фона =====
    Блок в конце файла: перекрывает сплошные фоны выше, чтобы слой неба мягко
