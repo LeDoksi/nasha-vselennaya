@@ -3,8 +3,7 @@
    слева, точки-дни, липкая метка года. Страницами по TIMELINE_PAGE дней:
    метка [data-axis-more] в конце попадает в экран — дорисовываем следующую
    (IntersectionObserver, как в галерее; ноль обработчиков scroll, спека 3.2).
-   Рисуется в любой контейнер с атрибутом data-axis: #homeTimeline на Главной
-   и #memoryFeed во вкладке «Память» (до Task 7 фаз 4–6, потом только Главная). */
+   Рисуется в контейнер с атрибутом data-axis — ось на Главной (#homeTimeline). */
 const TIMELINE_PAGE = 30;
 const timelineShown = new Map(); // контейнер → сколько дней уже раскрыто
 const timelineSentinel = new Map(); // контейнер → текущий наблюдаемый [data-axis-more] (чтобы не копить наблюдателей)
@@ -40,6 +39,11 @@ function renderTimeline(box, more) {
   if (!box) return;
   const days = memoryByDay();
   if (!days.length) {
+    // Пустая ось: старая метка [data-axis-more] из прошлого рендера уже не в DOM —
+    // отписываем её от observer'а, иначе он копит наблюдателей на удалённых узлах (утечка).
+    const prevSentinel = timelineSentinel.get(box);
+    if (prevSentinel && timelineObserver) timelineObserver.unobserve(prevSentinel);
+    timelineSentinel.delete(box);
     render(box, html`<div class="empty-state rem-empty">Пока пусто 💜<br />Добавляйте события и фото — здесь сложится история вашей вселенной.</div>`);
     return;
   }

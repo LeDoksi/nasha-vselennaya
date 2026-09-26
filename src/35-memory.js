@@ -67,8 +67,9 @@ function otdYear(dateStr) {
   return y ? y + ' год' : '';
 }
 
-// Отдельный виджет «В этот день» удалён — он дублировал коллаж «Наша история»:
-// фото «в этот день» встают в коллаж (см. 30-home.js), а события прошлых лет
+// Отдельный виджет «В этот день» удалён — он дублировал коллаж «Наша история»
+// (коллаж снят в фазе 5): фото «в этот день» используются в галерее большими
+// плитками (фаза 6, onThisDayItems → kind:'photo'), а события прошлых лет
 // показываются чипами прямо в блоке «Наша история» (renderProgressRing → .history-otd).
 
 /* ===== Кольцо прогресса до годовщины ===== */
@@ -108,6 +109,18 @@ function anniversaryInfo(at) {
   const pct = Math.max(0, Math.min(100, Math.round(((total - left) / total) * 100)));
   return { pct, left, total };
 }
+// Полных лет вместе по календарю (день/месяц/год), а не floor(days/365.25) —
+// иначе в день первой годовщины (365 дней) ещё показывало бы «0 лет».
+function yearsTogetherCalendar(at) {
+  const [sy, sm, sd] = START_DATE.split('-').map(Number);
+  const now = at || new Date();
+  const cur = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = new Date(sy, sm - 1, sd);
+  let years = cur.getFullYear() - start.getFullYear();
+  const annivThisYear = new Date(cur.getFullYear(), start.getMonth(), start.getDate());
+  if (cur < annivThisYear) years--;
+  return Math.max(0, years);
+}
 // Орбита в SVG 200×200 с центром (100,100): дуга прогресса и звезда на её конце.
 // Угол — от 12 часов по часовой (дуга повёрнута на -90° тем же способом).
 function orbitGeometry(pct, r) {
@@ -121,7 +134,7 @@ function renderProgressRing(at) {
   const days = daysTogether();
   const info = anniversaryInfo(at);
   const geo = orbitGeometry(info.pct, 92);
-  const yearsTogether = Math.floor(days / 365.25);
+  const yearsTogether = yearsTogetherCalendar(at);
   // Статистика под кольцом — чем заполнена наша история (v7)
   const wishDone = db.wishlist.filter(w => w.done).length;
   const wishTotal = db.wishlist.length;
@@ -137,7 +150,7 @@ function renderProgressRing(at) {
       >🎁 ${wishLabel}<span class="hs-bar"><i style="width:${wishPct}%"></i></span></span
     >`;
   // «В этот день» (только когда есть события/свидания прошлых лет): чипы под кольцом.
-  // Фото «в этот день» уже встали в коллаж выше — здесь только события и свидания, без дублей.
+  // Фото «в этот день» используются в галерее (фаза 6) — здесь только события и свидания, без дублей.
   const otdEvents = onThisDayItems(at || new Date()).filter(it => it.kind === 'event' || it.kind === 'date');
   const otdRow = otdEvents.length
     ? html`<div class="history-otd">
@@ -157,7 +170,9 @@ function renderProgressRing(at) {
         <div class="orbit-center"><b class="orbit-days">${days}</b><span>${pluralDays(days)} вместе</span></div>
       </div>
       <p class="orbit-sub">
-        ${yearsTogether > 0 ? yearsTogether + ' ' + pluralYears(yearsTogether) + ' · ' : ''}до годовщины ${info.left} ${pluralDays(info.left)} · с ${fmtShort(START_DATE)}
+        ${yearsTogether > 0 ? yearsTogether + ' ' + pluralYears(yearsTogether) + ' · ' : ''}${
+          info.left === info.total ? 'сегодня годовщина' : 'до годовщины ' + info.left + ' ' + pluralDays(info.left)
+        } · с ${fmtShort(START_DATE)}
       </p>
       ${otdRow}
       <div class="history-stats">${stats}</div>`
@@ -230,10 +245,10 @@ function memoryPhotosHtml(photos, groupId, rowCls) {
   </div>`;
 }
 // Переключатель «Показать ещё N фото ⇄ Свернуть». Возвращает 'more' | 'less' | null.
-// Принимает саму строку (не groupId) — #homeTimeline и #memoryFeed рисуют один и
-// тот же memoryByDay() и получают одинаковые groupId (day0, dt1, ev2…), поэтому
-// поиск по document.querySelector('[data-photo-group="…"]') находил ПЕРВУЮ
-// попавшуюся копию (обычно скрытую на Главной), а не ту, где реально кликнули.
+// Принимает саму строку (не groupId): ось на Главной (#homeTimeline, контейнер
+// с data-axis) — единственное место, где рисуется memoryByDay(), поэтому строку
+// берём напрямую из клика, а не глобальным поиском document.querySelector('[data-photo-group="…"]')
+// — раньше это находило ПЕРВУЮ попавшуюся копию, когда groupId дублировался в двух контейнерах.
 function toggleMemoryPhotos(row) {
   if (!row) return null;
   const collapse = row.dataset.expanded === '1';

@@ -688,7 +688,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 /* ===== Летающие сердечки ===== */
 /* z-index:-1 — как у .sky: декор заднего плана, а не поверх контента.
    Раньше был z-index:0, тот же уровень, что у обычных (непозиционированных)
-   элементов вроде .hero-card — при равном z-index позже добавленный в DOM
+   элементов вроде .date-card — при равном z-index позже добавленный в DOM
    выигрывает отрисовку, а сердечки добавляются в body последними, поэтому
    летели прямо поверх текста карточки (особенно заметно на узких экранах,
    где текст «с 30 марта 2026» занимает больше относительной ширины). */
@@ -997,7 +997,6 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .hs-otd-chip small{color:var(--ink-2);font-weight:600}
 
 /* Таймлайн-дерево «Память» */
-.view-title{font-family:var(--font-display);font-weight:400;font-size:var(--text-display);text-align:center;margin:6px 0 2px;color:var(--star)}
 .rem-empty{text-align:center;padding:40px 20px;color:var(--ink-2);font-size:var(--text-base)}
 /* Ось времени (фаза 5): световая нить, точки-дни, липкие годы */
 .home-timeline{margin-top:48px}
@@ -1014,7 +1013,6 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
   font-family:var(--font-display);font-size:var(--text-display);line-height:1;color:var(--ink);background:var(--sky-0);border-radius:var(--radius-pill);
 }
 .axis-day{position:relative;margin-bottom:24px}
-.axis-day .tl-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:16px}
 .axis-more{height:1px}
 .tl-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:14px;box-shadow:0 2px 12px oklch(from var(--night) l c h / .06);text-align:left}
 .tl-date{font-weight:800;color:var(--star-ink);margin-bottom:8px;font-size:var(--text-base)}
