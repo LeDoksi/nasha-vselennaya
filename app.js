@@ -2690,8 +2690,11 @@ function memoryPhotosHtml(photos, groupId, rowCls) {
   </div>`;
 }
 // Переключатель «Показать ещё N фото ⇄ Свернуть». Возвращает 'more' | 'less' | null.
-function toggleMemoryPhotos(groupId) {
-  const row = document.querySelector('[data-photo-group="' + groupId + '"]');
+// Принимает саму строку (не groupId) — #homeTimeline и #memoryFeed рисуют один и
+// тот же memoryByDay() и получают одинаковые groupId (day0, dt1, ev2…), поэтому
+// поиск по document.querySelector('[data-photo-group="…"]') находил ПЕРВУЮ
+// попавшуюся копию (обычно скрытую на Главной), а не ту, где реально кликнули.
+function toggleMemoryPhotos(row) {
   if (!row) return null;
   const collapse = row.dataset.expanded === '1';
   const hidden = row.querySelectorAll ? row.querySelectorAll('.tl-more-photo') : [];
@@ -2710,7 +2713,7 @@ function toggleMemoryPhotos(groupId) {
 }
 document.addEventListener('click', e => {
   const btn = e.target && e.target.closest ? e.target.closest('[data-tl-expand]') : null;
-  if (btn) toggleMemoryPhotos(btn.dataset.tlExpand);
+  if (btn) toggleMemoryPhotos(btn.closest('[data-photo-group]'));
 });
 /* ===== Ось времени: Главная продолжается в прошлое (фаза 5, спека 2.2) =====
    Те же дни, что у «Памяти» (memoryByDay), одной колонкой: световая нить
@@ -2721,6 +2724,7 @@ document.addEventListener('click', e => {
    и #memoryFeed во вкладке «Память» (до Task 7 фаз 4–6, потом только Главная). */
 const TIMELINE_PAGE = 30;
 const timelineShown = new Map(); // контейнер → сколько дней уже раскрыто
+const timelineSentinel = new Map(); // контейнер → текущий наблюдаемый [data-axis-more] (чтобы не копить наблюдателей)
 
 function timelineYears(days) {
   const out = [];
@@ -2777,7 +2781,13 @@ function renderTimeline(box, more) {
   );
   hydratePhotoImgs(box);
   box.querySelectorAll('[data-lightbox]').forEach(img => img.addEventListener('click', () => openLightboxFrom(img)));
-  const sentinel = box.querySelectorAll('[data-axis-more]')[0];
+  // Каждый рендер (в т.ч. живое обновление из Firestore) рисует новую метку
+  // [data-axis-more] — старую надо отписать явно, иначе IntersectionObserver
+  // копит наблюдателей на уже удалённых из DOM узлах (утечка).
+  const prevSentinel = timelineSentinel.get(box);
+  if (prevSentinel && timelineObserver) timelineObserver.unobserve(prevSentinel);
+  const sentinel = box.querySelectorAll('[data-axis-more]')[0] || null;
+  timelineSentinel.set(box, sentinel);
   if (sentinel && timelineObserver) timelineObserver.observe(sentinel);
 }
 

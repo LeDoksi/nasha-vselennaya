@@ -7,6 +7,7 @@
    и #memoryFeed во вкладке «Память» (до Task 7 фаз 4–6, потом только Главная). */
 const TIMELINE_PAGE = 30;
 const timelineShown = new Map(); // контейнер → сколько дней уже раскрыто
+const timelineSentinel = new Map(); // контейнер → текущий наблюдаемый [data-axis-more] (чтобы не копить наблюдателей)
 
 function timelineYears(days) {
   const out = [];
@@ -63,7 +64,13 @@ function renderTimeline(box, more) {
   );
   hydratePhotoImgs(box);
   box.querySelectorAll('[data-lightbox]').forEach(img => img.addEventListener('click', () => openLightboxFrom(img)));
-  const sentinel = box.querySelectorAll('[data-axis-more]')[0];
+  // Каждый рендер (в т.ч. живое обновление из Firestore) рисует новую метку
+  // [data-axis-more] — старую надо отписать явно, иначе IntersectionObserver
+  // копит наблюдателей на уже удалённых из DOM узлах (утечка).
+  const prevSentinel = timelineSentinel.get(box);
+  if (prevSentinel && timelineObserver) timelineObserver.unobserve(prevSentinel);
+  const sentinel = box.querySelectorAll('[data-axis-more]')[0] || null;
+  timelineSentinel.set(box, sentinel);
   if (sentinel && timelineObserver) timelineObserver.observe(sentinel);
 }
 

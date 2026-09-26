@@ -1257,8 +1257,23 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
     'memoryPhotosHtml: кнопка показывает число скрытых'
   );
   assert(!w('(s)=>s.memoryPhotosHtml([{id:"a",title:"1"},{id:"b",title:"2"}],"g2","tl-photos")').includes('data-tl-expand'), 'memoryPhotosHtml: при <=3 фото кнопки нет');
-  assert(w('(s)=>s.toggleMemoryPhotos("g1")') === 'more', 'память: первый клик раскрывает скрытые фото');
-  assert(w('(s)=>s.toggleMemoryPhotos("g1")') === 'less', 'память: повторный клик сворачивает обратно');
+  // toggleMemoryPhotos принимает саму строку, а не groupId: #homeTimeline и
+  // #memoryFeed рендерят один и тот же memoryByDay() и получают одинаковые
+  // groupId (day0, dt1, ev2…) — поиск по groupId находил ПЕРВУЮ попавшуюся
+  // копию (обычно скрытую на Главной), а не ту, где реально кликнули (ревью, round 1).
+  const toggleRes = w(`(s)=>{
+    const mkRow = () => ({
+      dataset: { moreCount: '1' }, _hidden: [{ style: {} }], _btn: { textContent: '' },
+      querySelectorAll(sel) { return sel === '.tl-more-photo' ? this._hidden : sel === '[data-tl-expand]' ? [this._btn] : []; }
+    });
+    const home = mkRow(), memory = mkRow();
+    const r1 = s.toggleMemoryPhotos(memory);
+    const r2 = s.toggleMemoryPhotos(memory);
+    return { r1, r2, homeUntouched: home.dataset.expanded === undefined, memoryBtnText: memory._btn.textContent };
+  }`);
+  assert(toggleRes.r1 === 'more' && toggleRes.r2 === 'less', 'память: первый клик раскрывает скрытые фото, повторный — сворачивает');
+  assert(toggleRes.homeUntouched, 'toggleMemoryPhotos правит только переданную строку — одноимённая копия в другом контейнере не трогается');
+  assert(toggleRes.memoryBtnText === 'Показать ещё 1', 'после сворачивания кнопка возвращает исходный счётчик');
   // «В этот день» больше не отдельный виджет: события прошлых лет — чипами в блоке «Наша история»
   w('(s)=>{s.renderProgressRing(new Date(2026,7,7)); return 1;}');
   assert(registry['#progressRing'].innerHTML.includes('history-otd'), 'в этот день: чипы событий в блоке истории');

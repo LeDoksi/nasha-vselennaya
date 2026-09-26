@@ -235,8 +235,11 @@ function memoryPhotosHtml(photos, groupId, rowCls) {
   </div>`;
 }
 // Переключатель «Показать ещё N фото ⇄ Свернуть». Возвращает 'more' | 'less' | null.
-function toggleMemoryPhotos(groupId) {
-  const row = document.querySelector('[data-photo-group="' + groupId + '"]');
+// Принимает саму строку (не groupId) — #homeTimeline и #memoryFeed рисуют один и
+// тот же memoryByDay() и получают одинаковые groupId (day0, dt1, ev2…), поэтому
+// поиск по document.querySelector('[data-photo-group="…"]') находил ПЕРВУЮ
+// попавшуюся копию (обычно скрытую на Главной), а не ту, где реально кликнули.
+function toggleMemoryPhotos(row) {
   if (!row) return null;
   const collapse = row.dataset.expanded === '1';
   const hidden = row.querySelectorAll ? row.querySelectorAll('.tl-more-photo') : [];
@@ -255,5 +258,5 @@ function toggleMemoryPhotos(groupId) {
 }
 document.addEventListener('click', e => {
   const btn = e.target && e.target.closest ? e.target.closest('[data-tl-expand]') : null;
-  if (btn) toggleMemoryPhotos(btn.dataset.tlExpand);
+  if (btn) toggleMemoryPhotos(btn.closest('[data-photo-group]'));
 });
