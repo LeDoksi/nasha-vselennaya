@@ -278,7 +278,7 @@ h3{font-weight:800}
   font-family:var(--font-display);font-size:clamp(34px,6vw,54px);font-weight:400;margin-bottom:6px;
   color:var(--star);
 }
-.hero-names{font-family:var(--font-display);font-size:clamp(22px,3.4vw,30px);font-weight:400;color:var(--star)}
+.hero-names{font-family:var(--font-display);font-size:clamp(22px,3.4vw,30px);font-weight:400;color:var(--star-ink)}
 .hero-names span{color:var(--night);margin:0 8px}
 
 /* ===== Главная: герой ===== */
@@ -903,7 +903,7 @@ body:not(.auth) .auth-screen{display:none}
   display:flex;flex-direction:column;gap:12px;animation:pop .4s ease;
 }
 .auth-logo{font-size:44px;line-height:1}
-.auth-card h1{font-family:var(--font-display);font-size:28px;font-weight:400;color:var(--star)}
+.auth-card h1{font-family:var(--font-display);font-size:28px;font-weight:400;color:var(--star-ink)}
 .auth-sub{color:var(--ink-2);font-size:var(--text-base);margin:-4px 0 6px;line-height:1.5}
 .auth-card input[type=password],.auth-card select{width:100%;text-align:center;font-size:var(--text-md);letter-spacing:2px}
 .auth-card select{letter-spacing:normal;text-align:left}
