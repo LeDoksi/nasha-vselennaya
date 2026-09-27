@@ -1,5 +1,6 @@
 const fs = require('fs');
 const { makeFsMock } = require('./fs-mock.js');
+const { quietConsole } = require('./quiet-console.js');
 const file = process.argv[2];
 let src = fs.readFileSync(file, 'utf8');
 const mock = makeFsMock();
@@ -308,14 +309,6 @@ function __TEST__(s){
   s.openLightbox = openLightbox; s.openLightboxFrom = openLightboxFrom;
   s.lbNav = lbNav; s.lbZoomTo = lbZoomTo; s.lbZoomToggle = lbZoomToggle; s.lbClose = lbClose; s.lbRender = lbRender;
 }`;
-// Облака в этом тесте нет по построению — ожидаемые «[photo-sync] …» из
-// src/95-photos-*.js только засыпали вывод npm run check, и в нём терялись
-// настоящие предупреждения (NV-97). Глушим ровно этот префикс.
-const quietConsole = Object.assign(Object.create(console), {
-  warn: (...a) => {
-    if (!String(a[0]).startsWith('[photo-sync]')) console.warn(...a);
-  }
-});
 const wrapped = new Function(
   'sandbox',
   'document',

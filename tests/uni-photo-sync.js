@@ -9,6 +9,7 @@
    ключ) не считаются мусором и не трогаются.
    Запуск: node tests\uni-photo-sync.js app.js */
 const fs = require('fs');
+const { quietConsole } = require('./quiet-console.js');
 const file = process.argv[2];
 let src = fs.readFileSync(file, 'utf8');
 
@@ -289,14 +290,6 @@ function __TEST__(s){
 }
 `;
 
-// Облака в этом тесте нет по построению — ожидаемые «[photo-sync] …» из
-// src/95-photos-*.js только засыпали вывод npm run check, и в нём терялись
-// настоящие предупреждения (NV-97). Глушим ровно этот префикс.
-const quietConsole = Object.assign(Object.create(console), {
-  warn: (...a) => {
-    if (!String(a[0]).startsWith('[photo-sync]')) console.warn(...a);
-  }
-});
 const wrapped = new Function(
   'sandbox',
   'document',
