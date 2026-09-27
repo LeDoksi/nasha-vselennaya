@@ -5440,11 +5440,11 @@ function renderLabelManageList() {
         editing
           ? html`<input type="text" class="label-name-editor" id="labelNameEdit-${l.id}" value="${l.name}">
            <button class="mini-x" data-save-label="${l.id}" title="Сохранить" aria-label="Сохранить">${navIconHtml('check')}</button>
-           <button class="mini-x" data-cancel-label title="Отмена">✕</button>`
+           <button class="mini-x" data-cancel-label title="Отмена" aria-label="Отмена">✕</button>`
           : html`<span class="label-row-name">${l.name}</span>
            <span class="label-row-count">${count} фото</span>
-           <button class="mini-x" data-edit-label="${l.id}" title="Переименовать">${navIconHtml('pencil')}</button>
-           <button class="mini-x" data-del-label="${l.id}" title="Удалить лейбл">${navIconHtml('trash')}</button>`
+           <button class="mini-x" data-edit-label="${l.id}" title="Переименовать" aria-label="Переименовать">${navIconHtml('pencil')}</button>
+           <button class="mini-x" data-del-label="${l.id}" title="Удалить лейбл" aria-label="Удалить лейбл">${navIconHtml('trash')}</button>`
       }
     </div>${pickerOpen ? html`<div class="label-color-picker">${LABEL_COLORS.map(c => html`<button type="button" class="label-swatch${c === l.color ? ' active' : ''}" data-label-set-color="${l.id}" data-color="${c}" style="background:${c}"></button>`)}</div>` : ''}`;
     })}`

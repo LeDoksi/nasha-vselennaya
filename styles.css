@@ -434,7 +434,7 @@ h3{font-weight:800}
   cursor:pointer;font-size:var(--text-sm);color:var(--ink-2);transition:background .2s,color .2s;
 }
 .mini-x:hover{background:var(--sky-2);color:var(--ink)}
-.mini-x[data-del-event]:hover,.mini-x[data-del-date]:hover,.mini-x[data-del-note]:hover,.mini-x[data-del-item]:hover,.mini-x[data-wish-del]:hover{background:oklch(from var(--danger) l c h / .16);color:var(--danger-ink)}
+.mini-x[data-del-event]:hover,.mini-x[data-del-date]:hover,.mini-x[data-del-note]:hover,.mini-x[data-del-item]:hover,.mini-x[data-wish-del]:hover,.mini-x[data-del-label]:hover{background:oklch(from var(--danger) l c h / .16);color:var(--danger-ink)}
 
 /* ===== Заметки ===== */
 .note-add{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:flex-end}
