@@ -822,10 +822,13 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
    создалась, вне экрана. На десктопе прилипает под шапкой (64px — её
    реальная высота), на мобиле (<=820px, свой блок ниже) — фиксируется снизу
    над нижней навигацией: куда ни докрутишь после выбора, панель всегда на виду. */
+/* Тихая поверхность, не янтарная плашка (ревью раунд 1, NV-59): панель сама
+   и кнопки внутри неё были одним и тем же акцентом — «одна янтарная кнопка
+   на экран» через это нарушалась массово. Кнопки внутри — .btn-ghost. */
 .sel-bar{
   display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;
-  background:var(--star);color:var(--void);padding:10px 14px;border-radius:var(--radius-card);
-  box-shadow:0 6px 16px oklch(from var(--star) l c h / .25);
+  background:var(--sky-2);color:var(--ink);padding:10px 14px;border-radius:var(--radius-card);
+  border:1px solid var(--line);
   position:sticky;top:64px;z-index:40;
 }
 .sel-bar .btn{box-shadow:none}
