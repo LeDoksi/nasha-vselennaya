@@ -216,7 +216,7 @@ body{
    перебивает фон/рамку/тень своим более поздним правилом (тот же урок 2,
    что у .btn-ghost.btn-sm). */
 .btn.theme-toggle{padding:9px 12px;background:var(--sky-1);color:var(--ink-2);border:1px solid var(--line);box-shadow:none}
-.btn.theme-toggle:hover{border-color:var(--star);color:var(--star-ink)}
+.btn.theme-toggle:hover{border-color:var(--ink-2);color:var(--ink)}
 /* Настройки переехали из ряда вкладок сюда, рядом с переключателем темы —
    .nav-btn даёт бесплатно active-подсветку и клик-делегат (см. 20-theme-nav.js),
    но пилюля из одного эмодзи выглядела бы слишком широкой — сузили padding. */
@@ -274,7 +274,7 @@ main{max-width:1100px;margin:0 auto;padding:28px 20px 90px}
 /* Вторичная кнопка (фаза 7): акцент один — у первичной .btn, всё остальное
    тихо. .danger — разрушительное действие, которое не должно кричать. */
 .btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--line);box-shadow:none}
-.btn-ghost:hover{border-color:var(--star)}
+.btn-ghost:hover{border-color:var(--ink-2)}
 .btn-ghost.danger{color:var(--danger-ink)}
 .btn-ghost.danger:hover{border-color:var(--danger-ink)}
 /* .btn-sm (ниже) красит фон акцентом для маленькой ПЕРВИЧНОЙ кнопки
@@ -376,14 +376,14 @@ h3{font-weight:800}
   font-family:var(--font-display);font-size:var(--text-display);line-height:1.1;color:var(--ink);cursor:pointer;
 }
 .cal-jump-year{color:var(--ink-2)}
-.cal-jump:hover{color:var(--star-ink)}
+.cal-jump:hover{color:var(--ink)}
 /* «Ближайшее: …» — кнопка-строка, тихая: ведёт к событию, не зовёт */
 .cal-jump-info{
   display:block;width:100%;margin:-4px 0 14px;padding:10px 14px;text-align:left;cursor:pointer;
   background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);
   font:inherit;font-size:var(--text-sm);font-weight:700;color:var(--ink-2);
 }
-.cal-jump-info:hover{border-color:var(--star);color:var(--ink)}
+.cal-jump-info:hover{border-color:var(--ink-2);color:var(--ink)}
 .cal-jump-info[hidden]{display:none}
 .calendar{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:14px;box-shadow:var(--shadow)}
 .cal-row{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
@@ -516,7 +516,7 @@ body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
   width:28px;height:28px;border-radius:var(--radius-pill);border:2px solid var(--line);background:transparent;
   cursor:pointer;flex:none;transition:background .2s,border-color .2s;color:var(--void);font-size:var(--text-sm);font-weight:900;
 }
-.check:hover{border-color:var(--star)}
+.check:hover{border-color:var(--ink-2)}
 .check[aria-pressed="true"]{background:var(--star);border-color:var(--star)}
 .check[aria-pressed="true"]::after{content:'✓'}
 .items li span{flex:1;word-break:break-word}
