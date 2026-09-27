@@ -28,7 +28,14 @@ function openOverlay(id) {
   const toast = $('#appToast');
   if (toast && !toast.hidden) setPopover(toast, true);
 }
+// Обратный перелёт лайтбокса (lbFlyBack, 85-lightbox.js) сам закрывает оверлей
+// (через closeOverlayNow) внутри перехода — closeOverlay лишь пробует его
+// запустить первым; не вышло (нет видимой миниатюры) — закрываем как обычно.
 function closeOverlay(id) {
+  if (id === 'lightbox' && lbFlyBack(() => closeOverlayNow(id))) return;
+  closeOverlayNow(id);
+}
+function closeOverlayNow(id) {
   const el = $('#' + id);
   if (!el) return;
   el.hidden = true;
@@ -47,7 +54,11 @@ function closeOverlay(id) {
   if (toast && !toast.hidden && toast._popoverHost === el) setPopover(toast, true);
   const pop = $('#datePop');
   if (pop && !pop.hidden && pop._popoverHost === el) closeDatePop();
-  if (id === 'lightbox') lbResetState(); // светбокс закрыт — сбрасываем список и зум
+  if (id === 'lightbox') {
+    lbResetState(); // светбокс закрыт — сбрасываем список и зум
+    const lbImg = $('#lightboxImg');
+    if (lbImg && lbImg.style) lbImg.style.viewTransitionName = '';
+  }
   if (id === 'eventOverlay') editingEventId = null;
   // Закрыли не ответив — запоминаем на время сессии, чтобы не всплывало
   // повторно при каждом заходе на главную (см. src/30-home.js).

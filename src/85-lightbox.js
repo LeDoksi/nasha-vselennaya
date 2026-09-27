@@ -95,12 +95,28 @@ function lbPhoto(src) {
   return w ? { id: w.photoId, title: w.text } : null;
 }
 
-function openLightbox(ids, idx) {
+// fromEl — миниатюра, из которой открыли: она и картинка лайтбокса на время
+// перехода носят одно имя lb-photo, браузер анимирует перелёт (спека 2.4).
+function openLightbox(ids, idx, fromEl) {
   lightboxList = Array.isArray(ids) ? ids.slice() : [];
   lightboxIdx = Math.max(0, Math.min(idx || 0, lightboxList.length ? lightboxList.length - 1 : 0));
   lightboxZoom = 1;
-  openOverlay('lightbox');
-  lbRender();
+  const img = $('#lightboxImg');
+  const show = () => {
+    openOverlay('lightbox');
+    lbRender();
+  };
+  if (fromEl && fromEl.style && img && img.style) {
+    fromEl.style.viewTransitionName = 'lb-photo';
+    const t = runViewTransition(() => {
+      fromEl.style.viewTransitionName = '';
+      img.style.viewTransitionName = 'lb-photo';
+      show();
+    });
+    if (t) return;
+    fromEl.style.viewTransitionName = '';
+  }
+  show();
 }
 // Открытие по клику: листаем среди всех кликабельных фото текущей группы/вкладки
 function openLightboxFrom(el) {
@@ -111,12 +127,33 @@ function openLightboxFrom(el) {
   const list = els.map(x => x.dataset.lightbox || x.dataset.photo);
   let at = list.indexOf(src);
   if (at < 0) at = 0;
-  openLightbox(list, at);
+  openLightbox(list, at, el);
 }
 function lbResetState() {
   lightboxList = [];
   lightboxIdx = 0;
   lightboxZoom = 1;
+}
+// Обратный перелёт: если миниатюра текущего фото видна на активной вкладке —
+// имя переезжает на неё, браузер анимирует возврат. true — переход запущен,
+// закрытие (close) выполнит он сам.
+function lbFlyBack(close) {
+  const img = $('#lightboxImg');
+  const id = lightboxList[lightboxIdx];
+  if (!id || !img || !img.style) return false;
+  const scope = '#view-' + activeView + ' ';
+  const to = document.querySelector(scope + '[data-photo="' + id + '"], ' + scope + '[data-lightbox="' + id + '"]');
+  if (!to || !to.style) return false;
+  const t = runViewTransition(() => {
+    img.style.viewTransitionName = '';
+    to.style.viewTransitionName = 'lb-photo';
+    close();
+  });
+  if (!t) return false;
+  const clear = () => (to.style.viewTransitionName = '');
+  if (t.finished && typeof t.finished.then === 'function') t.finished.then(clear, clear);
+  else clear();
+  return true;
 }
 function lbClose() {
   closeOverlay('lightbox'); // сброс состояния (lbResetState) делает closeOverlay

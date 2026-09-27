@@ -1522,6 +1522,21 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(registry['#lightbox'].hidden === true, 'светбокс закрывается');
   assert(w('(s)=>s.lightboxList.length') === 0, 'при закрытии список фото очищается');
 
+  // --- Фаза 6: плитка → лайтбокс общим элементом ---
+  w(`(s)=>{
+    s.document.startViewTransition = cb => { cb(); return { finished: Promise.resolve() }; };
+    const tile = { dataset: { photo: 'p1' }, style: {}, closest: () => null };
+    s.openLightbox(['p1'], 0, tile);
+    return 1;
+  }`);
+  assert(registry['#lightbox'].hidden === false, 'лайтбокс: открыт перелётом из плитки');
+  const lbImg = w('(s)=>s.document.querySelector("#lightboxImg")');
+  assert(lbImg.style.viewTransitionName === 'lb-photo', 'лайтбокс: имя перехода на картинке лайтбокса');
+  w('(s)=>{ s.closeOverlay("lightbox"); return 1; }');
+  assert(registry['#lightbox'].hidden === true, 'лайтбокс: закрыт обратным перелётом');
+  assert(lbImg.style.viewTransitionName === '', 'лайтбокс: имя снято с картинки');
+  w('(s)=>{ delete s.document.startViewTransition; return 1; }');
+
   // --- Фаза 4: модалки — нативный <dialog>, hidden и open всегда в согласии ---
   const dlg = w('(s)=>s.document.querySelector("#wishOverlay")'); // registry заполняется лениво
   let modalCalls = 0,

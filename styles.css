@@ -1066,6 +1066,9 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
    crossfade кнопки навигации «не нажимаются» ~0.3-0.5 с (баг Фазы D). */
 ::view-transition{pointer-events:none}
 ::view-transition-old(root),::view-transition-new(root){pointer-events:none;animation-duration:.32s;animation-timing-function:ease}
+/* Плитка ⇄ лайтбокс (фаза 6): перелёт общим элементом, длительность — литерал до NV-60 */
+::view-transition-group(lb-photo){animation-duration:.32s;animation-timing-function:cubic-bezier(.2,.8,.2,1)}
+::view-transition-old(lb-photo),::view-transition-new(lb-photo){height:100%;object-fit:cover}
 } /* /components */
 
 

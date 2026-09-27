@@ -1881,6 +1881,7 @@ function getTheme() {
 // сразу применяем изменения. Ошибки рендера и отменённые
 // переходы гасим здесь же, чтобы они не превращались в unhandledrejection с ложным
 // тостом «Не удалось сохранить», а быстрый повторный клик переключал вкладку мгновенно.
+// Возвращает объект перехода (для .finished) или false, если переход не запущен.
 function runViewTransition(apply) {
   if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function') return false;
   try {
@@ -1899,7 +1900,7 @@ function runViewTransition(apply) {
       // это всплывало необработанным отклонением и шумело в консоли (NV-10).
       if (t.ready && typeof t.ready.catch === 'function') t.ready.catch(() => {});
     }
-    return true;
+    return t || true;
   } catch (e) {
     return false;
   } // переход уже идёт — применяем мгновенно
@@ -4425,7 +4426,14 @@ function openOverlay(id) {
   const toast = $('#appToast');
   if (toast && !toast.hidden) setPopover(toast, true);
 }
+// Обратный перелёт лайтбокса (lbFlyBack, 85-lightbox.js) сам закрывает оверлей
+// (через closeOverlayNow) внутри перехода — closeOverlay лишь пробует его
+// запустить первым; не вышло (нет видимой миниатюры) — закрываем как обычно.
 function closeOverlay(id) {
+  if (id === 'lightbox' && lbFlyBack(() => closeOverlayNow(id))) return;
+  closeOverlayNow(id);
+}
+function closeOverlayNow(id) {
   const el = $('#' + id);
   if (!el) return;
   el.hidden = true;
@@ -4444,7 +4452,11 @@ function closeOverlay(id) {
   if (toast && !toast.hidden && toast._popoverHost === el) setPopover(toast, true);
   const pop = $('#datePop');
   if (pop && !pop.hidden && pop._popoverHost === el) closeDatePop();
-  if (id === 'lightbox') lbResetState(); // светбокс закрыт — сбрасываем список и зум
+  if (id === 'lightbox') {
+    lbResetState(); // светбокс закрыт — сбрасываем список и зум
+    const lbImg = $('#lightboxImg');
+    if (lbImg && lbImg.style) lbImg.style.viewTransitionName = '';
+  }
   if (id === 'eventOverlay') editingEventId = null;
   // Закрыли не ответив — запоминаем на время сессии, чтобы не всплывало
   // повторно при каждом заходе на главную (см. src/30-home.js).
@@ -5870,12 +5882,28 @@ function lbPhoto(src) {
   return w ? { id: w.photoId, title: w.text } : null;
 }
 
-function openLightbox(ids, idx) {
+// fromEl — миниатюра, из которой открыли: она и картинка лайтбокса на время
+// перехода носят одно имя lb-photo, браузер анимирует перелёт (спека 2.4).
+function openLightbox(ids, idx, fromEl) {
   lightboxList = Array.isArray(ids) ? ids.slice() : [];
   lightboxIdx = Math.max(0, Math.min(idx || 0, lightboxList.length ? lightboxList.length - 1 : 0));
   lightboxZoom = 1;
-  openOverlay('lightbox');
-  lbRender();
+  const img = $('#lightboxImg');
+  const show = () => {
+    openOverlay('lightbox');
+    lbRender();
+  };
+  if (fromEl && fromEl.style && img && img.style) {
+    fromEl.style.viewTransitionName = 'lb-photo';
+    const t = runViewTransition(() => {
+      fromEl.style.viewTransitionName = '';
+      img.style.viewTransitionName = 'lb-photo';
+      show();
+    });
+    if (t) return;
+    fromEl.style.viewTransitionName = '';
+  }
+  show();
 }
 // Открытие по клику: листаем среди всех кликабельных фото текущей группы/вкладки
 function openLightboxFrom(el) {
@@ -5886,12 +5914,33 @@ function openLightboxFrom(el) {
   const list = els.map(x => x.dataset.lightbox || x.dataset.photo);
   let at = list.indexOf(src);
   if (at < 0) at = 0;
-  openLightbox(list, at);
+  openLightbox(list, at, el);
 }
 function lbResetState() {
   lightboxList = [];
   lightboxIdx = 0;
   lightboxZoom = 1;
+}
+// Обратный перелёт: если миниатюра текущего фото видна на активной вкладке —
+// имя переезжает на неё, браузер анимирует возврат. true — переход запущен,
+// закрытие (close) выполнит он сам.
+function lbFlyBack(close) {
+  const img = $('#lightboxImg');
+  const id = lightboxList[lightboxIdx];
+  if (!id || !img || !img.style) return false;
+  const scope = '#view-' + activeView + ' ';
+  const to = document.querySelector(scope + '[data-photo="' + id + '"], ' + scope + '[data-lightbox="' + id + '"]');
+  if (!to || !to.style) return false;
+  const t = runViewTransition(() => {
+    img.style.viewTransitionName = '';
+    to.style.viewTransitionName = 'lb-photo';
+    close();
+  });
+  if (!t) return false;
+  const clear = () => (to.style.viewTransitionName = '');
+  if (t.finished && typeof t.finished.then === 'function') t.finished.then(clear, clear);
+  else clear();
+  return true;
 }
 function lbClose() {
   closeOverlay('lightbox'); // сброс состояния (lbResetState) делает closeOverlay

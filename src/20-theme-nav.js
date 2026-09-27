@@ -19,6 +19,7 @@ function getTheme() {
 // сразу применяем изменения. Ошибки рендера и отменённые
 // переходы гасим здесь же, чтобы они не превращались в unhandledrejection с ложным
 // тостом «Не удалось сохранить», а быстрый повторный клик переключал вкладку мгновенно.
+// Возвращает объект перехода (для .finished) или false, если переход не запущен.
 function runViewTransition(apply) {
   if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function') return false;
   try {
@@ -37,7 +38,7 @@ function runViewTransition(apply) {
       // это всплывало необработанным отклонением и шумело в консоли (NV-10).
       if (t.ready && typeof t.ready.catch === 'function') t.ready.catch(() => {});
     }
-    return true;
+    return t || true;
   } catch (e) {
     return false;
   } // переход уже идёт — применяем мгновенно
