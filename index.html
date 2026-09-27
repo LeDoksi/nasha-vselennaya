@@ -117,20 +117,19 @@
     <section class="view" id="view-calendar">
       <div class="cal-head">
         <div class="cal-nav-row">
-          <button class="cal-nav" id="calPrev">‹</button>
+          <button class="cal-nav" id="calPrev" aria-label="Предыдущий месяц">‹</button>
           <div class="cal-jump-row">
             <select class="cal-jump" id="calMonthSelect" aria-label="Выбрать месяц"></select>
-            <select class="cal-jump" id="calYearSelect" aria-label="Выбрать год"></select>
+            <select class="cal-jump cal-jump-year" id="calYearSelect" aria-label="Выбрать год"></select>
           </div>
-          <button class="cal-nav" id="calNext">›</button>
+          <button class="cal-nav" id="calNext" aria-label="Следующий месяц">›</button>
         </div>
         <div class="cal-actions">
-          <button class="btn" id="jumpNextBtn" title="Перейти к ближайшему событию или свиданию">⏭ К ближайшему событию</button>
           <button class="btn" id="addEventBtn">＋ Добавить дату</button>
-          <button class="btn" id="exportIcsBtn" title="Скачать памятные даты файлом .ics — импортируется в календарь телефона, там реально приходят напоминания">⬇ Экспорт в .ics</button>
+          <button class="btn btn-ghost" id="exportIcsBtn" title="Скачать памятные даты файлом .ics — импортируется в календарь телефона, там реально приходят напоминания" aria-label="Скачать даты файлом .ics"><svg class="nav-icon" aria-hidden="true"><use href="#icon-download"></use></svg>.ics</button>
         </div>
       </div>
-      <p class="cal-jump-info" id="jumpInfo" hidden></p>
+      <button type="button" class="cal-jump-info" id="jumpNextBtn" hidden></button>
       <div class="calendar" id="calendar"></div>
       <div class="day-panel" id="dayPanel"></div>
     </section>
@@ -237,10 +236,10 @@
   <dialog class="overlay" id="eventOverlay" hidden aria-labelledby="evModalTitle">
     <div class="modal event-modal">
       <div class="ev-head">
-        <h3 id="evModalTitle">💜 Памятная дата</h3>
-        <p class="ev-head-sub" id="evHeadSub">Сохрани важный день для вас двоих 💞</p>
+        <h3 id="evModalTitle">Памятная дата</h3>
+        <p class="ev-head-sub" id="evHeadSub">Важный день для вас двоих</p>
       </div>
-      <button class="modal-x" data-close="eventOverlay">✕</button>
+      <button class="modal-x" data-close="eventOverlay" aria-label="Закрыть">✕</button>
       <div class="ev-body">
         <label>Название</label>
         <input type="text" id="evTitle" placeholder="Например: наш первый поцелуй">
@@ -260,10 +259,10 @@
         <label class="check"><input type="checkbox" id="evRepeat" checked> Повторять каждый год</label>
         <label>Фото (необязательно)</label>
         <div class="list-add">
-          <label class="btn file-btn">📷 Добавить фото<input type="file" id="evPhoto" accept="image/*" multiple hidden></label>
+          <label class="btn btn-ghost file-btn">Добавить фото<input type="file" id="evPhoto" accept="image/*" multiple hidden></label>
           <span class="ev-photo-count" id="evPhotoCount"></span>
         </div>
-        <button class="btn ev-save" id="evSave">Сохранить 💜</button>
+        <button class="btn ev-save" id="evSave">Сохранить</button>
       </div>
     </div>
   </dialog>

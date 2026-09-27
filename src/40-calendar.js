@@ -60,7 +60,7 @@ function renderCalendar() {
     const isToday = today.getFullYear() === calY && today.getMonth() === calM && today.getDate() === d;
     const isSelected = selectedDate === ds;
     const inSpan = db.events.some(ev => !ev.repeat && ev.endDate && ev.endDate >= ev.date && ds >= ev.date && ds <= ev.endDate);
-    const cls = `cal-cell${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}${inSpan ? ' in-span' : ''}${dts.length ? ' has-date' : ''}`;
+    const cls = `cal-cell${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}${inSpan ? ' in-span' : ''}`;
     // aria-current — целый атрибут, а не значение: raw() из фиксированного литерала по флагу, не пользовательские данные.
     const current = isToday ? raw(' aria-current="date"') : '';
     dayCells.push(
@@ -92,7 +92,7 @@ function renderCalendar() {
 function renderDayPanel() {
   const panel = $('#dayPanel');
   if (!selectedDate) {
-    render(panel, html`<p class="cal-tip">👆 Нажми на день в календаре, чтобы посмотреть события или добавить новое.</p>`);
+    render(panel, html`<p class="cal-tip">Нажми на день, чтобы посмотреть события или добавить новое.</p>`);
     return;
   }
   const [y, m, d] = selectedDate.split('-').map(Number);
@@ -101,29 +101,29 @@ function renderDayPanel() {
   const fmtDate = `${d} ${MONTHS[m - 1].toLowerCase()} ${y}`;
   render(
     panel,
-    html`<div class="day-head"><b>${fmtDate}</b></div>
+    html`<h3 class="day-head">${fmtDate}</h3>
       ${
         evs.length
           ? evs.map(
               e => html`<div class="day-event">
               ${e.emoji} <span>${e.title}${e.endDate && e.endDate >= e.date ? html` <small class="ev-range">до ${fmtShort(e.endDate)}</small>` : ''}</span>${evThumbs(e)}
-              <button class="mini-x" data-photo-event="${e.id}" title="Добавить фото">${navIconHtml('photos')}</button>
-              <button class="mini-x" data-edit-event="${e.id}" title="Изменить">${navIconHtml('pencil')}</button>
-              <button class="mini-x" data-del-event="${e.id}" title="Удалить">✕</button>
+              <button class="mini-x" data-photo-event="${e.id}" title="Добавить фото" aria-label="Добавить фото">${navIconHtml('photos')}</button>
+              <button class="mini-x" data-edit-event="${e.id}" title="Изменить" aria-label="Изменить">${navIconHtml('pencil')}</button>
+              <button class="mini-x" data-del-event="${e.id}" title="Удалить" aria-label="Удалить">${navIconHtml('trash')}</button>
             </div>`
             )
           : html`<p class="cal-tip">В этот день событий пока нет.</p>`
       }
       ${
         dts.length
-          ? html`<div class="day-sub">💘 Свидания</div>
+          ? html`<div class="day-sub">Свидания</div>
             ${dts.map(
               dt => html`<div class="day-event date-evt${dt.done ? ' date-done' : ''}">
                 ${dt.emoji || '💘'} <span>${dt.time ? html`🕐 ${dt.time} · ` : ''}${dt.place || dt.note || 'Свидание'}${dt.done ? ' ✅' : ''}</span>${dtThumbs(dt)}
-                <button class="mini-x" data-edit-date="${dt.id}" title="Изменить">${navIconHtml('pencil')}</button>
-                <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${navIconHtml(dt.done ? 'heart' : 'check')}</button>
-                <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото">${navIconHtml('photos')}</button>
-                <button class="mini-x" data-del-date="${dt.id}" title="Удалить">✕</button>
+                <button class="mini-x" data-edit-date="${dt.id}" title="Изменить" aria-label="Изменить">${navIconHtml('pencil')}</button>
+                <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}" aria-label="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${navIconHtml(dt.done ? 'heart' : 'check')}</button>
+                <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото" aria-label="Добавить фото">${navIconHtml('photos')}</button>
+                <button class="mini-x" data-del-date="${dt.id}" title="Удалить" aria-label="Удалить">${navIconHtml('trash')}</button>
               </div>`
             )}`
           : ''
@@ -182,7 +182,7 @@ $('#calNext').addEventListener('click', () => {
 });
 $('#addEventBtn').addEventListener('click', () => openEventModal());
 
-// «⏭ К ближайшему событию»: ближайшая дата события/свидания с учётом
+// «Ближайшее»: ближайшая дата события/свидания с учётом
 // ежегодных повторов и идущих сейчас диапазонов (endDate).
 function nextUpcoming() {
   const now = new Date();
@@ -216,48 +216,27 @@ function nextUpcoming() {
   cands.sort((a, b) => a.date.localeCompare(b.date));
   return cands[0] || null;
 }
-// «⏭ К ближайшему событию»: кнопка и плашка видны, только когда ближайшее
-// событие/свидание НЕ в показываемом месяце. В месяце ближайшего события
-// их нет. Вызывается из renderCalendar при каждой перерисовке и по кнопке «⏭».
+// «Ближайшее»: кнопка видна, только когда ближайшее событие/свидание НЕ в
+// показываемом месяце, и сама говорит, куда ведёт (фаза 7: раньше были
+// отдельные кнопка «⏭ К ближайшему событию» и плашка с описанием).
 function updateNearestJump() {
-  const nx = nextUpcoming();
-  const info = $('#jumpInfo');
   const btn = $('#jumpNextBtn');
-  if (!nx) {
-    // впереди событий нет — кнопка остаётся (по клику — подсказка), плашка скрыта
-    if (info) info.hidden = true;
-    if (btn) btn.hidden = false;
-    return;
-  }
-  const [y, m, d] = nx.date.split('-').map(Number);
-  const here = y === calY && m - 1 === calM;
-  if (here) {
-    // уже смотрим месяц ближайшего события — кнопка и плашка не нужны
-    if (info) info.hidden = true;
-    if (btn) btn.hidden = true;
-    return;
-  }
-  if (info) {
-    info.textContent = `⏭ Ближайшее: ${nx.emoji} «${nx.title}» — ${d} ${MONTHS[m - 1].toLowerCase()} ${y} г.`;
-    info.hidden = false;
-  }
-  if (btn) btn.hidden = false;
+  if (!btn) return;
+  const nx = nextUpcoming();
+  const [y, m, d] = nx ? nx.date.split('-').map(Number) : [];
+  btn.hidden = !nx || (y === calY && m - 1 === calM);
+  if (btn.hidden) return;
+  const year = y !== new Date().getFullYear() ? ' ' + y : '';
+  btn.textContent = `Ближайшее: ${nx.emoji} ${nx.title} · ${d} ${MONTHS_GEN[m - 1]}${year} →`;
 }
 function jumpToNearestEvent() {
   const nx = nextUpcoming();
-  const info = $('#jumpInfo');
-  if (!nx) {
-    if (info) {
-      info.textContent = '💫 Ближайших событий пока нет — добавь первое!';
-      info.hidden = false;
-    }
-    return;
-  }
+  if (!nx) return; // кнопка без ближайшего скрыта, сюда не попасть
   const [y, m] = nx.date.split('-').map(Number);
   calY = y;
   calM = m - 1;
   selectedDate = nx.date;
-  renderCalendar(); // updateNearestJump() скроет кнопку/плашку: ближайшее уже на экране
+  renderCalendar(); // updateNearestJump() скроет кнопку: ближайшее уже на экране
   loadCalMonthNeighbors();
 }
 $('#jumpNextBtn').addEventListener('click', jumpToNearestEvent);

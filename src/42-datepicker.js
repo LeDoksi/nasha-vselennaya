@@ -42,7 +42,7 @@ function datePopKeydown(e) {
   if (e.key === 'Escape') {
     const el = dpInput;
     closeDatePop();
-    if (el && el.focus) el.focus();
+    returnDpFocus(el);
     if (e.preventDefault) e.preventDefault();
     return;
   }
@@ -145,6 +145,14 @@ function renderDatePop() {
 // событие, слушатель не должен реагировать как на настоящее действие
 // пользователя».
 let dpSuppressReopen = false;
+// Программный возврат фокуса в поле — всегда под заслонкой: иначе
+// focus-слушатель поля (конец файла) открывает календарик заново.
+function returnDpFocus(el) {
+  if (!el || !el.focus) return;
+  dpSuppressReopen = true;
+  el.focus();
+  dpSuppressReopen = false;
+}
 function pickDpDate(iso) {
   const el = dpInput;
   if (el) {
@@ -157,11 +165,7 @@ function pickDpDate(iso) {
     }
   }
   closeDatePop();
-  if (el && el.focus) {
-    dpSuppressReopen = true;
-    el.focus();
-    dpSuppressReopen = false;
-  }
+  returnDpFocus(el);
 }
 function closeDatePop() {
   const pop = $('#datePop');
@@ -249,18 +253,20 @@ document.addEventListener('pointerdown', e => {
   const pop = $('#datePop');
   if (pop && !pop.hidden && !pop.contains(e.target)) closeDatePop();
 });
-document.addEventListener('keydown', e => {
+// Esc с фокуса вне #dpDays (месяц, год, стрелки, «Сегодня», «Очистить») —
+// datePopKeydown висит только на сетке дней, этот ловит остальное.
+function onDatePopDocEscape(e) {
   if (e.key !== 'Escape') return;
   const pop = $('#datePop');
   if (!pop || pop.hidden) return;
+  const el = dpInput;
   closeDatePop();
+  returnDpFocus(el);
   // preventDefault гасит default action Escape у модального <dialog>-родителя
-  // (fire cancel) — иначе он срабатывает следом за этим keydown и закрывает
-  // модалку вместе с календариком одним нажатием (фокус на месяце/годе/
-  // стрелках/«Сегодня»/«Очистить» не ловится datePopKeydown — он висит
-  // только на #dpDays).
+  // (fire cancel) — иначе модалка закрылась бы тем же нажатием.
   e.preventDefault();
-});
+}
+document.addEventListener('keydown', onDatePopDocEscape);
 // Поля дат в модалках открывают свой календарь вместо системного
 ['#evDate', '#evEnd', '#dtDate'].forEach(sel => {
   const el = $(sel);

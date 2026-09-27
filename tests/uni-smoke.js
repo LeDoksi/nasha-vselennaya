@@ -252,6 +252,8 @@ function __TEST__(s){
   s.openDatePop = openDatePop; s.closeDatePop = closeDatePop;
   Object.defineProperty(s, 'dpFocus', { get: () => dpFocus, set: v => { dpFocus = v; }, configurable: true });
   s.datePopKeydown = datePopKeydown;
+  s.onDatePopDocEscape = onDatePopDocEscape;
+  Object.defineProperty(s, 'dpSuppressReopen', { get: () => dpSuppressReopen, configurable: true });
   Object.defineProperty(s, 'photosRenderQueued', { get: () => photosRenderQueued, set: v => { photosRenderQueued = v; }, configurable: true });
   s.selectedPhotos = selectedPhotos; s.renderLabels = renderLabels;
   s.toggleSelectedPin = toggleSelectedPin;
@@ -577,8 +579,9 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(registry['#progressRing'].innerHTML.includes('пока пусто'), 'без хотелок чип показывает «пока пусто»');
 
   // --- Календарь отмечает дату со свиданием ---
+  // Фаза 7: has-date (акцентная рамка) убран — свидание в ячейке метится
+  // только точкой 💘 (cal-dot), рамка теперь только у «сегодня».
   w('(s)=>{s.go("calendar");s.renderCalendar();}');
-  assert(registry['#calendar'].innerHTML.includes('has-date'), 'calendar cell marked has-date');
   const calHtml = registry['#calendar'].innerHTML;
   assert(calHtml.includes('💘'), 'calendar has date marker');
   w('(s)=>{s.selectedDate=s.iso(' + dateIn3Days.getFullYear() + ',' + dateIn3Days.getMonth() + ',' + dateIn3Days.getDate() + ');s.renderDayPanel();}');
@@ -592,12 +595,12 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(!w('(s)=>s.eventsOn(s.iso(2020,8,1),8,1).some(e=>e.id==="e1")'), 'повторяющееся событие НЕ показывается в году до его создания');
   assert(w('(s)=>s.eventsOn(s.iso(2027,8,1),8,1).some(e=>e.id==="e1")'), 'повторяющееся событие показывается в следующем году после создания');
   w('(s)=>s.openEventModal("e1")');
-  assert(registry['#evModalTitle'].textContent === '✏️ Изменить дату', 'заголовок модалки для правки');
+  assert(registry['#evModalTitle'].textContent === 'Изменить дату', 'заголовок модалки для правки');
   assert(registry['#evTitle'].value === 'Годовщина', 'поля модалки заполнены данными события');
   w('(s)=>s.openEventModal()');
-  assert(registry['#evModalTitle'].textContent === '💜 Памятная дата', 'новая дата — обычный заголовок');
+  assert(registry['#evModalTitle'].textContent === 'Памятная дата', 'новая дата — обычный заголовок');
   assert(registry['#evTitle'].value === '', 'новая дата — пустые поля');
-  assert(registry['#evHeadSub'].textContent.includes('Сохрани важный день'), 'у модалки события есть подзаголовок (создание)');
+  assert(registry['#evHeadSub'].textContent.includes('Важный день для вас двоих'), 'у модалки события есть подзаголовок (создание)');
   w('(s)=>s.openEventModal("e1")');
   assert(registry['#evHeadSub'].textContent.includes('Поправь детали'), 'подзаголовок меняется при редактировании');
   w('(s)=>s.openEventModal()');
@@ -657,6 +660,20 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   registry['#datePop'].hidden = false;
   w('(s)=>{s.datePopKeydown({key:"Escape",preventDefault(){}});}');
   assert(registry['#datePop'].hidden === true, 'Esc закрывает попап');
+  // Фаза 7 (NV-97): Esc возвращает фокус в поле под заслонкой dpSuppressReopen —
+  // без неё focus-слушатель поля тут же открывал календарик заново.
+  sandbox.__escField = {
+    value: '',
+    dispatchEvent() {},
+    focus() {
+      sandbox.__escField.suppressed = sandbox.dpSuppressReopen;
+    }
+  };
+  w('(s)=>{s.openDatePop(s.__escField); s.datePopKeydown({key:"Escape",preventDefault(){}}); return 1;}');
+  assert(sandbox.__escField.suppressed === true, 'Esc в сетке дней: фокус вернулся в поле, попап не откроется заново');
+  w('(s)=>{s.openDatePop(s.__escField); s.__escField.suppressed = undefined; s.onDatePopDocEscape({key:"Escape",preventDefault(){}}); return 1;}');
+  assert(registry['#datePop'].hidden === true && sandbox.__escField.suppressed === true, 'Esc с фокуса вне сетки (месяц, год, стрелки): попап закрыт, фокус вернулся в поле');
+  delete sandbox.__escField;
   // Открытие: roving tabindex сразу на выбранной дате
   w('(s)=>{const el={value:"2026-08-09",focus(){}};s.openDatePop(el);}');
   assert(registry['#datePop'].hidden === false, 'openDatePop открывает попап');
@@ -758,6 +775,9 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // больше не идут литералом впритык, между ними тег span.
   assert(/💜<span class="cal-dot-title"> Отпуск на море<\/span>/.test(registry['#calendar'].innerHTML), 'в ячейке календаря видно название события рядом с эмодзи');
   assert(w('(s)=>s.selectedDate') === '2026-08-20', 'после сохранения выделен день начала события');
+  // Фаза 7: свидание в ячейке не обводится акцентом (он у «сегодня»), удаление — иконкой корзины
+  assert(!registry['#calendar'].innerHTML.includes('has-date'), 'ячейка со свиданием без акцентной рамки has-date');
+  assert(registry['#dayPanel'].innerHTML.includes('#icon-trash') && registry['#dayPanel'].innerHTML.includes('aria-label="Удалить"'), 'удаление события — иконка корзины с подписью');
 
   // --- Конец раньше начала — событие не сохраняется ---
   w('(s)=>{s.openEventModal();}');
@@ -768,29 +788,21 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>s.saveEventFromModal()');
   assert(w('(s)=>s.db.events.length') === evCountBefore, 'конец раньше начала не сохраняет событие');
 
-  // --- Календарь: «⏭ К ближайшему событию» ---
-  // Ближайшее событие — сегодня: в месяце ближайшего события кнопки и плашки нет
+  // --- Календарь: «Ближайшее» — одна кнопка, сама говорит, куда ведёт (фаза 7) ---
   w('(s)=>{const d=new Date();s.db.events.push({id:"nx1",title:"Ближайшее событие",date:s.iso(d.getFullYear(),d.getMonth(),d.getDate()),emoji:"🎈",repeat:false});}');
   const nx = w('(s)=>{const r=s.nextUpcoming();if(!r)return null;const [yy,mm]=r.date.split("-").map(Number);s.jumpToNearestEvent();return {date:r.date,title:r.title,m:mm-1,y:yy};}');
   assert(nx && nx.date !== undefined, 'nextUpcoming: есть ближайшее событие/свидание');
   assert(registry['#calMonthSelect'].value === String(nx.m) && registry['#calYearSelect'].value === String(nx.y), 'кнопка переключила календарь на месяц ближайшего события');
   assert(w('(s)=>s.selectedDate') === nx.date, 'после прыжка выделен день ближайшего события');
-  assert(registry['#jumpInfo'].hidden === true, 'в месяце ближайшего события плашки нет');
   assert(registry['#jumpNextBtn'].hidden === true, 'в месяце ближайшего события кнопки нет');
-
-  // Смотрим месяц без ближайшего события → появляются кнопка и плашка с описанием
   w('(s)=>{s.jumpCalendar(0,2026);}');
-  assert(registry['#jumpInfo'].hidden === false && registry['#jumpInfo'].textContent.includes(nx.title), 'в другом месяце плашка рассказывает о ближайшем событии');
-  assert(registry['#jumpNextBtn'].hidden === false, 'в другом месяце кнопка перехода видна');
-
-  // Даже месяц со своими событиями (2027), но без ближайшего → кнопка есть
+  assert(registry['#jumpNextBtn'].hidden === false, 'в другом месяце кнопка видна');
+  assert(registry['#jumpNextBtn'].textContent.includes(nx.title) && registry['#jumpNextBtn'].textContent.startsWith('Ближайшее:'), 'кнопка называет ближайшее событие');
   w('(s)=>{s.db.events.push({id:"far27",title:"Событие 2027",date:"2027-01-15",emoji:"🚀",repeat:false});s.jumpCalendar(0,2027);}');
   assert(registry['#jumpNextBtn'].hidden === false, 'кнопка видна и в месяце со своими событиями, если ближайшее не здесь');
-
-  // Клик по кнопке возвращает к ближайшему событию
   w('(s)=>s.jumpToNearestEvent()');
-  assert(w('(s)=>s.selectedDate') === nx.date, 'повторный клик снова прыгает к ближайшему событию');
-  assert(registry['#jumpInfo'].hidden === true, 'после возврата плашка скрыта');
+  assert(w('(s)=>s.selectedDate') === nx.date, 'клик снова прыгает к ближайшему событию');
+  assert(registry['#jumpNextBtn'].hidden === true, 'после возврата кнопка скрыта');
 
   // --- Календарь: открытие вкладки показывает текущий месяц, без прыжка ---
   w('(s)=>{s.jumpCalendar(0,2020);s.go("calendar");}');
@@ -1142,7 +1154,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   const addEvClicks = (addEvBtn._handlers || {}).click || [];
   assert(addEvClicks.length >= 1, 'на кнопке «＋ Добавить дату» есть обработчик клика');
   addEvClicks[0]({ type: 'click', target: addEvBtn }); // браузер передаёт MouseEvent
-  assert(registry['#evModalTitle'].textContent === '💜 Памятная дата', 'модалка нового события — «Памятная дата», а не «Изменить дату»');
+  assert(registry['#evModalTitle'].textContent === 'Памятная дата', 'модалка нового события — «Памятная дата», а не «Изменить дату»');
   assert(w('(s)=>s.editingEventId') === null, 'создание через кнопку не ставит editingEventId');
   registry['#evTitle'].value = 'Клик-событие';
   registry['#evDate'].value = '2026-08-10';

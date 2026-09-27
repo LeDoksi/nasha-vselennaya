@@ -16,9 +16,9 @@ function openEventModal(id) {
   // id может прийти только из data-edit-event; клик по «＋ Добавить дату» не должен
   // попадать сюда как объект события — принимаем только настоящую строку id.
   editingEventId = typeof id === 'string' ? id : null;
-  $('#evModalTitle').textContent = editingEventId ? '✏️ Изменить дату' : '💜 Памятная дата';
+  $('#evModalTitle').textContent = editingEventId ? 'Изменить дату' : 'Памятная дата';
   const sub = $('#evHeadSub');
-  if (sub) sub.textContent = editingEventId ? 'Поправь детали — всё сохранится ✨' : 'Сохрани важный день для вас двоих 💞';
+  if (sub) sub.textContent = editingEventId ? 'Поправь детали — всё сохранится' : 'Важный день для вас двоих';
   if (editingEventId) {
     const ev = db.events.find(x => x.id === editingEventId);
     if (ev) {

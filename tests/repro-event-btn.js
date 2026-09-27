@@ -9,43 +9,124 @@ const registry = {};
 
 function makeEl() {
   return {
-    id: '', dataset: {}, children: [], hidden: false, innerHTML: '', textContent: '', checked: false,
-    style: {}, value: '', options: [], _handlers: {},
-    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
-    addEventListener(type, fn) { (this._handlers[type] = this._handlers[type] || []).push(fn); },
-    querySelectorAll() { return []; },
-    appendChild() {}, remove() {}, focus() {}, click() {}, setAttribute() {}, removeAttribute() {}, add() {}
+    id: '',
+    dataset: {},
+    children: [],
+    hidden: false,
+    innerHTML: '',
+    textContent: '',
+    checked: false,
+    style: {},
+    value: '',
+    options: [],
+    _handlers: {},
+    classList: {
+      add() {},
+      remove() {},
+      toggle() {},
+      contains() {
+        return false;
+      }
+    },
+    addEventListener(type, fn) {
+      (this._handlers[type] = this._handlers[type] || []).push(fn);
+    },
+    querySelectorAll() {
+      return [];
+    },
+    appendChild() {},
+    remove() {},
+    focus() {},
+    click() {},
+    setAttribute() {},
+    removeAttribute() {},
+    add() {}
   };
 }
 const sandbox = {
   document: {
-    body: makeEl(), documentElement: { dataset: {} }, createElement() { return makeEl(); },
+    body: makeEl(),
+    documentElement: { dataset: {} },
+    createElement() {
+      return makeEl();
+    },
     addEventListener() {},
-    querySelector(sel) { return registry[sel] || (registry[sel] = makeEl()); },
-    querySelectorAll() { return []; }
+    querySelector(sel) {
+      return registry[sel] || (registry[sel] = makeEl());
+    },
+    querySelectorAll() {
+      return [];
+    }
   },
   localStorage: {
-    getItem(k) { return sandbox._store[k] ?? null; },
-    setItem(k, v) { sandbox._store[k] = String(v); },
-    removeItem(k) { delete sandbox._store[k]; }
+    getItem(k) {
+      return sandbox._store[k] ?? null;
+    },
+    setItem(k, v) {
+      sandbox._store[k] = String(v);
+    },
+    removeItem(k) {
+      delete sandbox._store[k];
+    }
   },
   sessionStorage: {
-    getItem(k) { return sandbox._ss[k] ?? null; },
-    setItem(k, v) { sandbox._ss[k] = String(v); }
+    getItem(k) {
+      return sandbox._ss[k] ?? null;
+    },
+    setItem(k, v) {
+      sandbox._ss[k] = String(v);
+    }
   },
-  alert(msg) { sandbox._alerts.push(String(msg)); }, confirm() { return true; },
-  URL: { createObjectURL() { return 'blob:x'; }, revokeObjectURL() {} },
-  FileReader: function () { this.readAsDataURL = (f) => { this.onload({ target: { result: 'data:image/jpeg;base64,AA==' } }); }; },
-  Blob: function () {}, HTMLAudioElement: function () {}, Image: function () {},
-  setTimeout(f) { sandbox._timers.push(f); return 0; }, setInterval() { return 1; },
-  addEventListener() {}, isNaN, console, Date, Math, JSON, Object, Array, Number, String, RegExp,
+  alert(msg) {
+    sandbox._alerts.push(String(msg));
+  },
+  confirm() {
+    return true;
+  },
+  URL: {
+    createObjectURL() {
+      return 'blob:x';
+    },
+    revokeObjectURL() {}
+  },
+  FileReader: function () {
+    this.readAsDataURL = f => {
+      this.onload({ target: { result: 'data:image/jpeg;base64,AA==' } });
+    };
+  },
+  Blob: function () {},
+  HTMLAudioElement: function () {},
+  Image: function () {},
+  setTimeout(f) {
+    sandbox._timers.push(f);
+    return 0;
+  },
+  setInterval() {
+    return 1;
+  },
+  addEventListener() {},
+  isNaN,
+  console,
+  Date,
+  Math,
+  JSON,
+  Object,
+  Array,
+  Number,
+  String,
+  RegExp,
   _store: { universe: JSON.stringify({ events: [], notes: [], shopping: [], todos: [], photos: [], dates: [], wishlist: [] }) },
-  _ss: {}, _timers: [], _alerts: []
+  _ss: {},
+  _timers: [],
+  _alerts: []
 };
 
 let results = [];
 function assert(cond, msg) {
-  if (!cond) { console.log('FAIL: ' + msg); process.exit(1); }
+  if (!cond) {
+    console.log('FAIL: ' + msg);
+    process.exit(1);
+  }
   results.push(msg);
 }
 
@@ -59,20 +140,46 @@ function __TEST__(s){
   Object.defineProperty(s, 'selectedDate', { get: () => selectedDate, set: v => { selectedDate = v; }, configurable: true });
   s.openEventModal = openEventModal; s.eventsOn = eventsOn;
 }`;
-const wrapped = new Function('sandbox', 'document', 'localStorage', 'sessionStorage', 'alert', 'confirm', 'URL',
-  'FileReader', 'Blob', 'HTMLAudioElement', 'Image', 'setTimeout', 'setInterval', 'addEventListener',
-  src + suffix);
+const wrapped = new Function(
+  'sandbox',
+  'document',
+  'localStorage',
+  'sessionStorage',
+  'alert',
+  'confirm',
+  'URL',
+  'FileReader',
+  'Blob',
+  'HTMLAudioElement',
+  'Image',
+  'setTimeout',
+  'setInterval',
+  'addEventListener',
+  src + suffix
+);
 try {
-  wrapped(sandbox, sandbox.document, sandbox.localStorage, sandbox.sessionStorage, sandbox.alert, sandbox.confirm,
-    sandbox.URL, sandbox.FileReader, sandbox.Blob, sandbox.HTMLAudioElement, sandbox.Image,
-    sandbox.setTimeout, sandbox.setInterval, sandbox.addEventListener);
+  wrapped(
+    sandbox,
+    sandbox.document,
+    sandbox.localStorage,
+    sandbox.sessionStorage,
+    sandbox.alert,
+    sandbox.confirm,
+    sandbox.URL,
+    sandbox.FileReader,
+    sandbox.Blob,
+    sandbox.HTMLAudioElement,
+    sandbox.Image,
+    sandbox.setTimeout,
+    sandbox.setInterval,
+    sandbox.addEventListener
+  );
 } catch (e) {
   console.log('LOAD ERROR: ' + e.message);
   process.exit(1);
 }
 
-
-const w = (f) => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
+const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
 
 // --- Эмуляция реального клика пользователя по кнопке «＋ Добавить дату» ---
 const btnHandlers = registry['#addEventBtn']._handlers.click;
@@ -81,8 +188,7 @@ btnHandlers[0]({ type: 'click', target: registry['#addEventBtn'] }); // брау
 
 // Модалка должна открыться в режиме СОЗДАНИЯ
 assert(registry['#eventOverlay'].hidden === false, 'модалка открылась');
-assert(registry['#evModalTitle'].textContent === '💜 Памятная дата',
-  'заголовок модалки — «Памятная дата», а не «Изменить дату»');
+assert(registry['#evModalTitle'].textContent === 'Памятная дата', 'заголовок модалки — «Памятная дата», а не «Изменить дату»');
 assert(w('(s)=>s.editingEventId') === null, 'editingEventId не установлен (режим создания)');
 
 // Пользователь вводит название и даты (10.08–18.08.2026), нажимает «Сохранить»
@@ -112,7 +218,7 @@ assert(registry['#dayPanel'].innerHTML.includes('Тест поездка'), 'п�
 // --- Регрессия: редактирование существующего события всё ещё работает ---
 const evId = ev.id;
 w('(s)=>{s.openEventModal(' + JSON.stringify(evId) + '); return 1;}');
-assert(registry['#evModalTitle'].textContent === '✏️ Изменить дату', 'редактирование: заголовок «Изменить дату»');
+assert(registry['#evModalTitle'].textContent === 'Изменить дату', 'редактирование: заголовок «Изменить дату»');
 assert(registry['#evTitle'].value === 'Тест поездка', 'редактирование: название подставлено');
 
 // --- Регрессия: если редактируемое событие удалено в другой вкладке, данные не теряются ---
@@ -122,11 +228,23 @@ registry['#evDate'].value = '2026-08-12';
 registry['#evEnd'].value = '';
 registry['#evRepeat'].checked = true;
 registry['#evSave']._handlers.click[0]();
-assert(!!w('(s)=>s.db.events.find(e=>e.title==="Поездка (восстановлено)")'),
-  'событие создаётся заново, если редактируемое не найдено');
+assert(!!w('(s)=>s.db.events.find(e=>e.title==="Поездка (восстановлено)")'), 'событие создаётся заново, если редактируемое не найдено');
 
 console.log('OK: ' + results.length + ' checks passed\n' + results.join('\n'));
 
-wrapped(sandbox, sandbox.document, sandbox.localStorage, sandbox.sessionStorage, sandbox.alert, sandbox.confirm,
-  sandbox.URL, sandbox.FileReader, sandbox.Blob, sandbox.HTMLAudioElement, sandbox.Image,
-  sandbox.setTimeout, sandbox.setInterval, sandbox.addEventListener);
+wrapped(
+  sandbox,
+  sandbox.document,
+  sandbox.localStorage,
+  sandbox.sessionStorage,
+  sandbox.alert,
+  sandbox.confirm,
+  sandbox.URL,
+  sandbox.FileReader,
+  sandbox.Blob,
+  sandbox.HTMLAudioElement,
+  sandbox.Image,
+  sandbox.setTimeout,
+  sandbox.setInterval,
+  sandbox.addEventListener
+);

@@ -306,7 +306,6 @@ const PREIDS = [
   'dragHint',
   'photoSelBar',
   'selCount',
-  'jumpInfo',
   'noteAddBtn',
   'noteText',
   'themeToggle',
