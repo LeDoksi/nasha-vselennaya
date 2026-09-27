@@ -49,7 +49,8 @@ async function dragTo(page, fromSel, toSel) {
 
 async function checkNotesReorder(page, log) {
   await page.evaluate(() => go('notes'));
-  // .view.active анимируется 0.4s (fadeIn, translateY 14px→0, styles.css) — раньше
+  // Смена вкладки идёт через View Transitions API (src/20-theme-nav.js,
+  // runViewTransition), длительность — --dur-enter (styles.css) — раньше
   // клик по .nav-btn сам по себе съедал эту паузу, go() через evaluate() мгновенный,
   // и boundingBox() до конца анимации даёт координаты, которые к началу драга уже устарели.
   await page.waitForTimeout(450);
@@ -73,7 +74,7 @@ async function checkNotesReorder(page, log) {
 
 async function checkListsReorder(page, log) {
   await page.evaluate(() => go('lists'));
-  await page.waitForTimeout(450); // см. комментарий в checkNotesReorder про fadeIn
+  await page.waitForTimeout(450); // см. комментарий в checkNotesReorder про View Transitions
   const before = await page.$$eval('#listsWrap .list-card', els => els.map(el => el.dataset.id));
   if (before.length < 2) {
     log.push('SKIP списки: меньше двух карточек — нечего тащить');
@@ -200,13 +201,17 @@ async function checkPhotoContextMenuRace(page, log) {
 // Фаза 8 (NV-97): плитка ушла за экран, пока открыт лайтбокс — закрытие без
 // перелёта (иначе фото улетает за край).
 // Отклонение от брифа: там сценарий — window.scrollTo() после открытия
-// лайтбокса. В реальном коде это не воспроизводит баг — `html:has(.overlay[open])
-// {overflow:hidden}` (styles.css) блокирует прокрутку страницы, пока открыт
-// любой оверлей, так что scrollTo — no-op, плитка остаётся на месте. Настоящая
-// причина NV-97 — не скролл, а живая перерисовка сетки (партнёр догрузил
-// фото, пока лайтбокс открыт): та же лента, тот же scrollY, но нужная плитка
-// уехала на N строк вниз. Воспроизводим этим — падаем 60 фото перед текущим
-// и зовём renderPhotosNow(), не трогая scroll.
+// лайтбокса. В реальном коде это не воспроизводит баг иначе, чем задумано —
+// `html{scroll-behavior:smooth}` (styles.css) делает scrollTo() плавным, а не
+// мгновенным, так что синхронная проверка геометрии сразу после вызова ловит
+// плитку в процессе плавной прокрутки, а не в конечном положении. Настоящий
+// путь к NV-97 — не автообновление сетки (фото НЕ подписаны на живые
+// изменения, синк идёт явным опросом, а не пушем), а листание лайтбокса
+// (next/prev) до фото, чья плитка в сетке уже проехала мимо экрана. Проще и
+// надёжнее воспроизвести это без реальной прокрутки/жестов — падаем 60 фото
+// перед текущим и зовём renderPhotosNow(): та же лента, тот же scrollY, но
+// нужная плитка уехала на N строк вниз, ровно как после листания к дальнему
+// кадру.
 async function checkLightboxOffscreen(page, log) {
   const r = await page.evaluate(async () => {
     go('photos');

@@ -2221,7 +2221,9 @@ function celebrate() {
     c.style.left = Math.random() * 100 + 'vw';
     c.style.fontSize = 14 + Math.random() * 18 + 'px';
     c.style.top = '-20px';
-    c.style.animationDuration = 2.2 + Math.random() * 2.4 + 's';
+    // Разброс длительности вокруг токена --dur-celebrate (styles.css), не литерал (J7):
+    // те же 0.75–1.55× 3s = 2.25–4.65s, что раньше давали литеральные 2.2–4.6s.
+    c.style.animationDuration = 'calc(var(--dur-celebrate) * ' + (0.75 + Math.random() * 0.8).toFixed(2) + ')';
     c.style.animationDelay = Math.random() * 0.7 + 's';
     document.body.appendChild(c);
     setTimeout(() => c.remove(), 6000);
@@ -4076,13 +4078,22 @@ function listFlipAnimate(scope, before) {
       dy = r1.top - r2.top;
     if (!dx && !dy) return;
     if (!el.style) el.style = {};
+    // transition:none вместе с invert-transform — .items li держит живой
+    // transition:transform (styles.css), и без этого браузер сам анимирует
+    // ПОСТАНОВКУ в старую позицию (0 → invert), съедая кадры самого FLIP.
+    // offsetWidth форсирует layout между transition:none и снятием его в
+    // rAF — иначе оба присваивания схлопываются в один стиль-пасс, и
+    // transition:none никогда реально не «подействует».
+    el.style.transition = 'none';
     el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    el.offsetWidth; // форсируем layout; в песочнице теста offsetWidth просто нет (undefined) — безопасно
     moving.push(el);
   });
   if (!moving.length) return;
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
       moving.forEach(el => {
+        el.style.transition = '';
         el.style.transform = '';
       });
     })

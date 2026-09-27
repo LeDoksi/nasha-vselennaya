@@ -41,7 +41,17 @@ assert(el.innerHTML === '&lt;b&gt;', 'render() голой строки экра�
 // забытая правка списка — ошибка.
 const PENDING = {};
 const SELF = ['00-core.js', '00-html.js'];
-for (const f of fs.readdirSync('src').filter(n => n.endsWith('.js') && !SELF.includes(n))) {
+const ALL_SRC = fs.readdirSync('src').filter(n => n.endsWith('.js'));
+// Страж scroll-обработчиков (спека 3.2) — по ВСЕМ файлам src, включая SELF.
+// Раньше сидел в цикле ниже, отфильтрованном под innerHTML-перевод (SELF
+// исключён, т.к. 00-html.js сам реализует render() через innerHTML) — из-за
+// общего фильтра 00-core.js и 00-html.js эту проверку не проходили вовсе,
+// хотя к innerHTML она не имеет отношения (J10).
+for (const f of ALL_SRC) {
+  const src = fs.readFileSync(path.join('src', f), 'utf8');
+  assert(!/addEventListener\(\s*['"]scroll['"]|\.onscroll\s*=/.test(src), f + ': нет обработчиков scroll — спека 3.2, только animation-timeline и IntersectionObserver');
+}
+for (const f of ALL_SRC.filter(n => !SELF.includes(n))) {
   const src = fs.readFileSync(path.join('src', f), 'utf8');
   const inner = (src.match(/\.innerHTML\s*\+?=(?!=)/g) || []).length;
   const pending = f in PENDING;
@@ -50,7 +60,6 @@ for (const f of fs.readdirSync('src').filter(n => n.endsWith('.js') && !SELF.inc
   if (!pending) assert(!/\besc\(/.test(src), f + ': нет esc() — в html`` экранирование по умолчанию');
   assert(!/\.insertAdjacentHTML\s*\(/.test(src), f + ': нет insertAdjacentHTML — в обход render() экранирование не сработает');
   assert(!/\.outerHTML\s*=(?!=)/.test(src), f + ': нет outerHTML — в обход render() экранирование не сработает');
-  assert(!/addEventListener\(\s*['"]scroll['"]|\.onscroll\s*=/.test(src), f + ': нет обработчиков scroll — спека 3.2, только animation-timeline и IntersectionObserver');
 }
 
 if (failed) {

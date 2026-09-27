@@ -497,7 +497,6 @@ h3{font-weight:800}
   transition:none !important;will-change:transform,left,top;
 }
 body.uni-dragging{user-select:none;-webkit-user-select:none}
-body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
 .photo.drag-over{outline:3px solid var(--star);outline-offset:-3px}
 .note-editor{width:100%;min-height:80px;padding:10px;border-radius:var(--radius-field);border:1px solid var(--line);font-family:inherit;font-size:var(--text-base);resize:vertical}
 .note-edit-btns{display:flex;align-items:center;gap:8px;margin-top:8px}
@@ -609,6 +608,7 @@ html:has(.overlay[open]){overflow:hidden}
 .modal-x{
   position:absolute;top:12px;right:12px;width:34px;height:34px;border-radius:var(--radius-pill);
   border:1px solid var(--line);background:var(--sky-2);cursor:pointer;font-size:var(--text-sm);color:var(--ink-2);
+  transition:var(--t-ui);
 }
 .modal-x:hover{background:oklch(from var(--danger) l c h / .16);color:var(--danger-ink)}
 .modal label{font-weight:800;font-size:var(--text-sm);color:var(--ink-2)}
@@ -634,12 +634,17 @@ html:has(.overlay[open]){overflow:hidden}
 [data-theme="light"] .event-modal input[type=date]{color-scheme:light}
 @media (max-width:420px){.ev-grid{grid-template-columns:1fr}}
 /* Шторка (фаза 4, спека 2.3): на телефоне модалка прижата к низу, приезжает
-   пружиной, тянется за ручку. Длительности — литералы до токенов фазы 8 (NV-60). */
+   пружиной, тянется за ручку. С фазы 8 длительности — только токенами --dur-*/--ease-* (NV-60). */
 .sheet-grip{display:none}
 @media (max-width:820px){
   .overlay:not(.lightbox){padding:0;place-items:end stretch}
   .overlay:not(.lightbox) .modal{
-    width:100%;max-height:92dvh;animation:none;
+    /* margin-bottom:-24px — запас под пружинный овершут (--ease-spring
+       заходит выше 1 перед устаканиванием, styles.css:143), max-height
+       компенсирует его тем же значением: без этого высокая шторка (событие)
+       стартовала на 24px ниже 92dvh, и «Сохранить» уходило за нижний край
+       экрана на 390×844 (J1). */
+    width:100%;max-height:calc(92dvh + 24px);animation:none;
     margin-bottom:-24px;
     border-radius:var(--radius-sheet) var(--radius-sheet) 0 0;
     padding-bottom:calc(52px + env(safe-area-inset-bottom));
@@ -1001,7 +1006,11 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 /* ===== Тост: ненавязчивые уведомления (ошибки хранилища и т.п.) ===== */
 .app-toast{
   inset:auto;margin:0;
-  position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
+  /* Центрирование через translate (individual property), не transform:
+     keyframe pop анимирует transform (scale) — тот же transform для
+     центрирования обнулялся бы на каждый кадр, и тост уезжал на ~78px в
+     сторону вместо чистого pop-появления по месту (J3). */
+  position:fixed;left:50%;bottom:24px;translate:-50% 0;
   max-width:min(92vw,420px);
   background:var(--sky-1);color:var(--ink);border:1px solid var(--line);
   border-radius:var(--radius-card);padding:12px 18px;box-shadow:0 12px 34px oklch(from var(--void) l c h / .18);
@@ -1079,8 +1088,10 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .tl-item b{font-weight:700}
 .tl-item-photos{display:flex;gap:6px;flex-wrap:wrap;padding:4px 0}
 .tl-item-photos img{height:70px;border-radius:var(--radius-media);object-fit:cover;flex-shrink:0;cursor:pointer}
-.tl-more-btn{align-self:center;border:1px dashed var(--star);background:transparent;color:var(--star-ink);border-radius:var(--radius-pill);padding:6px 10px;font-size:var(--text-sm);cursor:pointer;flex-shrink:0}
-.tl-more-btn:hover{background:var(--sky-0)}
+/* Вторичная кнопка — не акцентная (J5, см. constraints.md: --star только для
+   первичных/активных элементов, не для декоративных рамок второстепенных кнопок). */
+.tl-more-btn{align-self:center;border:1px solid var(--line);background:transparent;color:var(--ink-2);border-radius:var(--radius-pill);padding:6px 10px;font-size:var(--text-sm);cursor:pointer;flex-shrink:0;transition:var(--t-ui)}
+.tl-more-btn:hover{border-color:var(--ink-2);color:var(--ink);background:var(--sky-0)}
 
 /* Фаза 8 (NV-61, спека 3.2): всё, что завязано на прокрутку, — через
    animation-timeline, ноль обработчиков scroll. Небо: две плоскости уходят
@@ -1088,9 +1099,19 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
    проявляется, въезжая в экран — порядок чтения. Где timeline нет — всё
    статично и видно сразу (@supports), без полифилов (спека §7). */
 @supports (animation-timeline: scroll()) {
-  .sky-far{animation:skyFar linear both;animation-timeline:scroll(root)}
-  .sky-near{animation:skyNear linear both;animation-timeline:scroll(root)}
-  .axis-day{animation:axisReveal linear both;animation-timeline:view();animation-range:entry 0% entry 70%}
+  /* Фиксированный пиксельный диапазон (не проценты scrollTop/scrollMax) —
+     иначе скорость неба зависит от длины страницы: одна и та же прокрутка
+     на короткой странице проходит весь диапазон и даёт скачок, на длинной —
+     почти не движется (J2). 1500px — с запасом больше высоты любого экрана. */
+  .sky-far{animation:skyFar linear both;animation-timeline:scroll(root);animation-range:0 1500px}
+  .sky-near{animation:skyNear linear both;animation-timeline:scroll(root);animation-range:0 1500px}
+  /* Названный view-timeline на самом .axis-day (а не animation-timeline:view()
+     прямо на нём) — .axis-day больше не анимирует opacity сам, значит не
+     становится изолирующим backdrop-root, и .tl-card внутри снова видит
+     стекло/фон позади себя для своего backdrop-filter (J6). Дети читают тот
+     же таймлайн по имени и проявляются, пока сам .axis-day входит в экран. */
+  .axis-day{view-timeline-name:--axis-day-view}
+  .axis-day > *{animation:axisReveal linear both;animation-timeline:--axis-day-view;animation-range:entry 0% entry 70%}
 }
 @keyframes skyFar{to{transform:translateY(-4%)}}
 @keyframes skyNear{to{transform:translateY(-12%)}}
@@ -1124,11 +1145,11 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
   -webkit-backdrop-filter:blur(var(--blur));backdrop-filter:blur(var(--blur));
 }
 /* ===== Фаза D: микро-анимации ===== */
-.note.dragging,.list-card.dragging{transition:none !important}
 /* Нажатие (спека 3.2): всё интерактивное проседает на 3% — обратная связь,
    одинаковая везде. transform переходит за --dur-press (в --t-ui). */
 .btn:active,.nav-btn:active,.cal-nav:active,.dp-nav:active,.our-tab:active,.mini-x:active,.check:active,
 .resp-btn:active,.album-chip:active,.ev-btn:active,.wish-tab:active,.dp-mini:active,.cal-jump-info:active,
+.tl-more-btn:active,
 .lb-btn:not(.lb-arrow):active{transform:scale(.97)}
 .lb-arrow:active{transform:translateY(-50%) scale(.97)}
 .items li.done span{transition:color var(--dur-state)}

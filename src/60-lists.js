@@ -187,13 +187,22 @@ function listFlipAnimate(scope, before) {
       dy = r1.top - r2.top;
     if (!dx && !dy) return;
     if (!el.style) el.style = {};
+    // transition:none вместе с invert-transform — .items li держит живой
+    // transition:transform (styles.css), и без этого браузер сам анимирует
+    // ПОСТАНОВКУ в старую позицию (0 → invert), съедая кадры самого FLIP.
+    // offsetWidth форсирует layout между transition:none и снятием его в
+    // rAF — иначе оба присваивания схлопываются в один стиль-пасс, и
+    // transition:none никогда реально не «подействует».
+    el.style.transition = 'none';
     el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    el.offsetWidth; // форсируем layout; в песочнице теста offsetWidth просто нет (undefined) — безопасно
     moving.push(el);
   });
   if (!moving.length) return;
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
       moving.forEach(el => {
+        el.style.transition = '';
         el.style.transform = '';
       });
     })
