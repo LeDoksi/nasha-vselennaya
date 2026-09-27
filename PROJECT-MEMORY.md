@@ -6,26 +6,40 @@
 
 ---
 
-## 0g-5. ⚡ Фаза 5 редизайна влита (27.09.2026)
+## 0g. ⚡ Снимок состояния (27.09.2026) — САМЫЙ СВЕЖИЙ, читай сначала этот
 
-- Блок «Сейчас» на Главной переписан, ids `#progressRing`/`#countdown`/`#compliment` сохранены: `anniversaryInfo`, `orbitGeometry` — те же, что и раньше.
-- Ось времени на Главной: `renderTimeline(box, more)` (`src/36-timeline.js`), разметка через `data-axis`, страницами по `TIMELINE_PAGE = 30` дней; липкие метки года — `--header-h`, проставляется `ResizeObserver` на шапке.
+**Фазы 4–6 редизайна влиты** (оболочка/навигация, Главная, фото — эпик NV-E7/NV-E10).
+
+**Навигация:**
+- `BOTTOM_PRIMARY = ['home','calendar','photos','our']` (`src/20-theme-nav.js`). `our` — псевдо-вкладка, `resolveView()` раскрывает её в последний из `OUR_TABS = ['notes','lists','wishlist']` (ключ localStorage `universe_our_tab`). `activeView` всегда настоящий экран, адрес — `#/notes` и т.п.
+
+**Модалки/оверлеи и попапы:**
+- Модалки — нативные `<dialog class="overlay">`, 7 штук на сайте. Открывать/закрывать **только** `openOverlay(id)` / `closeOverlay(id)` / `closeOverlayNow(id)` (`src/62-global-clicks.js`): они держат `hidden` в согласии с `open` (на `hidden` смотрят тесты и `90-effects-init.js`). Esc → `cancel` → `closeOverlay` (`src/63-sheet.js`).
+- `openOverlayStack` и `setPopover(el, on)` живут в `src/00-core.js` (перенесены туда, чтобы не ловить TDZ на старте); `topOverlayEl()` — в `src/62-global-clicks.js`.
+- Календарик `#datePop` и тост `#appToast` — `popover="manual"` через `setPopover(el, on)`: иначе они под затемнением top layer. `setPopover(el, true)` реparent'ит попап в `topOverlayEl()` (открытый модальный `<dialog>` делает inert всё вне себя), а `closeOverlayNow` при закрытии этой модалки переносит тост обратно / закрывает календарик — **любой новый попап обязан идти через `setPopover`**, напрямую `showPopover`/`hidePopover` не дёргать. Датапикер отдельно гасит `Esc` через `preventDefault`.
+- Шторка на ≤820 px: липкая ручка `.sheet-grip`, `sheetShouldClose(dy, ms)` — закрывается свайпом вниз на 96 px или со скоростью 0.6 px/мс.
+
+**Главная:**
+- Блок «Сейчас» переписан, ids `#progressRing`/`#countdown`/`#compliment` сохранены: `anniversaryInfo`, `orbitGeometry` — те же функции, что и раньше; в день годовщины текст меняется на «сегодня годовщина».
+- Ниже — «Ближайшее» (свидания/приглашения), затем ось времени: `renderTimeline(box, more)` (`src/36-timeline.js`), разметка через `data-axis`, страницами по `TIMELINE_PAGE = 30` дней; липкие метки года — CSS-переменная `--header-h`, проставляется `ResizeObserver` на шапке; `timelineShown`/`timelineSentinel` — Map от контейнера, «Показать ещё» — `onTlExpandClick` находит контейнер через `closest`.
 - Коллаж «Наша история» снят (Task 6).
 - Вкладки «Память» больше нет — решение владельца 26.09.2026 (NV-52): «Память» живёт на оси Главной, отдельной вкладки не нужно. `#/memory` — неизвестная вкладка: при старте открывается Главная, при смене hash экран не меняется.
+- **Известное ограничение (не баг, backlog NV-96):** ось показывает только уже загруженную историю — если у пары данных больше, чем подгружено репозиторием, старые записи на оси не появятся, пока не подгрузятся отдельно.
+
+**Галерея:**
+- Закреплённые фото и «в этот день» (вне режима сортировки) получают класс `photo--big` — крупная плитка среди обычных (`src/71-photo-grid.js`); в режиме сортировки все плитки нарочно одинакового размера — это не баг, «чинить» не нужно.
+- `content-visibility` на плитках — рендер списка 30.0 → 21.6 мс (`docs/superpowers/baseline/metrics.md`).
+- Долгое нажатие: `LONG_PRESS_MS = 450` → `photoLongPress(id)` (`src/70-photos.js`), глобальный сброс `photoLongPressed` на capture-фазе `pointerdown`; тап в режиме выбора выбирает фото, `photoLongPressed` гасит системное контекстное меню картинки после долгого нажатия и хвостовой клик. У лейбл-чипов на фото больше нет крестика — `removeLabelFromPhoto` убран.
+- Плитка ⇄ лайтбокс перелетают общим элементом через `view-transition-name: lb-photo`; обратный перелёт — `lbFlyBack` (`src/85-lightbox.js`), генерация текущей сессии лайтбокса — `lbGen`, флаг `lbFlyingBack` не даёт запустить второй перелёт поверх первого. `runViewTransition` (`src/20-theme-nav.js`) теперь возвращает сам объект перехода (не просто `true`/`false`) — вызывающий код может дождаться `t.finished`.
+
+**Ловушки, не наступать:**
+- `hidden` у диалогов менять **только** через `openOverlay`/`closeOverlay(Now)` — руками трогать нельзя, тесты и `90-effects-init.js` завязаны на согласованность с `open`.
+- Новый попап (датапикер, тост, что угодно ещё) — только через `setPopover`, не напрямую `showPopover`/`hidePopover`.
+- В режиме сортировки фото плитки одинакового размера **специально** — не «баг вёрстки», не трогать.
 
 ---
 
-## 0g-4. ⚡ Фаза 4 редизайна влита (26.09.2026)
-
-- Навигация: `BOTTOM_PRIMARY = ['home','calendar','photos','our']`. `our` — псевдо-вкладка, `resolveView()` раскрывает её в последний из `OUR_TABS` (ключ `universe_our_tab`). `activeView` всегда настоящий экран, адрес — `#/notes` и т.п.
-- Модалки — нативные `<dialog class="overlay">`. Открывать/закрывать **только** `openOverlay(id)` / `closeOverlay(id)`: они держат `hidden` в согласии с `open` (на `hidden` смотрят тесты и `90-effects-init.js`). Esc → `cancel` → `closeOverlay` (`src/63-sheet.js`).
-- Календарик `#datePop` и тост `#appToast` — `popover="manual"` через `setPopover(el, on)`: иначе они под затемнением top layer.
-- `setPopover(el, true)` переносит попап в `topOverlayEl()` (открытый модальный `<dialog>` делает inert всё вне себя), а `closeOverlay` при закрытии этой модалки переносит тост обратно / закрывает календарик — любой новый попап обязан идти через `setPopover`, напрямую `showPopover`/`hidePopover` не дёргать.
-- Шторка на ≤820 px: ручка `.sheet-grip`, `sheetShouldClose(dy, ms)` (96 px или 0.6 px/мс).
-
----
-
-## 0f. ⚡ Снимок состояния (25.09.2026) — САМЫЙ СВЕЖИЙ, читай сначала этот
+## 0f. ⚡ Снимок состояния (25.09.2026)
 
 **Фазы 2–3 рефакторинга: распил кода на модули, архитектурные уточнения, ветка фаз 2–3 (`worktree-redesign-phase-2-3`).**
 
