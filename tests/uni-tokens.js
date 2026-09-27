@@ -65,9 +65,17 @@ for (const m of rest.matchAll(/oklch\((?!from\b)[^)]*\)/g)) {
 // Фаза 8 (NV-60): движение — только токенами --dur-*/--ease-* из слоя tokens.
 // Литеральная длительность или cubic-bezier вне слоя — ровно то, чем был
 // разнобой .2s/.22s/.25s/.28s/.3s до фазы 8.
-for (const m of rest.matchAll(/(?:transition|animation)(?:-duration|-delay|-timing-function)?\s*:([^;}]+)/g)) {
-  for (const t of m[1].matchAll(/(?<![\w.-])\d*\.?\d+m?s\b/g)) fails.push('длительность ' + t[0] + ' в «' + m[0].trim().slice(0, 60) + '»');
-  if (/cubic-bezier\(|linear\(/.test(m[1])) fails.push('кривая в «' + m[0].trim().slice(0, 60) + '»');
+// Ревью раунд 1: свойство — регистронезависимо (CSS не различает регистр
+// имён свойств, `TRANSITION:` должен ловиться не хуже `transition:`).
+// Отрицательные длительности (animation-delay:-0.2s — обычный способ начать
+// анимацию «с середины») раньше не ловились: дефис перед числом был в
+// исключённых лукбихайндом символах, из-за чего `-0.2s` пролетал мимо.
+// Теперь дефис — часть самого числа, а не символ, блокирующий совпадение;
+// лукбихайнд без дефиса всё ещё не даёт откусить хвост от большего числа
+// вроде «23s» (после цифры \w не пускает).
+for (const m of rest.matchAll(/(?:transition|animation)(?:-duration|-delay|-timing-function)?\s*:([^;}]+)/gi)) {
+  for (const t of m[1].matchAll(/(?<![\w.])-?\d*\.?\d+m?s\b/g)) fails.push('длительность ' + t[0] + ' в «' + m[0].trim().slice(0, 60) + '»');
+  if (/cubic-bezier\(|linear\(/i.test(m[1])) fails.push('кривая в «' + m[0].trim().slice(0, 60) + '»');
 }
 if (fails.length) {
   console.log('FAIL: хардкод вне токенов (' + fails.length + '):');
