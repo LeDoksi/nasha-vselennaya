@@ -143,6 +143,28 @@ async function checkSheetSwipe(browser, log) {
   return ok;
 }
 
+// Долгое нажатие (фаза 6): мышь зажата на плитке 700 мс — включается выбор
+// с этим фото, лайтбокс не открывается.
+async function checkPhotoLongPress(page, log) {
+  await page.evaluate(() => {
+    go('photos');
+    if (photoReorderMode) togglePhotoReorderMode();
+    if (photoSelectMode) togglePhotoSelectMode();
+  });
+  await page.waitForTimeout(200);
+  const box = await page.locator('#photosGrid .photo img').first().boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(700);
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  const r = await page.evaluate(() => ({ sel: selectedPhotos.size, mode: photoSelectMode, lb: !document.getElementById('lightbox').hidden }));
+  const ok = r.sel === 1 && r.mode && !r.lb;
+  log.push((ok ? 'OK' : 'FAIL') + ' долгое нажатие: выбрано=' + r.sel + ', режим=' + r.mode + ', лайтбокс=' + r.lb);
+  await page.evaluate(() => togglePhotoSelectMode());
+  return ok;
+}
+
 (async () => {
   const log = [];
   const scriptErrors = [];
@@ -181,6 +203,7 @@ async function checkSheetSwipe(browser, log) {
     allOk = (await checkNotesReorder(page, log)) && allOk;
     allOk = (await checkListsReorder(page, log)) && allOk;
     allOk = (await checkPhotosReorder(page, log)) && allOk;
+    allOk = (await checkPhotoLongPress(page, log)) && allOk;
     allOk = (await checkSheetSwipe(browser, log)) && allOk;
   } catch (e) {
     allOk = false;

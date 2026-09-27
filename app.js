@@ -4630,6 +4630,18 @@ document.addEventListener('click', e => {
   }
   const photo = e.target.closest('[data-photo]');
   if (photo) {
+    if (photoLongPressed) {
+      photoLongPressed = false; // клик — хвост долгого нажатия, выбор уже сделан
+      return;
+    }
+    // В режиме выбора тап по плитке галереи выбирает её, а не открывает лайтбокс
+    if (photoSelectMode && photo.closest('#photosGrid')) {
+      const id = photo.dataset.photo;
+      if (selectedPhotos.has(id)) selectedPhotos.delete(id);
+      else selectedPhotos.add(id);
+      renderPhotos();
+      return;
+    }
     openLightboxFrom(photo);
     return;
   }
@@ -4673,12 +4685,6 @@ document.addEventListener('click', e => {
   if (wishTab) {
     wishlistTab = wishTab.dataset.wishTab;
     renderWishlist();
-    return;
-  }
-
-  const labelOff = e.target.closest('[data-label-off]');
-  if (labelOff) {
-    removeLabelFromPhoto(labelOff.dataset.photoOff, labelOff.dataset.labelOff);
     return;
   }
 
@@ -4904,6 +4910,18 @@ function togglePhotoReorderMode() {
   }
   renderPhotos();
 }
+// Долгое нажатие на плитку — сразу режим выбора с этим фото (спека 2.4).
+// Клик, который браузер пришлёт после отпускания, гасим (photoLongPressed),
+// иначе поверх выбора открылся бы лайтбокс.
+const LONG_PRESS_MS = 450;
+let photoLongPressed = false;
+function photoLongPress(id) {
+  if (photoReorderMode) return;
+  photoSelectMode = true;
+  selectedPhotos.add(id);
+  photoLongPressed = true;
+  renderPhotos();
+}
 $('#photoInput').addEventListener('change', async e => {
   const files = [...e.target.files].slice(0, 10);
   for (const f of files) {
@@ -5116,7 +5134,7 @@ function renderPhotosNow() {
       hint.textContent = '↕ Перетаскивай фото за ⠿ для порядка.';
       hint.style.display = list.length > 1 ? 'block' : 'none';
     } else if (photoSelectMode) {
-      hint.textContent = 'Нажми ○ на фото, чтобы выбрать несколько.';
+      hint.textContent = 'Нажимай на фото, чтобы выбрать несколько. Долгое нажатие включает выбор из любого места.';
       hint.style.display = list.length ? 'block' : 'none';
     } else hint.style.display = 'none';
   }
@@ -5177,9 +5195,7 @@ function renderPhotosNow() {
               const tag = sys ? null : labelById(id);
               if (!sys && !tag) return ''; // ссылка на удалённый лейбл — не рисуем
               const name = sys ? id : tag.name;
-              return html`<span class="photo-label">${sys ? '' : html`<span class="label-dot" style="background:${tag.color}"></span>`}${name}${
-                sys ? '' : html`<button type="button" class="photo-label-del" data-label-off="${id}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</button>`
-              }</span>`;
+              return html`<span class="photo-label">${sys ? '' : html`<span class="label-dot" style="background:${tag.color}"></span>`}${name}</span>`;
             })}</div>`
           : ''
       }
@@ -5287,6 +5303,37 @@ function renderEventBar() {
   const reset = $('#eventReset');
   if (reset) reset.style.display = f.year || f.month || f.title ? 'inline-block' : 'none';
 }
+// Долгое нажатие (Task 9): таймер на pointerdown по фото, сдвиг пальца > 10 px
+// или отпускание — отмена. Слушатели — один раз на сетке (плитки пересоздаются).
+const photosGridEl = $('#photosGrid');
+if (photosGridEl && photosGridEl.addEventListener) {
+  let pressTimer = null,
+    pressX = 0,
+    pressY = 0;
+  const cancelPress = () => {
+    clearTimeout(pressTimer);
+    pressTimer = null;
+  };
+  photosGridEl.addEventListener('pointerdown', e => {
+    photoLongPressed = false; // хвост прошлого нажатия без клика (iOS шлёт contextmenu вместо click)
+    const img = e.target.closest && e.target.closest('[data-photo]');
+    if (!img || photoReorderMode || e.button > 0) return;
+    pressX = e.clientX;
+    pressY = e.clientY;
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      photoLongPress(img.dataset.photo);
+      if (navigator.vibrate) navigator.vibrate(10);
+    }, LONG_PRESS_MS);
+  });
+  photosGridEl.addEventListener('pointermove', e => {
+    if (pressTimer && Math.hypot(e.clientX - pressX, e.clientY - pressY) > 10) cancelPress();
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => photosGridEl.addEventListener(t, cancelPress));
+  photosGridEl.addEventListener('contextmenu', e => {
+    if (photoLongPressed) e.preventDefault(); // системное меню картинки после долгого нажатия
+  });
+}
 // Лейблы: удаление (фото не трогаем), применение/снятие, создание.
 // p.labels хранит id — у служебных EVENT_LABEL/DATE_LABEL id равен имени,
 // у ручных лейблов id генерируется при создании (см. labelById в renderLabels).
@@ -5332,15 +5379,6 @@ function toggleLabelOnPhotos(id, ids) {
   });
   repoBatch('photos', targets);
 }
-// Убрать лейбл с конкретного фото (крестик ✕ на бейдже фото).
-function removeLabelFromPhoto(photoId, id) {
-  const p = db.photos.find(x => x.id === photoId);
-  if (!p || !Array.isArray(p.labels) || !p.labels.includes(id)) return;
-  p.labels = p.labels.filter(l => l !== id);
-  repoSet('photos', p);
-  renderPhotos();
-}
-
 /* ---- Модалка «Лейблы»: создание, переименование, цвет, удаление ---- */
 let editingLabelId = null; // id лейбла, у которого сейчас правится название
 let colorPickerLabelId = null; // id лейбла с открытой палитрой цвета

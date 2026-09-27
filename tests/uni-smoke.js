@@ -227,6 +227,7 @@ function __TEST__(s){
   s.selectedPhotos = selectedPhotos; s.renderLabels = renderLabels;
   s.toggleSelectedPin = toggleSelectedPin;
   s.togglePhotoSelectMode = togglePhotoSelectMode; s.togglePhotoReorderMode = togglePhotoReorderMode;
+  s.photoLongPress = photoLongPress;
   Object.defineProperty(s, 'photoSelectMode', { get: () => photoSelectMode, configurable: true });
   Object.defineProperty(s, 'photoReorderMode', { get: () => photoReorderMode, configurable: true });
   s.deleteLabelSilent = deleteLabelSilent; s.deletePhoto = deletePhoto;
@@ -239,7 +240,7 @@ function __TEST__(s){
   s.openLabelApplyOverlay = openLabelApplyOverlay; s.renderLabelApplyList = renderLabelApplyList;
   s.toggleLabelOnPhotos = toggleLabelOnPhotos;
   Object.defineProperty(s, 'applyTargetIds', { get: () => applyTargetIds, configurable: true });
-  s.applyLabelToPhotos = applyLabelToPhotos; s.removeLabelFromPhoto = removeLabelFromPhoto;
+  s.applyLabelToPhotos = applyLabelToPhotos;
   s.filteredPhotos = filteredPhotos; s.renderEventBar = renderEventBar; s.eventsForPhoto = eventsForPhoto; s.photoByRef = photoByRef; s.addEventPhotosToGallery = addEventPhotosToGallery; s.evThumbs = evThumbs; s.dtThumbs = dtThumbs;
   s.wishCard = wishCard; s.fmtWishDate = fmtWishDate;
   s.relabelEventPhotos = relabelEventPhotos;
@@ -910,7 +911,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(!phHtml.includes('data-photo-drag') && !phHtml.includes('data-sel-photo'), 'вне режимов «Выбрать»/«Порядок» на карточке нет ни ручки драга, ни кружка выбора');
   assert(!phHtml.includes('data-pin-photo') && !phHtml.includes('data-del-photo'), 'постоянных pin/del-кнопок на карточке больше нет — переехали в светбокс');
   assert(phHtml.includes('Поездка') && phHtml.includes('Свидание'), 'у фото несколько лейблов');
-  assert(/<button[^>]*data-label-off=/.test(phHtml), 'крестик лейбла на фото — button (доступен с клавиатуры)');
+  assert(!phHtml.includes('data-label-off'), 'крестика на чипе лейбла на плитке нет (тихая плитка, задача 9)');
   assert(!phHtml.includes('data-ren-photo'), 'переименование убрано');
   // Режим «Порядок» — ручка драга появляется, кружка выбора нет
   w('(s)=>s.togglePhotoReorderMode()');
@@ -999,13 +1000,13 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("lDrago")'), 'drag&drop: лейбл получили и отмеченные фото');
   w('(s)=>{s.db.labels.push({id:"lEshe",name:"Ещё",color:"#06b6d4"});s.selectedPhotos.add("p2");s.applyLabelToPhotos("lEshe",[...s.selectedPhotos]);}');
   assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("lEshe")'), 'применение лейбла к выбранным работает');
-  w('(s)=>s.removeLabelFromPhoto("p2","lEshe")');
-  assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("lEshe")') === false, 'крестик ✕ убирает лейбл с конкретного фото');
+  w('(s)=>s.toggleLabelOnPhotos("lEshe",["p2"])');
+  assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").labels.includes("lEshe")') === false, 'toggleLabelOnPhotos снимает лейбл, если он уже стоит на всех выбранных');
   assert(w('(s)=>s.db.photos.some(p=>p.id==="p2")'), 'фото при этом остаётся на месте');
   w('(s)=>{s.db.photos.push({id:"pev",data:"data:image/jpeg;base64,AA==",title:"событие",labels:["📅 События"],pinned:false,ts:5,order:5});s.renderPhotos();}');
   const pOffHtml = registry['#photosGrid'].innerHTML;
-  assert(pOffHtml.includes('data-label-off="lDrago"'), 'у обычного лейбла на фото есть крестик ✕');
-  assert(!pOffHtml.includes('data-label-off="📅 События"'), 'у служебного лейбла «События» крестика нет');
+  assert(pOffHtml.includes('Драго'), 'у обычного лейбла есть чип на фото');
+  assert(!pOffHtml.includes('data-label-off'), 'крестика на чипе лейбла больше нет (тихая плитка, задача 9)');
   w('(s)=>{s.selectedPhotos.clear();}');
 
   // --- Фаза 6: плитки разного размера ---
@@ -1015,6 +1016,17 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{ s.togglePhotoReorderMode(); s.renderPhotos(); return 1; }');
   assert(!registry['#photosGrid'].innerHTML.includes('photo--big'), 'галерея: в режиме порядка все плитки одинаковые');
   w(`(s)=>{ s.togglePhotoReorderMode(); s.db.photos = s.db.photos.filter(p => p.id !== 'big1'); return 1; }`);
+
+  // --- Фаза 6: долгое нажатие, тихая плитка ---
+  const pid = 'lp1'; // photoLongPress не требует, чтобы фото существовало
+  w('(s)=>{ if (s.photoSelectMode) s.togglePhotoSelectMode(); if (s.photoReorderMode) s.togglePhotoReorderMode(); s.selectedPhotos.clear(); return 1; }');
+  w(`(s)=>{ s.photoLongPress(${JSON.stringify(pid)}); return 1; }`);
+  assert(w('(s)=>s.photoSelectMode') === true && w(`(s)=>s.selectedPhotos.has(${JSON.stringify(pid)})`), 'долгое нажатие: режим выбора с этим фото');
+  w('(s)=>{ s.togglePhotoSelectMode(); s.togglePhotoReorderMode(); return 1; }');
+  w(`(s)=>{ s.photoLongPress(${JSON.stringify(pid)}); return 1; }`);
+  assert(w('(s)=>s.photoSelectMode') === false, 'долгое нажатие: в режиме порядка не срабатывает');
+  w('(s)=>{ s.togglePhotoReorderMode(); s.renderPhotos(); return 1; }');
+  assert(!registry['#photosGrid'].innerHTML.includes('photo-label-del'), 'плитка: без крестиков на чипах лейблов');
 
   // --- Настройки: личный кабинет ---
   w('(s)=>s.go("settings")');

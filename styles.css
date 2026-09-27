@@ -508,7 +508,7 @@ body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
    рисуются; auto — браузер запоминает настоящий размер после первого показа. */
 .photo{position:relative;border-radius:var(--radius-media);overflow:hidden;border:1px solid var(--line);box-shadow:0 8px 20px oklch(from var(--night) l c h / .14);background:var(--sky-1);content-visibility:auto;contain-intrinsic-size:auto 180px}
 .photo--big{grid-column:span 2;grid-row:span 2;contain-intrinsic-size:auto 374px}
-.photo img{width:100%;aspect-ratio:1;object-fit:cover;display:block;cursor:pointer;transition:transform .3s}
+.photo img{width:100%;aspect-ratio:1;object-fit:cover;display:block;cursor:pointer;transition:transform .3s;-webkit-touch-callout:none;user-select:none}
 .photo--big img{aspect-ratio:auto;height:100%}
 /* Миниатюра ещё не докачана/расшифрована (data-photo-src ждёт hydratePhotoImgs,
    см. src/05-photostore.js) — до этого у <img> нет src вообще. Без этого
@@ -786,11 +786,6 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
 }
 .photo-label .label-dot{box-shadow:0 0 0 1px oklch(from var(--paper) l c h / .5)}
-.photo-label-del{
-  margin-left:4px;background:none;border:none;padding:0;font:inherit;font-size:var(--text-xs);
-  color:oklch(from var(--paper) l c h / .9);font-weight:900;cursor:pointer;pointer-events:auto;vertical-align:baseline;
-}
-.photo-label-del:hover{color:var(--paper)}
 /* Липкая панель: раньше жила в обычном потоке страницы — выбрал фото №290 из
    300, докрутил вверх применить действие, а панель осталась там, где
    создалась, вне экрана. На десктопе прилипает под шапкой (64px — её

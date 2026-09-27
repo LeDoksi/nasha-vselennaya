@@ -233,6 +233,18 @@ document.addEventListener('click', e => {
   }
   const photo = e.target.closest('[data-photo]');
   if (photo) {
+    if (photoLongPressed) {
+      photoLongPressed = false; // клик — хвост долгого нажатия, выбор уже сделан
+      return;
+    }
+    // В режиме выбора тап по плитке галереи выбирает её, а не открывает лайтбокс
+    if (photoSelectMode && photo.closest('#photosGrid')) {
+      const id = photo.dataset.photo;
+      if (selectedPhotos.has(id)) selectedPhotos.delete(id);
+      else selectedPhotos.add(id);
+      renderPhotos();
+      return;
+    }
     openLightboxFrom(photo);
     return;
   }
@@ -276,12 +288,6 @@ document.addEventListener('click', e => {
   if (wishTab) {
     wishlistTab = wishTab.dataset.wishTab;
     renderWishlist();
-    return;
-  }
-
-  const labelOff = e.target.closest('[data-label-off]');
-  if (labelOff) {
-    removeLabelFromPhoto(labelOff.dataset.photoOff, labelOff.dataset.labelOff);
     return;
   }
 

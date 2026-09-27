@@ -39,7 +39,7 @@ function renderPhotosNow() {
       hint.textContent = '↕ Перетаскивай фото за ⠿ для порядка.';
       hint.style.display = list.length > 1 ? 'block' : 'none';
     } else if (photoSelectMode) {
-      hint.textContent = 'Нажми ○ на фото, чтобы выбрать несколько.';
+      hint.textContent = 'Нажимай на фото, чтобы выбрать несколько. Долгое нажатие включает выбор из любого места.';
       hint.style.display = list.length ? 'block' : 'none';
     } else hint.style.display = 'none';
   }
@@ -100,9 +100,7 @@ function renderPhotosNow() {
               const tag = sys ? null : labelById(id);
               if (!sys && !tag) return ''; // ссылка на удалённый лейбл — не рисуем
               const name = sys ? id : tag.name;
-              return html`<span class="photo-label">${sys ? '' : html`<span class="label-dot" style="background:${tag.color}"></span>`}${name}${
-                sys ? '' : html`<button type="button" class="photo-label-del" data-label-off="${id}" data-photo-off="${p.id}" title="Убрать лейбл с фото">✕</button>`
-              }</span>`;
+              return html`<span class="photo-label">${sys ? '' : html`<span class="label-dot" style="background:${tag.color}"></span>`}${name}</span>`;
             })}</div>`
           : ''
       }
@@ -209,4 +207,35 @@ function renderEventBar() {
   }
   const reset = $('#eventReset');
   if (reset) reset.style.display = f.year || f.month || f.title ? 'inline-block' : 'none';
+}
+// Долгое нажатие (Task 9): таймер на pointerdown по фото, сдвиг пальца > 10 px
+// или отпускание — отмена. Слушатели — один раз на сетке (плитки пересоздаются).
+const photosGridEl = $('#photosGrid');
+if (photosGridEl && photosGridEl.addEventListener) {
+  let pressTimer = null,
+    pressX = 0,
+    pressY = 0;
+  const cancelPress = () => {
+    clearTimeout(pressTimer);
+    pressTimer = null;
+  };
+  photosGridEl.addEventListener('pointerdown', e => {
+    photoLongPressed = false; // хвост прошлого нажатия без клика (iOS шлёт contextmenu вместо click)
+    const img = e.target.closest && e.target.closest('[data-photo]');
+    if (!img || photoReorderMode || e.button > 0) return;
+    pressX = e.clientX;
+    pressY = e.clientY;
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      photoLongPress(img.dataset.photo);
+      if (navigator.vibrate) navigator.vibrate(10);
+    }, LONG_PRESS_MS);
+  });
+  photosGridEl.addEventListener('pointermove', e => {
+    if (pressTimer && Math.hypot(e.clientX - pressX, e.clientY - pressY) > 10) cancelPress();
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => photosGridEl.addEventListener(t, cancelPress));
+  photosGridEl.addEventListener('contextmenu', e => {
+    if (photoLongPressed) e.preventDefault(); // системное меню картинки после долгого нажатия
+  });
 }

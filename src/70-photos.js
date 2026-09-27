@@ -58,6 +58,18 @@ function togglePhotoReorderMode() {
   }
   renderPhotos();
 }
+// Долгое нажатие на плитку — сразу режим выбора с этим фото (спека 2.4).
+// Клик, который браузер пришлёт после отпускания, гасим (photoLongPressed),
+// иначе поверх выбора открылся бы лайтбокс.
+const LONG_PRESS_MS = 450;
+let photoLongPressed = false;
+function photoLongPress(id) {
+  if (photoReorderMode) return;
+  photoSelectMode = true;
+  selectedPhotos.add(id);
+  photoLongPressed = true;
+  renderPhotos();
+}
 $('#photoInput').addEventListener('change', async e => {
   const files = [...e.target.files].slice(0, 10);
   for (const f of files) {

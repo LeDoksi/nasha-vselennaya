@@ -43,15 +43,6 @@ function toggleLabelOnPhotos(id, ids) {
   });
   repoBatch('photos', targets);
 }
-// Убрать лейбл с конкретного фото (крестик ✕ на бейдже фото).
-function removeLabelFromPhoto(photoId, id) {
-  const p = db.photos.find(x => x.id === photoId);
-  if (!p || !Array.isArray(p.labels) || !p.labels.includes(id)) return;
-  p.labels = p.labels.filter(l => l !== id);
-  repoSet('photos', p);
-  renderPhotos();
-}
-
 /* ---- Модалка «Лейблы»: создание, переименование, цвет, удаление ---- */
 let editingLabelId = null; // id лейбла, у которого сейчас правится название
 let colorPickerLabelId = null; // id лейбла с открытой палитрой цвета
