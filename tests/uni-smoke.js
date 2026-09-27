@@ -907,6 +907,10 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   const subId = w('(s)=>s.db.lists.find(l=>l.id==="L1").items[0].id');
   assert(w(`(s)=>s.toggleSubtask("L1","${subId}")`) === true, 'подзадача выполняется (done=true)');
   assert(w(`(s)=>s.toggleSubtask("L1","${subId}")`) === false, 'выполнение подзадачи снимается');
+  // Реальный переезд атрибута в DOM, а не только в данных — toggle обратно в done и рендер.
+  w(`(s)=>s.toggleSubtask("L1","${subId}")`);
+  w('(s)=>{s.renderLists();return 1;}');
+  assert(registry['#listsWrap'].innerHTML.includes('aria-pressed="true"'), 'галочка подзадачи переключается в DOM (aria-pressed="true" после toggle)');
   w(`(s)=>{const l=s.db.lists.find(x=>x.id==="L1");l.items=[{id:"i1",text:"х",done:false},{id:"i2",text:"y",done:false}];s.delSubtask("L1","i1");return 1;}`);
   assert(w('(s)=>s.db.lists.find(l=>l.id==="L1").items.length') === 1, 'подзадача удаляется из списка');
   // Редактирование подзадачи (раньше — только удалить и создать заново).

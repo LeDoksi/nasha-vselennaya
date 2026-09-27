@@ -500,7 +500,6 @@ body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
 .list-create input{flex:1;min-width:0}
 .list-create .btn{white-space:nowrap}
 .list-actions{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)}
-.btn-small{padding:8px 12px;font-size:var(--text-sm)}
 .items{list-style:none}
 .items li{display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:var(--radius-card);font-size:var(--text-base)}
 .items li:hover{background:var(--sky-2)}
@@ -508,7 +507,7 @@ body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
 /* Галочка подзадачи (фаза 7): вид — от aria-pressed, не от эмодзи ○/✅ */
 .check{
   display:inline-flex;align-items:center;justify-content:center;
-  width:24px;height:24px;border-radius:var(--radius-pill);border:2px solid var(--line);background:transparent;
+  width:28px;height:28px;border-radius:var(--radius-pill);border:2px solid var(--line);background:transparent;
   cursor:pointer;flex:none;transition:background .2s,border-color .2s;color:var(--void);font-size:var(--text-sm);font-weight:900;
 }
 .check:hover{border-color:var(--star)}

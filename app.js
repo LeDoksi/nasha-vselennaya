@@ -3968,7 +3968,7 @@ function listCardHTML(list) {
       </div>
       <div class="list-add">
         <input type="text" id="listInput-${list.id}" placeholder="Добавить подзадачу…">
-        <button class="btn" data-list-add="${list.id}" title="Добавить">＋</button>
+        <button class="btn btn-ghost" data-list-add="${list.id}" title="Добавить">＋</button>
       </div>
       <ul class="items" id="listItems-${list.id}">${items}</ul>
       <div class="list-actions">
@@ -4239,7 +4239,7 @@ function wishToggleHTML(w) {
     return w.doneBy === me ? html`<button class="btn btn-ghost btn-sm" data-wish-done="${w.id}" title="Снять отметку">Вернуть</button>` : html``;
   }
   if (w.owner === me) return html`<span class="wish-hint">Исполнить может только ${me === 'gosha' ? 'Даша' : 'Гоша'}</span>`;
-  return html`<button class="btn btn-sm" data-wish-done="${w.id}" title="Исполнить!">Исполнить</button>`;
+  return html`<button class="btn btn-ghost btn-sm" data-wish-done="${w.id}" title="Исполнить!">Исполнить</button>`;
 }
 function wishCard(w) {
   const doneBy = w.doneBy ? (w.doneBy === 'gosha' ? 'Гошей' : 'Дашей') : '';

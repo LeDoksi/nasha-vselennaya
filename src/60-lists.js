@@ -86,7 +86,7 @@ function listCardHTML(list) {
       </div>
       <div class="list-add">
         <input type="text" id="listInput-${list.id}" placeholder="Добавить подзадачу…">
-        <button class="btn" data-list-add="${list.id}" title="Добавить">＋</button>
+        <button class="btn btn-ghost" data-list-add="${list.id}" title="Добавить">＋</button>
       </div>
       <ul class="items" id="listItems-${list.id}">${items}</ul>
       <div class="list-actions">
