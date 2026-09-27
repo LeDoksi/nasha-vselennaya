@@ -308,6 +308,14 @@ function __TEST__(s){
   s.openLightbox = openLightbox; s.openLightboxFrom = openLightboxFrom;
   s.lbNav = lbNav; s.lbZoomTo = lbZoomTo; s.lbZoomToggle = lbZoomToggle; s.lbClose = lbClose; s.lbRender = lbRender;
 }`;
+// Облака в этом тесте нет по построению — ожидаемые «[photo-sync] …» из
+// src/95-photos-*.js только засыпали вывод npm run check, и в нём терялись
+// настоящие предупреждения (NV-97). Глушим ровно этот префикс.
+const quietConsole = Object.assign(Object.create(console), {
+  warn: (...a) => {
+    if (!String(a[0]).startsWith('[photo-sync]')) console.warn(...a);
+  }
+});
 const wrapped = new Function(
   'sandbox',
   'document',
@@ -325,6 +333,7 @@ const wrapped = new Function(
   'addEventListener',
   'firebase',
   'fetch',
+  'console',
   // sourceURL — не для отладки, а чтобы npm run coverage (c8) отличал строки
   // app.js от собственного кода этого файла: без него весь код внутри
   // new Function() всплывает как анонимный eval, c8 не может сопоставить
@@ -354,7 +363,8 @@ wrapped(
   // реально стучался в прод Yandex Cloud Function (см. YANDEX_CLOUD_CONFIG
   // в src/95-photos-cloud.js) — ensureCloudPart и так ловит любой отказ
   // fetch и тихо возвращает false, поэтому просто отклоняем.
-  () => Promise.reject(new Error('fetch not available in uni-smoke.js sandbox'))
+  () => Promise.reject(new Error('fetch not available in uni-smoke.js sandbox')),
+  quietConsole
 );
 
 const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);

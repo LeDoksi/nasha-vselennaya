@@ -32,7 +32,15 @@ function seedRandom() {
 // длительность иногда всё равно даёт разные доли пикселя на границах
 // box-shadow/градиента между прогонами. Глушим их явно здесь же, а не только
 // флагом screenshot().
-const HIDE_FLAKY = '#appToast{display:none!important}*,*::before,*::after{animation:none!important;transition:none!important}';
+const HIDE_FLAKY =
+  // backdrop-filter (стекло карточек, styles.css:1039-1043, и затемнение под
+  // ::backdrop диалогов) растеризуется с шумом ±1 между прогонами независимо
+  // от --disable-gpu — *-home-invite.png расходился сам с собой на карточке
+  // приглашения (.date-card), позже словил и desk-light-notes.png (.note) —
+  // тот же стеклянный фон (NV-97). Гасим на всех элементах; ::backdrop
+  // universal-селектор `*` не матчит — отдельная строка.
+  '#appToast{display:none!important}*,*::before,*::after{animation:none!important;transition:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}' +
+  '.overlay::backdrop{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}';
 // Сердечки (src/90-effects-init.js, setInterval(…, 3800)) спавнятся по
 // реальному времени и на каждый спавн съедают 4 вызова Math.random() —
 // сколько успеет спавниться между стартом стенда и снимком зависит от
@@ -77,10 +85,10 @@ function disableHeartInterval() {
       await page.evaluate(() => document.fonts.ready);
       await page.addStyleTag({ content: HIDE_FLAKY });
       await page.evaluate(t => setTheme(t), theme);
-      const shot = name =>
+      const shot = (name, fullPage = true) =>
         page.screenshot({
           path: path.join(dir, sizeName + '-' + theme + '-' + name + '.png'),
-          fullPage: true,
+          fullPage,
           animations: 'disabled',
           mask: [page.locator('#countdownTick')]
         });
@@ -96,6 +104,30 @@ function disableHeartInterval() {
         await page.waitForTimeout(400);
         await shot(v);
       }
+      // Фаза 7: панель выбранного дня и шторка «Добавить дату» — половина
+      // перерисовки Календаря, без этих кадров её не видно. День — первый с
+      // событием в текущем месяце, иначе сегодняшний.
+      await page.evaluate(() => {
+        // go('calendar') идёт через View Transitions API (src/20-theme-nav.js,
+        // runViewTransition) — document.startViewTransition вызывает apply()
+        // (сброс selectedDate=null + renderCalendar()) не синхронно, а на
+        // следующей возможности отрисовки. Без этой строки наш выбор дня ниже
+        // либо гонится с этим сбросом и иногда проигрывает: renderCalendar()
+        // из отложенного apply() приходит ПОСЛЕ нашего и стирает selectedDate
+        // обратно в null — снимок ловит подсказку «нажми на день» вместо
+        // панели с событием.
+        document.startViewTransition = undefined;
+        go('calendar');
+        const cell = [...document.querySelectorAll('#calendar .cal-cell[data-day]')].find(c => c.querySelector('.cal-dot')) || document.querySelector('#calendar .cal-cell.today');
+        selectedDate = cell.dataset.day;
+        renderCalendar();
+      });
+      await page.waitForTimeout(400);
+      await shot('calendar-day');
+      await page.evaluate(() => openEventModal());
+      await page.waitForTimeout(400);
+      await shot('sheet-event', false);
+      await page.evaluate(() => closeOverlay('eventOverlay'));
       await page.close();
     }
   }

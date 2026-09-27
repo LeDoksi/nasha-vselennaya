@@ -289,6 +289,14 @@ function __TEST__(s){
 }
 `;
 
+// Облака в этом тесте нет по построению — ожидаемые «[photo-sync] …» из
+// src/95-photos-*.js только засыпали вывод npm run check, и в нём терялись
+// настоящие предупреждения (NV-97). Глушим ровно этот префикс.
+const quietConsole = Object.assign(Object.create(console), {
+  warn: (...a) => {
+    if (!String(a[0]).startsWith('[photo-sync]')) console.warn(...a);
+  }
+});
 const wrapped = new Function(
   'sandbox',
   'document',
@@ -306,6 +314,7 @@ const wrapped = new Function(
   'addEventListener',
   'firebase',
   'fetch',
+  'console',
   // sourceURL — даёт npm run coverage (c8) сопоставить покрытие с app.js
   // вместо анонимного eval внутри new Function().
   src + suffix + '\n//# sourceURL=' + file
@@ -326,7 +335,8 @@ wrapped(
   sandbox.setInterval,
   sandbox.addEventListener,
   firebase,
-  fetchMock
+  fetchMock,
+  quietConsole
 );
 
 const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);

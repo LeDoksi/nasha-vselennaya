@@ -229,7 +229,11 @@ async function checkPhotoContextMenuRace(page, log) {
     // заметок и списков (NV-79).
     await page.evaluate(() => {
       document.startViewTransition = undefined;
-      if (typeof closeOverlay === 'function') closeOverlay('dateInviteOverlay');
+      // Раньше: if (typeof closeOverlay === 'function') — после переименования
+      // функции приглашение молча оставалось открытым, и все клики ниже
+      // упирались в его ::backdrop с непонятной ошибкой (NV-97).
+      if (typeof closeOverlay !== 'function') throw new Error('closeOverlay не найдена — приглашение нечем закрыть');
+      closeOverlay('dateInviteOverlay');
     });
 
     allOk = (await checkNotesReorder(page, log)) && allOk;
