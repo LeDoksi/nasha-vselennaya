@@ -89,6 +89,16 @@ function resolveView(view) {
 function navIconHtml(id) {
   return html`<svg class="nav-icon" aria-hidden="true"><use href="#icon-${id}"></use></svg>`;
 }
+// Пустой экран (фаза 9, NV-62): иконка раздела, одна фраза о том, что здесь
+// появится, и кнопка первого действия — только если этого действия нет рядом
+// на экране (у заметок поле ввода прямо над пустотой, у оси — ничего).
+// action — [подпись, ключ из onEmptyActionClick] или ничего. Кнопка всегда
+// ghost: на обоих экранах, где действие есть (ось/главная — «Назначить
+// свидание», галерея — «Загрузить фото» в шапке), рядом уже стоит янтарная
+// первичная кнопка — фаза 7 держит её одну на экран (constraints.md).
+function emptyState(icon, text, action) {
+  return html`<div class="empty-state">${navIconHtml(icon)}<p>${text}</p>${action ? html`<button type="button" class="btn btn-ghost" data-empty-action="${action[1]}">${action[0]}</button>` : ''}</div>`;
+}
 const BOTTOM_ICON = {
   home: navIconHtml('home'),
   calendar: navIconHtml('calendar'),

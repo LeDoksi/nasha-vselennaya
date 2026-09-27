@@ -311,6 +311,7 @@ function __TEST__(s){
   Object.defineProperty(s, 'lightboxZoom', { get: () => lightboxZoom, set: v => { lightboxZoom = v; }, configurable: true });
   s.openLightbox = openLightbox; s.openLightboxFrom = openLightboxFrom;
   s.lbNav = lbNav; s.lbZoomTo = lbZoomTo; s.lbZoomToggle = lbZoomToggle; s.lbClose = lbClose; s.lbRender = lbRender;
+  s.emptyState = emptyState; s.onEmptyActionClick = onEmptyActionClick;
 }`;
 const wrapped = new Function(
   'sandbox',
@@ -959,6 +960,23 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
       0,
     'миграция v8: легаси-поле shopping очищено'
   );
+
+  // --- Фаза 9 (NV-62): пустые экраны одного вида, с действием там, где его нет рядом ---
+  const es = String(w('(s)=>s.emptyState("photos","Здесь будут ваши фото.",["Загрузить фото","photo"])'));
+  assert(es.includes('class="empty-state"') && es.includes('#icon-photos') && es.includes('data-empty-action="photo"'), 'emptyState: иконка, текст и кнопка действия');
+  assert(!String(w('(s)=>s.emptyState("notes","x")')).includes('data-empty-action'), 'emptyState без действия — без кнопки');
+  w('(s)=>{s.db.photos.length=0;s.renderPhotosNow();return 1;}');
+  assert(
+    registry['#photosGrid'].innerHTML.includes('data-empty-action="photo"') && !registry['#photosGrid'].innerHTML.includes('синхронизация в Настройках'),
+    'пустая галерея: действие есть, устаревшего текста про синхронизацию нет'
+  );
+  let pickerClicked = 0;
+  registry['#photoInput'].click = () => pickerClicked++;
+  w('(s)=>{s.onEmptyActionClick({target:{closest:()=>({dataset:{emptyAction:"photo"}})}});return 1;}');
+  assert(pickerClicked === 1, 'кнопка пустой галереи открывает выбор файлов');
+  w('(s)=>{s.onEmptyActionClick({target:{closest:()=>({dataset:{emptyAction:"event"}})}});return 1;}');
+  assert(registry['#eventOverlay'].hidden === false, 'кнопка пустой оси открывает шторку памятной даты');
+  w('(s)=>{s.closeOverlay("eventOverlay");return 1;}');
 
   // --- Фото: лейблы — объекты {id,name,color}, выбор нескольких фото ---
   w(`(s)=>{

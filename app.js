@@ -1954,6 +1954,16 @@ function resolveView(view) {
 function navIconHtml(id) {
   return html`<svg class="nav-icon" aria-hidden="true"><use href="#icon-${id}"></use></svg>`;
 }
+// Пустой экран (фаза 9, NV-62): иконка раздела, одна фраза о том, что здесь
+// появится, и кнопка первого действия — только если этого действия нет рядом
+// на экране (у заметок поле ввода прямо над пустотой, у оси — ничего).
+// action — [подпись, ключ из onEmptyActionClick] или ничего. Кнопка всегда
+// ghost: на обоих экранах, где действие есть (ось/главная — «Назначить
+// свидание», галерея — «Загрузить фото» в шапке), рядом уже стоит янтарная
+// первичная кнопка — фаза 7 держит её одну на экран (constraints.md).
+function emptyState(icon, text, action) {
+  return html`<div class="empty-state">${navIconHtml(icon)}<p>${text}</p>${action ? html`<button type="button" class="btn btn-ghost" data-empty-action="${action[1]}">${action[0]}</button>` : ''}</div>`;
+}
 const BOTTOM_ICON = {
   home: navIconHtml('home'),
   calendar: navIconHtml('calendar'),
@@ -2254,7 +2264,7 @@ function fmtResp(r) {
 function renderDates() {
   const box = $('#dates');
   if (!db.dates.length) {
-    render(box, html`<div class="empty-state dates-empty">💘 Свиданий пока нет.<br />Нажми «Назначить свидание» — и пусть оно обязательно случится!</div>`);
+    render(box, emptyState('heart', 'Свиданий пока нет. Назначь первое — партнёр получит приглашение.'));
     return;
   }
   const now0 = new Date();
@@ -2307,7 +2317,7 @@ function renderDates() {
                 </div>
               </div>`;
           })
-        : html`<p class="cal-tip">Ближайших свиданий пока нет. Самое время назначить новое! ✨</p>`
+        : emptyState('heart', 'Ближайших свиданий нет — самое время назначить новое.')
     }`
   );
 }
@@ -2783,7 +2793,7 @@ function renderTimeline(box, more) {
     const prevSentinel = timelineSentinel.get(box);
     if (prevSentinel && timelineObserver) timelineObserver.unobserve(prevSentinel);
     timelineSentinel.delete(box);
-    render(box, html`<div class="empty-state rem-empty">Пока пусто 💜<br />Добавляйте события и фото — здесь сложится история вашей вселенной.</div>`);
+    render(box, emptyState('calendar', 'Здесь сложится ваша история: прошедшие события, свидания и фото с датой.', ['Добавить памятную дату', 'event']));
     return;
   }
   // Повторный рендер (живое обновление, возврат на вкладку) не схлопывает
@@ -3796,7 +3806,7 @@ function renderNotes() {
               }
             </div>`
         )}`
-      : html`<div class="empty-state">Пока пусто. Напиши первую записку! 💌</div>`
+      : emptyState('notes', 'Заметок пока нет. Напиши первую — она появится у вас обоих.')
   );
 }
 function addNote() {
@@ -3989,7 +3999,7 @@ function renderLists() {
   const wrap = $('#listsWrap');
   if (!wrap) return;
   if (!db.lists.length) {
-    render(wrap, html`<div class="empty-state rem-empty">Пока нет ни одного списка 🫧<br>Создайте первый — например, «Подарки на 8 марта».</div>`);
+    render(wrap, emptyState('lists', 'Пока нет ни одного списка. Впиши название выше — например, «Подарки на 8 марта».'));
     return;
   }
   // Сортируем по order (как renderNotes) — сам db.lists может прийти из
@@ -4302,16 +4312,22 @@ function renderWishlist() {
   if (!grid) return;
   if (wishlistTab !== 'gosha' && wishlistTab !== 'dasha') wishlistTab = getUser();
   const byOwner = who => [...db.wishlist].filter(w => w.owner === who).sort((a, b) => a.done - b.done || b.ts - a.ts);
-  const sec = (who, label, empty) =>
-    html`<div class="wish-section" data-wish-owner="${who}"><h4>Хотелки ${label}</h4>
-      ${byOwner(who).length ? html`<div class="wishlist-grid">${byOwner(who).map(wishCard)}</div>` : html`<p class="cal-tip">${empty}</p>`}
+  // Пустой текст различает свой список от чужого (по who === getUser()): у
+  // своего — приглашение действовать (кнопка «Добавить» рядом, действие в
+  // emptyState не нужно), у чужого — нейтральная констатация.
+  const sec = who => {
+    const empty = who === getUser() ? 'Твой список пуст. Нажми «Добавить» — партнёр увидит, о чём ты мечтаешь.' : 'У ' + (who === 'gosha' ? 'Гоши' : 'Даши') + ' пока нет хотелок.';
+    const label = who === 'gosha' ? 'Гоши' : 'Даши';
+    return html`<div class="wish-section" data-wish-owner="${who}"><h4>Хотелки ${label}</h4>
+      ${byOwner(who).length ? html`<div class="wishlist-grid">${byOwner(who).map(wishCard)}</div>` : emptyState('wishlist', empty)}
     </div>`;
+  };
   const tabs = html`<div class="wish-tabs">
       <button type="button" class="wish-tab${wishlistTab === 'gosha' ? ' active' : ''}" data-wish-tab="gosha">Гоша</button>
       <button type="button" class="wish-tab${wishlistTab === 'dasha' ? ' active' : ''}" data-wish-tab="dasha">Даша</button>
     </div>`;
   grid.dataset.activeWish = wishlistTab;
-  render(grid, html`${tabs}${sec('gosha', 'Гоши', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨')}${sec('dasha', 'Даши', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨')}`);
+  render(grid, html`${tabs}${sec('gosha')}${sec('dasha')}`);
   if (typeof hydratePhotoImgs === 'function') hydratePhotoImgs(grid);
 }
 let editingWishId = null;
@@ -4826,6 +4842,16 @@ document.addEventListener('keydown', e => {
     }
   }
 });
+// Кнопки пустых экранов (emptyState, 20-theme-nav.js). Именованная — тест
+// дёргает напрямую (в песочнице document.addEventListener не хранит обработчики).
+function onEmptyActionClick(e) {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-empty-action]') : null;
+  if (!btn) return;
+  const key = btn.dataset.emptyAction;
+  if (key === 'event') openEventModal();
+  if (key === 'photo') $('#photoInput').click();
+}
+document.addEventListener('click', onEmptyActionClick);
 /* ===== Шторки: поведение нативных <dialog> (фаза 4) =====
    Esc у модального <dialog> браузер превращает в событие cancel и закрывает
    диалог сам — мимо closeOverlay, и тогда hidden и побочные эффекты
@@ -5237,7 +5263,7 @@ function renderPhotosNow() {
       ${currentLabel === EVENT_LABEL && p.title ? html`<span class="photo-caption">${eventFilter.title || p.title}</span>` : ''}
     </div>`;
       })
-    : html`<p class="cal-tip">📷 Загрузите ваши фото — они зашифруются и будут доступны с обоих устройств, если настроена синхронизация в Настройках.</p>`;
+    : emptyState('photos', 'Здесь будут ваши фото. Они хранятся зашифрованными и видны вам обоим.', ['Загрузить фото', 'photo']);
   // Невидимая метка в конце сетки — на неё наводится photosObserver ниже,
   // чтобы знать, когда догружать следующую страницу. grid-column:1/-1 и
   // высота 1px — иначе в CSS grid (photos-grid) это была бы лишняя пустая

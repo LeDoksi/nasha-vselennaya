@@ -60,16 +60,22 @@ function renderWishlist() {
   if (!grid) return;
   if (wishlistTab !== 'gosha' && wishlistTab !== 'dasha') wishlistTab = getUser();
   const byOwner = who => [...db.wishlist].filter(w => w.owner === who).sort((a, b) => a.done - b.done || b.ts - a.ts);
-  const sec = (who, label, empty) =>
-    html`<div class="wish-section" data-wish-owner="${who}"><h4>Хотелки ${label}</h4>
-      ${byOwner(who).length ? html`<div class="wishlist-grid">${byOwner(who).map(wishCard)}</div>` : html`<p class="cal-tip">${empty}</p>`}
+  // Пустой текст различает свой список от чужого (по who === getUser()): у
+  // своего — приглашение действовать (кнопка «Добавить» рядом, действие в
+  // emptyState не нужно), у чужого — нейтральная констатация.
+  const sec = who => {
+    const empty = who === getUser() ? 'Твой список пуст. Нажми «Добавить» — партнёр увидит, о чём ты мечтаешь.' : 'У ' + (who === 'gosha' ? 'Гоши' : 'Даши') + ' пока нет хотелок.';
+    const label = who === 'gosha' ? 'Гоши' : 'Даши';
+    return html`<div class="wish-section" data-wish-owner="${who}"><h4>Хотелки ${label}</h4>
+      ${byOwner(who).length ? html`<div class="wishlist-grid">${byOwner(who).map(wishCard)}</div>` : emptyState('wishlist', empty)}
     </div>`;
+  };
   const tabs = html`<div class="wish-tabs">
       <button type="button" class="wish-tab${wishlistTab === 'gosha' ? ' active' : ''}" data-wish-tab="gosha">Гоша</button>
       <button type="button" class="wish-tab${wishlistTab === 'dasha' ? ' active' : ''}" data-wish-tab="dasha">Даша</button>
     </div>`;
   grid.dataset.activeWish = wishlistTab;
-  render(grid, html`${tabs}${sec('gosha', 'Гоши', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨')}${sec('dasha', 'Даши', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨')}`);
+  render(grid, html`${tabs}${sec('gosha')}${sec('dasha')}`);
   if (typeof hydratePhotoImgs === 'function') hydratePhotoImgs(grid);
 }
 let editingWishId = null;

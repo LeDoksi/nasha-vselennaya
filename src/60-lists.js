@@ -98,7 +98,7 @@ function renderLists() {
   const wrap = $('#listsWrap');
   if (!wrap) return;
   if (!db.lists.length) {
-    render(wrap, html`<div class="empty-state rem-empty">Пока нет ни одного списка 🫧<br>Создайте первый — например, «Подарки на 8 марта».</div>`);
+    render(wrap, emptyState('lists', 'Пока нет ни одного списка. Впиши название выше — например, «Подарки на 8 марта».'));
     return;
   }
   // Сортируем по order (как renderNotes) — сам db.lists может прийти из

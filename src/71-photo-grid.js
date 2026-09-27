@@ -107,7 +107,7 @@ function renderPhotosNow() {
       ${currentLabel === EVENT_LABEL && p.title ? html`<span class="photo-caption">${eventFilter.title || p.title}</span>` : ''}
     </div>`;
       })
-    : html`<p class="cal-tip">📷 Загрузите ваши фото — они зашифруются и будут доступны с обоих устройств, если настроена синхронизация в Настройках.</p>`;
+    : emptyState('photos', 'Здесь будут ваши фото. Они хранятся зашифрованными и видны вам обоим.', ['Загрузить фото', 'photo']);
   // Невидимая метка в конце сетки — на неё наводится photosObserver ниже,
   // чтобы знать, когда догружать следующую страницу. grid-column:1/-1 и
   // высота 1px — иначе в CSS grid (photos-grid) это была бы лишняя пустая

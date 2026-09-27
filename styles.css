@@ -330,7 +330,6 @@ h3{font-weight:800}
   box-shadow:0 10px 26px oklch(from var(--star) l c h / .35);
 }
 .dates{margin-top:28px}
-.dates-empty{background:var(--sky-1);border:1px dashed var(--star);border-radius:var(--radius-card);padding:26px;text-align:center;color:var(--ink-2)}
 .date-card{display:flex;align-items:center;gap:14px;background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:14px 18px;margin-bottom:10px;box-shadow:0 6px 18px oklch(from var(--night) l c h / .12)}
 .date-card.done{opacity:.6}
 .date-card.done .date-info b{text-decoration:line-through;color:var(--ink-2)}
@@ -1061,8 +1060,6 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .hs-otd-chip{background:var(--sky-2);border-color:var(--line)}
 .hs-otd-chip small{color:var(--ink-2);font-weight:600}
 
-/* Таймлайн-дерево «Память» */
-.rem-empty{text-align:center;padding:40px 20px;color:var(--ink-2);font-size:var(--text-base)}
 /* Ось времени (фаза 5): световая нить, точки-дни, липкие годы */
 .home-timeline{margin-top:48px}
 .axis{position:relative;padding-left:32px}
@@ -1122,7 +1119,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
    просвечивал сквозь карточки. var(--glass-bg) уже разный в двух темах —
    отдельных [data-theme="dark"] дублей для тех же селекторов больше не
    нужно, как и раньше на этой странице. */
-.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.dates-empty,.rem-empty,.tl-card,.date-pop,.auth-card{
+.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.tl-card,.date-pop,.auth-card{
   background:var(--glass-bg);
   -webkit-backdrop-filter:blur(var(--blur));
   backdrop-filter:blur(var(--blur));
@@ -1137,13 +1134,16 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .note.pinned{border-color:var(--star)}
 .photo.pinned{border-color:var(--star);box-shadow:0 0 0 3px oklch(from var(--star) l c h / .5)}
 
-/* ===== Фаза D: единый стиль пустых состояний ===== */
-.empty-state,.dates-empty,.rem-empty{
-  text-align:center;padding:36px 22px;border-radius:var(--radius-card);color:var(--ink-2);
-  font-size:var(--text-base);font-weight:700;line-height:1.8;
-  background:var(--glass-bg);border:1.5px dashed var(--star);
-  -webkit-backdrop-filter:blur(var(--blur));backdrop-filter:blur(var(--blur));
+/* ===== Пустые экраны (фаза 9, NV-62) =====
+   Тихо: без пунктирной янтарной рамки (акцент — не декор), иконка раздела
+   приглушённая, действие — единственная кнопка. */
+.empty-state{
+  grid-column:1/-1;display:grid;justify-items:center;gap:12px;
+  padding:40px 24px;text-align:center;color:var(--ink-2);font-size:var(--text-base);
+  border:1px dashed var(--line);border-radius:var(--radius-card);
 }
+.empty-state .nav-icon{width:32px;height:32px;color:var(--line)}
+.empty-state p{max-width:36ch}
 /* ===== Фаза D: микро-анимации ===== */
 /* Нажатие (спека 3.2): всё интерактивное проседает на 3% — обратная связь,
    одинаковая везде. transform переходит за --dur-press (в --t-ui). */

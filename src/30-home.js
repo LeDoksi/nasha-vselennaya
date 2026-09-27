@@ -169,7 +169,7 @@ function fmtResp(r) {
 function renderDates() {
   const box = $('#dates');
   if (!db.dates.length) {
-    render(box, html`<div class="empty-state dates-empty">💘 Свиданий пока нет.<br />Нажми «Назначить свидание» — и пусть оно обязательно случится!</div>`);
+    render(box, emptyState('heart', 'Свиданий пока нет. Назначь первое — партнёр получит приглашение.'));
     return;
   }
   const now0 = new Date();
@@ -222,7 +222,7 @@ function renderDates() {
                 </div>
               </div>`;
           })
-        : html`<p class="cal-tip">Ближайших свиданий пока нет. Самое время назначить новое! ✨</p>`
+        : emptyState('heart', 'Ближайших свиданий нет — самое время назначить новое.')
     }`
   );
 }

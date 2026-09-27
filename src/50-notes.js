@@ -32,7 +32,7 @@ function renderNotes() {
               }
             </div>`
         )}`
-      : html`<div class="empty-state">Пока пусто. Напиши первую записку! 💌</div>`
+      : emptyState('notes', 'Заметок пока нет. Напиши первую — она появится у вас обоих.')
   );
 }
 function addNote() {

@@ -425,3 +425,13 @@ document.addEventListener('keydown', e => {
     }
   }
 });
+// Кнопки пустых экранов (emptyState, 20-theme-nav.js). Именованная — тест
+// дёргает напрямую (в песочнице document.addEventListener не хранит обработчики).
+function onEmptyActionClick(e) {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-empty-action]') : null;
+  if (!btn) return;
+  const key = btn.dataset.emptyAction;
+  if (key === 'event') openEventModal();
+  if (key === 'photo') $('#photoInput').click();
+}
+document.addEventListener('click', onEmptyActionClick);

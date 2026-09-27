@@ -44,7 +44,7 @@ function renderTimeline(box, more) {
     const prevSentinel = timelineSentinel.get(box);
     if (prevSentinel && timelineObserver) timelineObserver.unobserve(prevSentinel);
     timelineSentinel.delete(box);
-    render(box, html`<div class="empty-state rem-empty">Пока пусто 💜<br />Добавляйте события и фото — здесь сложится история вашей вселенной.</div>`);
+    render(box, emptyState('calendar', 'Здесь сложится ваша история: прошедшие события, свидания и фото с датой.', ['Добавить памятную дату', 'event']));
     return;
   }
   // Повторный рендер (живое обновление, возврат на вкладку) не схлопывает
