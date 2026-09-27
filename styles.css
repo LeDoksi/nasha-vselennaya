@@ -501,7 +501,7 @@ body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
 .list-card h3 small{color:var(--ink-2);font-weight:600;font-size:var(--text-sm);white-space:nowrap}
 .list-add{display:flex;gap:8px;margin-bottom:14px}
 .list-add input{flex:1;min-width:0}
-.list-add .btn{flex:none;width:44px;height:44px;padding:0;justify-content:center}
+.list-card .list-add .btn{flex:none;width:44px;height:44px;padding:0;justify-content:center}
 .list-create{display:flex;gap:8px;margin-bottom:18px;max-width:540px}
 .list-create input{flex:1;min-width:0}
 .list-create .btn{white-space:nowrap}
