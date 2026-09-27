@@ -56,6 +56,7 @@ function closeOverlayNow(id) {
   if (pop && !pop.hidden && pop._popoverHost === el) closeDatePop();
   if (id === 'lightbox') {
     lbResetState(); // светбокс закрыт — сбрасываем список и зум
+    lbFlyingBack = false; // на случай закрытия мимо lbFlyBack — флаг не должен зависнуть
     const lbImg = $('#lightboxImg');
     if (lbImg && lbImg.style) lbImg.style.viewTransitionName = '';
   }

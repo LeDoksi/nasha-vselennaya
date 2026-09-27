@@ -4454,6 +4454,7 @@ function closeOverlayNow(id) {
   if (pop && !pop.hidden && pop._popoverHost === el) closeDatePop();
   if (id === 'lightbox') {
     lbResetState(); // светбокс закрыт — сбрасываем список и зум
+    lbFlyingBack = false; // на случай закрытия мимо lbFlyBack — флаг не должен зависнуть
     const lbImg = $('#lightboxImg');
     if (lbImg && lbImg.style) lbImg.style.viewTransitionName = '';
   }
@@ -5792,6 +5793,15 @@ $('#importInput').addEventListener('change', e => {
 let lightboxList = []; // источники: id фото из db.photos ИЛИ data-URL
 let lightboxIdx = 0;
 let lightboxZoom = 1;
+// Ревью раунд 1 (фаза 6): настоящий document.startViewTransition вызывает свой
+// колбэк не синхронно, а на следующем тике — в паузе между closeOverlay() и
+// приходом колбэка диалог всё ещё открыт. lbGen — поколение текущей сессии
+// лайтбокса (растёт в openLightbox), lbFlyingBack — обратный перелёт уже
+// висит и ждёт колбэка. Без них: двойной Esc/крестик запускал бы второй
+// переход поверх первого, а openLightbox в этой паузе — просроченный колбэк
+// первого перехода закрывал бы и сбрасывал уже свежепереоткрытую сессию.
+let lbGen = 0;
+let lbFlyingBack = false;
 
 /* ===== Скачивание фото (кнопка «⬇️ Скачать оригинал») ===== */
 function extFromMime(type) {
@@ -5885,6 +5895,7 @@ function lbPhoto(src) {
 // fromEl — миниатюра, из которой открыли: она и картинка лайтбокса на время
 // перехода носят одно имя lb-photo, браузер анимирует перелёт (спека 2.4).
 function openLightbox(ids, idx, fromEl) {
+  lbGen++; // новая сессия — просроченный колбэк висящего lbFlyBack узнаёт себя по номеру
   lightboxList = Array.isArray(ids) ? ids.slice() : [];
   lightboxIdx = Math.max(0, Math.min(idx || 0, lightboxList.length ? lightboxList.length - 1 : 0));
   lightboxZoom = 1;
@@ -5894,6 +5905,10 @@ function openLightbox(ids, idx, fromEl) {
     lbRender();
   };
   if (fromEl && fromEl.style && img && img.style) {
+    // Обратный перелёт ещё не дошёл до своего колбэка (см. lbFlyBack) — картинка
+    // лайтбокса может нести имя от прошлой сессии; не сняв его здесь, получили
+    // бы lb-photo сразу на двух элементах, и браузер не анимирует ни один переход.
+    if (lbFlyingBack) img.style.viewTransitionName = '';
     fromEl.style.viewTransitionName = 'lb-photo';
     const t = runViewTransition(() => {
       fromEl.style.viewTransitionName = '';
@@ -5924,19 +5939,35 @@ function lbResetState() {
 // Обратный перелёт: если миниатюра текущего фото видна на активной вкладке —
 // имя переезжает на неё, браузер анимирует возврат. true — переход запущен,
 // закрытие (close) выполнит он сам.
+// Ревью раунд 1: настоящий startViewTransition зовёт свой колбэк асинхронно —
+// пока он не пришёл, closeOverlay('lightbox') не должен запускать второй
+// перелёт (двойной Esc/крестик), а колбэк — закрывать/сбрасывать лайтбокс,
+// если тот успел переоткрыться на другое фото (см. openLightbox выше).
 function lbFlyBack(close) {
+  if (lbFlyingBack) return true; // переход уже висит — второй запрос на закрытие ничего не делает
   const img = $('#lightboxImg');
   const id = lightboxList[lightboxIdx];
   if (!id || !img || !img.style) return false;
   const scope = '#view-' + activeView + ' ';
   const to = document.querySelector(scope + '[data-photo="' + id + '"], ' + scope + '[data-lightbox="' + id + '"]');
   if (!to || !to.style) return false;
+  const gen = lbGen;
+  lbFlyingBack = true;
   const t = runViewTransition(() => {
     img.style.viewTransitionName = '';
-    to.style.viewTransitionName = 'lb-photo';
-    close();
+    // Лайтбокс мог успеть переоткрыться на другое фото, пока этот колбэк ждал
+    // своей очереди — тогда закрывать/сбрасывать уже свежую сессию нельзя,
+    // достаточно снять своё же имя с картинки (сделано строкой выше).
+    if (gen === lbGen) {
+      to.style.viewTransitionName = 'lb-photo';
+      close();
+    }
+    lbFlyingBack = false;
   });
-  if (!t) return false;
+  if (!t) {
+    lbFlyingBack = false;
+    return false;
+  }
   const clear = () => (to.style.viewTransitionName = '');
   if (t.finished && typeof t.finished.then === 'function') t.finished.then(clear, clear);
   else clear();

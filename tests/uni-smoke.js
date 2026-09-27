@@ -1537,6 +1537,47 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(lbImg.style.viewTransitionName === '', 'лайтбокс: имя снято с картинки');
   w('(s)=>{ delete s.document.startViewTransition; return 1; }');
 
+  // --- Фаза 6, раунд 1 (ревью): гонка двойного закрытия / переоткрытия во
+  // время ОТЛОЖЕННОГО обратного перелёта. Настоящий document.startViewTransition
+  // зовёт свой колбэк не сразу, а на следующем тике — синхронная заглушка выше
+  // этого не ловит, здесь заглушка асинхронная (колбэк — через .then). ---
+  {
+    let svtCalls = 0;
+    sandbox.document.startViewTransition = cb => {
+      svtCalls++;
+      const p = Promise.resolve().then(cb);
+      return { finished: p };
+    };
+
+    // Двойной Esc/крестик до того, как первый переход добрался до колбэка —
+    // второй closeOverlay не должен запускать ещё один переход.
+    w('(s)=>{ s.openLightbox(["p1"], 0); return 1; }');
+    assert(registry['#lightbox'].hidden === false, 'race: лайтбокс открыт для сцены гонки');
+    w('(s)=>{ s.closeOverlay("lightbox"); s.closeOverlay("lightbox"); return 1; }');
+    assert(svtCalls === 1, 'race: второй closeOverlay во время висящего перелёта не запускает второй переход');
+    assert(registry['#lightbox'].hidden === false, 'race: диалог ещё открыт — колбэк отложенного перехода не пришёл');
+    await new Promise(r => setTimeout(r, 0));
+    assert(registry['#lightbox'].hidden === true, 'race: после тика — закрыт (ровно одним переходом)');
+
+    // Переоткрытие на другое фото, пока первый обратный перелёт ещё висит:
+    // просроченный колбэк не должен ни закрыть, ни сбросить свежую сессию.
+    svtCalls = 0;
+    w('(s)=>{ s.openLightbox(["p1"], 0); return 1; }');
+    const tileB = { dataset: { photo: 'p2' }, style: {}, closest: () => null };
+    sandbox.__raceTileB = tileB;
+    w('(s)=>{ s.closeOverlay("lightbox"); s.openLightbox(["p2"], 0, s.__raceTileB); return 1; }');
+    await new Promise(r => setTimeout(r, 0));
+    assert(registry['#lightbox'].hidden === false, 'race: лайтбокс остался открытым — переоткрытие не закрыл просроченный колбэк');
+    assert(w('(s)=>s.lightboxList.join(",")') === 'p2', 'race: список фото — от нового openLightbox, не затёрт просроченным сбросом');
+    const scope = '#view-' + w('(s)=>s.activeView') + ' ';
+    const oldTile = w('(s)=>s.document.querySelector(' + JSON.stringify(scope + '[data-photo="p1"], ' + scope + '[data-lightbox="p1"]') + ')');
+    const namesCount = [lbImg.style.viewTransitionName, tileB.style.viewTransitionName, oldTile.style.viewTransitionName].filter(v => v === 'lb-photo').length;
+    assert(namesCount === 1, 'race: lb-photo ровно на одном элементе — просроченный колбэк не поставил своё имя на старую плитку');
+    delete sandbox.__raceTileB;
+    delete sandbox.document.startViewTransition;
+    w('(s)=>{ s.closeOverlay("lightbox"); return 1; }'); // прибраться за собой
+  }
+
   // --- Фаза 4: модалки — нативный <dialog>, hidden и open всегда в согласии ---
   const dlg = w('(s)=>s.document.querySelector("#wishOverlay")'); // registry заполняется лениво
   let modalCalls = 0,
