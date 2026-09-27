@@ -503,9 +503,13 @@ body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
 /* ===== Фото ===== */
 .photo-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:18px}
 .photo-bar h3{font-size:var(--text-lg)}
-.photos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
-.photo{position:relative;border-radius:var(--radius-media);overflow:hidden;border:1px solid var(--line);box-shadow:0 8px 20px oklch(from var(--night) l c h / .14);background:var(--sky-1)}
+.photos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));grid-auto-flow:dense;gap:14px}
+/* content-visibility (NV-48 → NV-54): плитки за экраном не раскладываются и не
+   рисуются; auto — браузер запоминает настоящий размер после первого показа. */
+.photo{position:relative;border-radius:var(--radius-media);overflow:hidden;border:1px solid var(--line);box-shadow:0 8px 20px oklch(from var(--night) l c h / .14);background:var(--sky-1);content-visibility:auto;contain-intrinsic-size:auto 180px}
+.photo--big{grid-column:span 2;grid-row:span 2;contain-intrinsic-size:auto 374px}
 .photo img{width:100%;aspect-ratio:1;object-fit:cover;display:block;cursor:pointer;transition:transform .3s}
+.photo--big img{aspect-ratio:auto;height:100%}
 /* Миниатюра ещё не докачана/расшифрована (data-photo-src ждёт hydratePhotoImgs,
    см. src/05-photostore.js) — до этого у <img> нет src вообще. Без этого
    правила такой <img> всё равно рисуется браузером как «битый»: рамка +

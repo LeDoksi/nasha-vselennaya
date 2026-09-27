@@ -5146,13 +5146,23 @@ function renderPhotosNow() {
       }
     }
   }
+  // Двойная плитка (спека 2.4): закреплённые и «в этот день». В режиме порядка —
+  // все одинаковые: dense-сетка переставляет плитки визуально, а SortableJS
+  // двигает DOM — при разных размерах палец и плитка разъезжались бы.
+  const bigIds = photoReorderMode
+    ? new Set()
+    : new Set(
+        onThisDayItems()
+          .filter(it => it.kind === 'photo')
+          .map(it => it.p.id)
+      );
   const cards = list.length
     ? list.map(p => {
         // Кэш миниатюр может быть ещё не прогрет — рисуем каркас и заполняем src
         // асинхронно (как в «Памяти» и на «Главной»), чтобы миниатюры появлялись сами.
         const url = photoSrc(p);
         return html`
-    <div class="photo${p.pinned ? ' pinned' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}">
+    <div class="photo${p.pinned ? ' pinned' : ''}${!photoReorderMode && (p.pinned || bigIds.has(p.id)) ? ' photo--big' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}">
       <img${url ? html` src="${url}"` : html` data-photo-src="${p.id}"`} alt="${p.title}" data-photo="${p.id}" loading="lazy">
       ${
         photoSelectMode

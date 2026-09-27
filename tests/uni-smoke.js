@@ -1008,6 +1008,14 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(!pOffHtml.includes('data-label-off="📅 События"'), 'у служебного лейбла «События» крестика нет');
   w('(s)=>{s.selectedPhotos.clear();}');
 
+  // --- Фаза 6: плитки разного размера ---
+  w(`(s)=>{ s.db.photos.push({ id: 'big1', title: 'b', pinned: true, labels: [], order: 0, ts: 1 }); s.renderPhotos(); return 1; }`);
+  const gridHtml = registry['#photosGrid'].innerHTML;
+  assert((gridHtml.match(/photo--big/g) || []).length >= 1, 'галерея: закреплённое фото — двойная плитка');
+  w('(s)=>{ s.togglePhotoReorderMode(); s.renderPhotos(); return 1; }');
+  assert(!registry['#photosGrid'].innerHTML.includes('photo--big'), 'галерея: в режиме порядка все плитки одинаковые');
+  w(`(s)=>{ s.togglePhotoReorderMode(); s.db.photos = s.db.photos.filter(p => p.id !== 'big1'); return 1; }`);
+
   // --- Настройки: личный кабинет ---
   w('(s)=>s.go("settings")');
   w('(s)=>s.renderSettings()');
