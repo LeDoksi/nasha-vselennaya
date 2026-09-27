@@ -889,6 +889,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(listsHtml.includes('listInput-L1') && listsHtml.includes('data-list-add="L1"'), 'у списка есть поле и кнопка подзадачи');
   assert(listsHtml.includes('data-list-complete="L1"'), 'у списка есть действие «выполнить список»');
   assert(!listsHtml.includes('btn-danger'), '«Выполнить список» — тихая кнопка, не красная');
+  assert(/class="btn btn-ghost btn-sm" data-list-complete="L1"/.test(listsHtml), '«Выполнить список» рендерится ghost-кнопкой');
   w('(s)=>{s.db.lists=[];s.renderLists();return 1;}');
   assert(registry['#listsWrap'].innerHTML.includes('Пока нет ни одного списка'), 'пустое состояние списков');
   // создание списка
