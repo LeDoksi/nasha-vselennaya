@@ -5,15 +5,15 @@ function listItemHTML(listId, it) {
   const editing = editingSubtask && editingSubtask.listId === listId && editingSubtask.itemId === it.id;
   return html`<li class="${it.done ? 'done' : ''}" data-item="${it.id}">
     <button class="drag-handle subtask-drag" data-item-drag="${it.id}" title="Перетащить">⠿</button>
-    <button class="check" data-toggle-item="${listId}" data-id="${it.id}" title="Готово">${it.done ? '✅' : '○'}</button>
+    <button class="check" data-toggle-item="${listId}" data-id="${it.id}" title="${it.done ? 'Вернуть в работу' : 'Готово'}" aria-pressed="${String(!!it.done)}"></button>
     ${
       editing
         ? html`<input type="text" class="subtask-editor" id="subtaskEdit-${it.id}" value="${it.text}">
-         <button class="mini-x" data-save-item="${listId}" data-id="${it.id}" title="Сохранить">💜</button>
-         <button class="mini-x" data-cancel-item title="Отмена">✕</button>`
+         <button class="mini-x" data-save-item="${listId}" data-id="${it.id}" title="Сохранить" aria-label="Сохранить">${navIconHtml('check')}</button>
+         <button class="mini-x" data-cancel-item title="Отмена" aria-label="Отмена">✕</button>`
         : html`<span>${it.text}</span>
-         <button class="mini-x" data-edit-item="${listId}" data-id="${it.id}" title="Редактировать">${navIconHtml('pencil')}</button>
-         <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>`
+         <button class="mini-x" data-edit-item="${listId}" data-id="${it.id}" title="Редактировать" aria-label="Редактировать">${navIconHtml('pencil')}</button>
+         <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить" aria-label="Удалить">${navIconHtml('trash')}</button>`
     }
   </li>`;
 }
@@ -71,16 +71,16 @@ function sortListItems(items) {
 function listCardHTML(list) {
   const active = list.items.filter(i => !i.done).length;
   const editingName = editingListId === list.id;
-  const items = list.items.length ? sortListItems(list.items).map(it => listItemHTML(list.id, it)) : html`<li class="empty-li">Пока пусто 🫧</li>`;
+  const items = list.items.length ? sortListItems(list.items).map(it => listItemHTML(list.id, it)) : html`<li class="empty-li">Пока пусто</li>`;
   return html`<div class="list-card" data-id="${list.id}">
       <div class="list-head">
         ${
           editingName
             ? html`<input type="text" class="list-name-editor" id="listNameEdit-${list.id}" value="${list.name}">
-             <button class="mini-x" data-save-list="${list.id}" title="Сохранить">💜</button>
-             <button class="mini-x" data-cancel-list title="Отмена">✕</button>`
+             <button class="mini-x" data-save-list="${list.id}" title="Сохранить" aria-label="Сохранить">${navIconHtml('check')}</button>
+             <button class="mini-x" data-cancel-list title="Отмена" aria-label="Отмена">✕</button>`
             : html`<h3>${list.name} <small class="list-count">${active} в работе</small></h3>
-             <button class="mini-x" data-edit-list="${list.id}" title="Переименовать список">${navIconHtml('pencil')}</button>`
+             <button class="mini-x" data-edit-list="${list.id}" title="Переименовать список" aria-label="Переименовать список">${navIconHtml('pencil')}</button>`
         }
         <button class="drag-handle list-drag" data-list-drag="${list.id}" title="Перетащить">⠿</button>
       </div>
@@ -90,7 +90,7 @@ function listCardHTML(list) {
       </div>
       <ul class="items" id="listItems-${list.id}">${items}</ul>
       <div class="list-actions">
-        <button class="btn btn-danger btn-small" data-list-complete="${list.id}" title="Выполнить все подзадачи и удалить список">✔ Выполнить список</button>
+        <button class="btn btn-ghost btn-sm" data-list-complete="${list.id}" title="Выполнить все подзадачи и удалить список">Выполнить список</button>
       </div>
     </div>`;
 }
@@ -146,7 +146,10 @@ function renderListItems(listId) {
       if (li) {
         li.classList.toggle('done', !!it.done);
         const check = li.querySelector && li.querySelector('.check');
-        if (check) check.textContent = it.done ? '✅' : '○';
+        if (check && check.setAttribute) {
+          check.setAttribute('aria-pressed', String(!!it.done));
+          check.title = it.done ? 'Вернуть в работу' : 'Готово';
+        }
       } else {
         li = document.createElement('li');
         render(li, listItemHTML(list.id, it));
@@ -167,7 +170,7 @@ function renderListItems(listId) {
   if (!sorted.length) {
     const empty = document.createElement('li');
     empty.classList.add('empty-li');
-    empty.textContent = 'Пока пусто 🫧';
+    empty.textContent = 'Пока пусто';
     ul.appendChild(empty);
   }
   listFlipAnimate(ul, before);

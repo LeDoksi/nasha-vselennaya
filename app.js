@@ -1957,7 +1957,7 @@ const BOTTOM_ICON = {
   home: navIconHtml('home'),
   calendar: navIconHtml('calendar'),
   photos: navIconHtml('photos'),
-  our: navIconHtml('notes')
+  our: navIconHtml('our')
 };
 function showView(view) {
   view = resolveView(view);
@@ -3756,7 +3756,7 @@ if (exportIcsBtnEl) exportIcsBtnEl.addEventListener('click', exportEventsIcs);
 /* ===== Заметки ===== */
 let editingNoteId = null; // id заметки в режиме инлайн-правки (null — не редактируем)
 function noteAuthorName(n) {
-  return n.author === 'dasha' ? '👧 Даша' : n.author === 'gosha' ? '👦 Гоша' : '💜 Наши';
+  return n.author === 'dasha' ? 'Даша' : n.author === 'gosha' ? 'Гоша' : 'Наши';
 }
 function renderNotes() {
   const list = [...db.notes].sort((a, b) => b.pinned - a.pinned || (a.order ?? 1e9) - (b.order ?? 1e9) || b.ts - a.ts);
@@ -3768,23 +3768,23 @@ function renderNotes() {
             html` <div class="note${n.pinned ? ' pinned' : ''}" data-id="${n.id}">
               <div class="note-top">
                 <button class="drag-handle note-drag" data-note-drag="${n.id}" title="Перетащить">⠿</button>
-                <button class="mini-x" data-pin-note="${n.id}" title="${n.pinned ? 'Открепить' : 'Закрепить'}">${navIconHtml(n.pinned ? 'pin-fill' : 'pin')}</button>
+                <button class="mini-x" data-pin-note="${n.id}" title="${n.pinned ? 'Открепить' : 'Закрепить'}" aria-label="${n.pinned ? 'Открепить' : 'Закрепить'}">${navIconHtml(n.pinned ? 'pin-fill' : 'pin')}</button>
                 <span class="note-author">${noteAuthorName(n)}</span>
                 <span class="note-date">${new Date(n.ts).toLocaleDateString('ru-RU')}</span>
-                <button class="mini-x" data-edit-note="${n.id}" title="Редактировать">${navIconHtml('pencil')}</button>
-                <button class="mini-x" data-del-note="${n.id}" title="Удалить">✕</button>
+                <button class="mini-x" data-edit-note="${n.id}" title="Редактировать" aria-label="Редактировать">${navIconHtml('pencil')}</button>
+                <button class="mini-x" data-del-note="${n.id}" title="Удалить" aria-label="Удалить">${navIconHtml('trash')}</button>
               </div>
               ${
-        editingNoteId === n.id
-          ? html`<div class="note-edit">
+                editingNoteId === n.id
+                  ? html`<div class="note-edit">
               <textarea id="noteEdit-${n.id}" class="note-editor">${n.text}</textarea>
               <div class="note-edit-btns">
-                <button class="btn btn-sm" data-save-note="${n.id}">💜 Сохранить</button>
-                <button class="mini-x" data-cancel-note title="Отмена">✕</button>
+                <button class="btn btn-sm" data-save-note="${n.id}">Сохранить</button>
+                <button class="mini-x" data-cancel-note title="Отмена" aria-label="Отмена">✕</button>
               </div>
             </div>`
-          : html`<p>${n.text}</p>`
-      }
+                  : html`<p>${n.text}</p>`
+              }
             </div>`
         )}`
       : html`<div class="empty-state">Пока пусто. Напиши первую записку! 💌</div>`
@@ -3887,15 +3887,15 @@ function listItemHTML(listId, it) {
   const editing = editingSubtask && editingSubtask.listId === listId && editingSubtask.itemId === it.id;
   return html`<li class="${it.done ? 'done' : ''}" data-item="${it.id}">
     <button class="drag-handle subtask-drag" data-item-drag="${it.id}" title="Перетащить">⠿</button>
-    <button class="check" data-toggle-item="${listId}" data-id="${it.id}" title="Готово">${it.done ? '✅' : '○'}</button>
+    <button class="check" data-toggle-item="${listId}" data-id="${it.id}" title="${it.done ? 'Вернуть в работу' : 'Готово'}" aria-pressed="${String(!!it.done)}"></button>
     ${
       editing
         ? html`<input type="text" class="subtask-editor" id="subtaskEdit-${it.id}" value="${it.text}">
-         <button class="mini-x" data-save-item="${listId}" data-id="${it.id}" title="Сохранить">💜</button>
-         <button class="mini-x" data-cancel-item title="Отмена">✕</button>`
+         <button class="mini-x" data-save-item="${listId}" data-id="${it.id}" title="Сохранить" aria-label="Сохранить">${navIconHtml('check')}</button>
+         <button class="mini-x" data-cancel-item title="Отмена" aria-label="Отмена">✕</button>`
         : html`<span>${it.text}</span>
-         <button class="mini-x" data-edit-item="${listId}" data-id="${it.id}" title="Редактировать">${navIconHtml('pencil')}</button>
-         <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить">✕</button>`
+         <button class="mini-x" data-edit-item="${listId}" data-id="${it.id}" title="Редактировать" aria-label="Редактировать">${navIconHtml('pencil')}</button>
+         <button class="mini-x" data-del-item="${listId}" data-id="${it.id}" title="Удалить" aria-label="Удалить">${navIconHtml('trash')}</button>`
     }
   </li>`;
 }
@@ -3953,16 +3953,16 @@ function sortListItems(items) {
 function listCardHTML(list) {
   const active = list.items.filter(i => !i.done).length;
   const editingName = editingListId === list.id;
-  const items = list.items.length ? sortListItems(list.items).map(it => listItemHTML(list.id, it)) : html`<li class="empty-li">Пока пусто 🫧</li>`;
+  const items = list.items.length ? sortListItems(list.items).map(it => listItemHTML(list.id, it)) : html`<li class="empty-li">Пока пусто</li>`;
   return html`<div class="list-card" data-id="${list.id}">
       <div class="list-head">
         ${
           editingName
             ? html`<input type="text" class="list-name-editor" id="listNameEdit-${list.id}" value="${list.name}">
-             <button class="mini-x" data-save-list="${list.id}" title="Сохранить">💜</button>
-             <button class="mini-x" data-cancel-list title="Отмена">✕</button>`
+             <button class="mini-x" data-save-list="${list.id}" title="Сохранить" aria-label="Сохранить">${navIconHtml('check')}</button>
+             <button class="mini-x" data-cancel-list title="Отмена" aria-label="Отмена">✕</button>`
             : html`<h3>${list.name} <small class="list-count">${active} в работе</small></h3>
-             <button class="mini-x" data-edit-list="${list.id}" title="Переименовать список">${navIconHtml('pencil')}</button>`
+             <button class="mini-x" data-edit-list="${list.id}" title="Переименовать список" aria-label="Переименовать список">${navIconHtml('pencil')}</button>`
         }
         <button class="drag-handle list-drag" data-list-drag="${list.id}" title="Перетащить">⠿</button>
       </div>
@@ -3972,7 +3972,7 @@ function listCardHTML(list) {
       </div>
       <ul class="items" id="listItems-${list.id}">${items}</ul>
       <div class="list-actions">
-        <button class="btn btn-danger btn-small" data-list-complete="${list.id}" title="Выполнить все подзадачи и удалить список">✔ Выполнить список</button>
+        <button class="btn btn-ghost btn-sm" data-list-complete="${list.id}" title="Выполнить все подзадачи и удалить список">Выполнить список</button>
       </div>
     </div>`;
 }
@@ -4028,7 +4028,10 @@ function renderListItems(listId) {
       if (li) {
         li.classList.toggle('done', !!it.done);
         const check = li.querySelector && li.querySelector('.check');
-        if (check) check.textContent = it.done ? '✅' : '○';
+        if (check && check.setAttribute) {
+          check.setAttribute('aria-pressed', String(!!it.done));
+          check.title = it.done ? 'Вернуть в работу' : 'Готово';
+        }
       } else {
         li = document.createElement('li');
         render(li, listItemHTML(list.id, it));
@@ -4049,7 +4052,7 @@ function renderListItems(listId) {
   if (!sorted.length) {
     const empty = document.createElement('li');
     empty.classList.add('empty-li');
-    empty.textContent = 'Пока пусто 🫧';
+    empty.textContent = 'Пока пусто';
     ul.appendChild(empty);
   }
   listFlipAnimate(ul, before);
@@ -4233,10 +4236,10 @@ function fmtWishDate(ts) {
 function wishToggleHTML(w) {
   const me = getUser();
   if (w.done) {
-    return w.doneBy === me ? html`<button class="check" data-wish-done="${w.id}" title="Снять отметку">↩️</button>` : html``;
+    return w.doneBy === me ? html`<button class="btn btn-ghost btn-sm" data-wish-done="${w.id}" title="Снять отметку">Вернуть</button>` : html``;
   }
-  if (w.owner === me) return html`<span class="wish-hint">Только ${me === 'gosha' ? 'Даша' : 'Гоша'} исполнит 💜</span>`;
-  return html`<button class="check" data-wish-done="${w.id}" title="Исполнить!">○</button>`;
+  if (w.owner === me) return html`<span class="wish-hint">Исполнить может только ${me === 'gosha' ? 'Даша' : 'Гоша'}</span>`;
+  return html`<button class="btn btn-sm" data-wish-done="${w.id}" title="Исполнить!">Исполнить</button>`;
 }
 function wishCard(w) {
   const doneBy = w.doneBy ? (w.doneBy === 'gosha' ? 'Гошей' : 'Дашей') : '';
@@ -4250,16 +4253,16 @@ function wishCard(w) {
         ? wPhotoSrc
           ? html`<img class="wish-img" src="${wPhotoSrc}" alt="${w.text}" data-photo="${w.photoId}" loading="lazy">`
           : html`<img class="wish-img" data-photo-src="${w.photoId}" alt="${w.text}" data-photo="${w.photoId}" loading="lazy">`
-        : html`<div class="wish-img" style="display:grid;place-items:center;font-size:34px">💝</div>`
+        : html``
     }
     <div class="wish-body">
       <div class="wish-title">${w.text}</div>
-      ${w.done ? html`<span class="wish-done-by">💜 Исполнено${doneBy ? ' ' + doneBy : ''}${w.doneAt ? ' · ' + fmtWishDate(w.doneAt) : ''}</span>` : html``}
-      ${w.link ? html`<a class="wish-link" href="${safeUrl(w.link)}" target="_blank" rel="noopener">🔗 Открыть ссылку</a>` : html``}
+      ${w.done ? html`<span class="wish-done-by">Исполнено${doneBy ? ' ' + doneBy : ''}${w.doneAt ? ' · ' + fmtWishDate(w.doneAt) : ''}</span>` : html``}
+      ${w.link ? html`<a class="wish-link" href="${safeUrl(w.link)}" target="_blank" rel="noopener">Открыть ссылку ↗</a>` : html``}
       <div class="wish-btns">
         ${wishToggleHTML(w)}
-        <button class="mini-x" data-edit-wish="${w.id}" title="Изменить">${navIconHtml('pencil')}</button>
-        <button class="mini-x" data-wish-del="${w.id}" title="Удалить">✕</button>
+        <button class="mini-x" data-edit-wish="${w.id}" title="Изменить" aria-label="Изменить">${navIconHtml('pencil')}</button>
+        <button class="mini-x" data-wish-del="${w.id}" title="Удалить" aria-label="Удалить">${navIconHtml('trash')}</button>
       </div>
     </div>
   </div>`;
@@ -4281,19 +4284,16 @@ function renderWishlist() {
   if (!grid) return;
   if (wishlistTab !== 'gosha' && wishlistTab !== 'dasha') wishlistTab = getUser();
   const byOwner = who => [...db.wishlist].filter(w => w.owner === who).sort((a, b) => a.done - b.done || b.ts - a.ts);
-  const sec = (who, label, emoji, empty) =>
-    html`<div class="wish-section" data-wish-owner="${who}"><h4>${emoji} Хотелки ${label}</h4>
+  const sec = (who, label, empty) =>
+    html`<div class="wish-section" data-wish-owner="${who}"><h4>Хотелки ${label}</h4>
       ${byOwner(who).length ? html`<div class="wishlist-grid">${byOwner(who).map(wishCard)}</div>` : html`<p class="cal-tip">${empty}</p>`}
     </div>`;
   const tabs = html`<div class="wish-tabs">
-      <button type="button" class="wish-tab${wishlistTab === 'gosha' ? ' active' : ''}" data-wish-tab="gosha">👦 Гоша</button>
-      <button type="button" class="wish-tab${wishlistTab === 'dasha' ? ' active' : ''}" data-wish-tab="dasha">👧 Даша</button>
+      <button type="button" class="wish-tab${wishlistTab === 'gosha' ? ' active' : ''}" data-wish-tab="gosha">Гоша</button>
+      <button type="button" class="wish-tab${wishlistTab === 'dasha' ? ' active' : ''}" data-wish-tab="dasha">Даша</button>
     </div>`;
   grid.dataset.activeWish = wishlistTab;
-  render(
-    grid,
-    html`${tabs}${sec('gosha', 'Гоши', '👦', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨')}${sec('dasha', 'Даши', '👧', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨')}`
-  );
+  render(grid, html`${tabs}${sec('gosha', 'Гоши', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨')}${sec('dasha', 'Даши', 'Пока пусто. Нажми «Добавить» — мечты должны сбываться ✨')}`);
   if (typeof hydratePhotoImgs === 'function') hydratePhotoImgs(grid);
 }
 let editingWishId = null;
@@ -4302,11 +4302,11 @@ function openWishModal(id) {
   editingWishId = typeof id === 'string' ? id : null;
   const wish = editingWishId ? db.wishlist.find(x => x.id === editingWishId) : null;
   const title = $('#wishModalTitle');
-  if (title) title.textContent = wish ? '✏️ Изменить хотелку' : '🎁 Хотелка';
+  if (title) title.textContent = wish ? 'Изменить хотелку' : 'Хотелка';
   wishPhotoData = null; // новое фото выбирается заново; старое (wish.photoId) остаётся, если не тронуть выбор
   $('#wishText').value = wish ? wish.text : '';
   $('#wishLink').value = wish ? wish.link || '' : '';
-  $('#wishPhotoName').textContent = wish && wish.photoId ? '✅ фото уже есть — выбери новое, чтобы заменить' : '';
+  $('#wishPhotoName').textContent = wish && wish.photoId ? 'Фото уже есть — выбери новое, чтобы заменить' : '';
   $('#wishPhoto').value = '';
   openOverlay('wishOverlay');
   $('#wishText').focus();
@@ -4317,7 +4317,7 @@ $('#wishPhoto').addEventListener('change', async e => {
   if (!f) return;
   try {
     wishPhotoData = await readFile(f);
-    $('#wishPhotoName').textContent = '✅ фото готово';
+    $('#wishPhotoName').textContent = 'Фото готово';
   } catch (err) {
     $('#wishPhotoName').textContent = 'не вышло :(';
   }

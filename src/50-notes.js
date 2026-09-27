@@ -1,7 +1,7 @@
 /* ===== Заметки ===== */
 let editingNoteId = null; // id заметки в режиме инлайн-правки (null — не редактируем)
 function noteAuthorName(n) {
-  return n.author === 'dasha' ? '👧 Даша' : n.author === 'gosha' ? '👦 Гоша' : '💜 Наши';
+  return n.author === 'dasha' ? 'Даша' : n.author === 'gosha' ? 'Гоша' : 'Наши';
 }
 function renderNotes() {
   const list = [...db.notes].sort((a, b) => b.pinned - a.pinned || (a.order ?? 1e9) - (b.order ?? 1e9) || b.ts - a.ts);
@@ -13,23 +13,23 @@ function renderNotes() {
             html` <div class="note${n.pinned ? ' pinned' : ''}" data-id="${n.id}">
               <div class="note-top">
                 <button class="drag-handle note-drag" data-note-drag="${n.id}" title="Перетащить">⠿</button>
-                <button class="mini-x" data-pin-note="${n.id}" title="${n.pinned ? 'Открепить' : 'Закрепить'}">${navIconHtml(n.pinned ? 'pin-fill' : 'pin')}</button>
+                <button class="mini-x" data-pin-note="${n.id}" title="${n.pinned ? 'Открепить' : 'Закрепить'}" aria-label="${n.pinned ? 'Открепить' : 'Закрепить'}">${navIconHtml(n.pinned ? 'pin-fill' : 'pin')}</button>
                 <span class="note-author">${noteAuthorName(n)}</span>
                 <span class="note-date">${new Date(n.ts).toLocaleDateString('ru-RU')}</span>
-                <button class="mini-x" data-edit-note="${n.id}" title="Редактировать">${navIconHtml('pencil')}</button>
-                <button class="mini-x" data-del-note="${n.id}" title="Удалить">✕</button>
+                <button class="mini-x" data-edit-note="${n.id}" title="Редактировать" aria-label="Редактировать">${navIconHtml('pencil')}</button>
+                <button class="mini-x" data-del-note="${n.id}" title="Удалить" aria-label="Удалить">${navIconHtml('trash')}</button>
               </div>
               ${
-        editingNoteId === n.id
-          ? html`<div class="note-edit">
+                editingNoteId === n.id
+                  ? html`<div class="note-edit">
               <textarea id="noteEdit-${n.id}" class="note-editor">${n.text}</textarea>
               <div class="note-edit-btns">
-                <button class="btn btn-sm" data-save-note="${n.id}">💜 Сохранить</button>
-                <button class="mini-x" data-cancel-note title="Отмена">✕</button>
+                <button class="btn btn-sm" data-save-note="${n.id}">Сохранить</button>
+                <button class="mini-x" data-cancel-note title="Отмена" aria-label="Отмена">✕</button>
               </div>
             </div>`
-          : html`<p>${n.text}</p>`
-      }
+                  : html`<p>${n.text}</p>`
+              }
             </div>`
         )}`
       : html`<div class="empty-state">Пока пусто. Напиши первую записку! 💌</div>`

@@ -95,7 +95,7 @@ const BOTTOM_ICON = {
   home: navIconHtml('home'),
   calendar: navIconHtml('calendar'),
   photos: navIconHtml('photos'),
-  our: navIconHtml('notes')
+  our: navIconHtml('our')
 };
 function showView(view) {
   view = resolveView(view);

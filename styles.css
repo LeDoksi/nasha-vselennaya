@@ -271,6 +271,13 @@ main{max-width:1100px;margin:0 auto;padding:28px 20px 90px}
 .btn-ghost:hover{border-color:var(--star)}
 .btn-ghost.danger{color:var(--danger-ink)}
 .btn-ghost.danger:hover{border-color:var(--danger-ink)}
+/* .btn-sm (ниже) красит фон акцентом для маленькой ПЕРВИЧНОЙ кнопки
+   (например «Сохранить» в редакторе заметки) — той же специфичностью (один
+   класс), позже в файле, поэтому без этой строки перебивает .btn-ghost у
+   «Выполнить список»/«Вернуть» (фаза 7, урок 2: специфичность перебивает
+   новое правило). Составной селектор — та же схема, что у .btn-ghost.danger
+   выше. */
+.btn-ghost.btn-sm{background:transparent;color:var(--ink)}
 .file-btn{position:relative;overflow:hidden;cursor:pointer}
 input[type=text],input[type=date],input[type=time],input[type=password],textarea,select{
   background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-field);padding:10px 14px;
@@ -424,7 +431,7 @@ h3{font-weight:800}
 .mini-x[data-del-event]:hover,.mini-x[data-del-date]:hover,.mini-x[data-del-note]:hover,.mini-x[data-del-item]:hover,.mini-x[data-wish-del]:hover{background:oklch(from var(--danger) l c h / .16);color:var(--danger-ink)}
 
 /* ===== Заметки ===== */
-.note-add{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:flex-start}
+.note-add{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:flex-end}
 .note-add textarea{flex:1;min-width:240px;padding:14px;border-radius:var(--radius-field);min-height:64px;resize:vertical}
 .notes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
 .note{
@@ -434,7 +441,7 @@ h3{font-weight:800}
 .note:hover{transform:translateY(-4px) rotate(-.5deg);box-shadow:0 14px 30px oklch(from var(--night) l c h / .16)}
 .note.pinned{border-color:var(--star);background:var(--sky-2)}
 .note-top{display:flex;align-items:center;gap:6px;margin-bottom:8px}
-.note-author{font-size:var(--text-sm);font-weight:800;color:var(--star-ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.note-author{font-size:var(--text-sm);font-weight:800;color:var(--ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .note-date{font-size:var(--text-sm);color:var(--ink-2);white-space:nowrap}
 .note p{white-space:pre-wrap;font-size:var(--text-base);word-break:break-word}
 /* перетаскиваемую карточку прячем под призраком (старые классы — чип↔фото,
@@ -453,14 +460,12 @@ h3{font-weight:800}
 /* ===== Драг-ручки и призрак (Pointer Events драг, схема A+D) ===== */
 .drag-handle{
   display:inline-flex;align-items:center;justify-content:center;
-  width:30px;height:30px;border-radius:var(--radius-pill);border:1px solid var(--line);
-  background:var(--sky-1);color:var(--ink-2);cursor:grab;font-size:var(--text-base);line-height:1;
+  width:32px;height:32px;border:0;border-radius:var(--radius-pill);background:transparent;
+  color:var(--ink-2);cursor:grab;font-size:var(--text-base);line-height:1;
   flex:none;touch-action:none;user-select:none;-webkit-user-select:none;
 }
-.drag-handle:hover{border-color:var(--star);color:var(--star);background:var(--sky-2)}
+.drag-handle:hover{background:var(--sky-2);color:var(--ink)}
 .drag-handle:active{cursor:grabbing}
-.note .drag-handle{width:26px;height:26px;border-radius:var(--radius-pill)}
-.items li .drag-handle{width:26px;height:26px;border-radius:var(--radius-pill);font-size:var(--text-sm)}
 .list-head{display:flex;align-items:flex-start;gap:10px}
 .list-head h3{flex:1}
 .list-name-editor{flex:1;padding:6px 10px;border-radius:var(--radius-field);border:1px solid var(--line);font-family:inherit;font-size:var(--text-md);font-weight:800}
@@ -487,24 +492,28 @@ body.uni-dragging .note:hover,body.uni-dragging .list-card:hover{transform:none}
 .lists-wrap{display:grid;grid-template-columns:1fr 1fr;gap:20px}
 .list-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:20px;box-shadow:var(--shadow)}
 .list-card h3{display:flex;align-items:center;justify-content:space-between;font-size:var(--text-lg);margin-bottom:14px}
-.list-card h3 small{color:var(--ink-2);font-weight:600;font-size:var(--text-sm)}
+.list-card h3 small{color:var(--ink-2);font-weight:600;font-size:var(--text-sm);white-space:nowrap}
 .list-add{display:flex;gap:8px;margin-bottom:14px}
-.list-add input{flex:1}
-.lists-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-.lists-bar h3{margin:0;font-size:var(--text-lg)}
+.list-add input{flex:1;min-width:0}
+.list-add .btn{flex:none;width:44px;height:44px;padding:0;justify-content:center}
 .list-create{display:flex;gap:8px;margin-bottom:18px;max-width:540px}
-.list-create input{flex:1}
+.list-create input{flex:1;min-width:0}
+.list-create .btn{white-space:nowrap}
 .list-actions{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)}
 .btn-small{padding:8px 12px;font-size:var(--text-sm)}
 .items{list-style:none}
 .items li{display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:var(--radius-card);font-size:var(--text-base)}
 .items li:hover{background:var(--sky-2)}
 .items li.done span{text-decoration:line-through;color:var(--ink-2)}
+/* Галочка подзадачи (фаза 7): вид — от aria-pressed, не от эмодзи ○/✅ */
 .check{
-  width:28px;height:28px;border-radius:var(--radius-pill);border:1px solid var(--line);background:var(--sky-1);
-  cursor:pointer;font-size:var(--text-sm);flex:none;transition:.2s;
+  display:inline-flex;align-items:center;justify-content:center;
+  width:24px;height:24px;border-radius:var(--radius-pill);border:2px solid var(--line);background:transparent;
+  cursor:pointer;flex:none;transition:background .2s,border-color .2s;color:var(--void);font-size:var(--text-sm);font-weight:900;
 }
 .check:hover{border-color:var(--star)}
+.check[aria-pressed="true"]{background:var(--star);border-color:var(--star)}
+.check[aria-pressed="true"]::after{content:'✓'}
 .items li span{flex:1;word-break:break-word}
 /* FLIP-анимация переезда подзадач (done-подзадача уезжает вниз) */
 .items li{transition:transform .28s ease,background .28s ease,color .28s ease}
@@ -584,7 +593,7 @@ html:has(.overlay[open]){overflow:hidden}
 }
 .modal-x:hover{background:oklch(from var(--danger) l c h / .16);color:var(--danger-ink)}
 .modal label{font-weight:800;font-size:var(--text-sm);color:var(--ink-2)}
-.modal .check{display:flex;align-items:center;gap:8px;height:auto;width:auto;background:none;border:none;color:var(--ink);font-size:var(--text-base);cursor:pointer}
+.modal .check{display:flex;align-items:center;gap:8px;height:auto;width:auto;background:none;border:none;color:var(--ink);font-size:var(--text-base);cursor:pointer;justify-content:flex-start;border-radius:0}
 .modal input[type=checkbox]{accent-color:var(--star);width:17px;height:17px;cursor:pointer}
 /* Модалка «добавить дату» — в стиле сайта: акцентная шапка (сплошной цвет,
    не градиент — акцент один) + аккуратные поля */
@@ -720,8 +729,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 @keyframes confettiFall{0%{transform:translateY(0) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
 
 /* ===== Вишлист ===== */
-.wishlist-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:18px}
-.wishlist-bar h3{font-size:var(--text-lg)}
+.wishlist-bar{display:flex;justify-content:flex-end;margin-bottom:18px}
 .wishlist-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
 .wish{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);overflow:hidden;box-shadow:0 8px 20px oklch(from var(--night) l c h / .1);transition:transform .25s,box-shadow .25s}
 .wish:hover{transform:translateY(-4px);box-shadow:0 14px 30px oklch(from var(--night) l c h / .16)}
@@ -731,8 +739,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 .wish-link{display:inline-flex;align-items:center;gap:4px;color:var(--star-ink);font-size:var(--text-sm);font-weight:700;text-decoration:none;margin-top:8px}
 .wish-link:hover{text-decoration:underline}
 .wish-btns{display:flex;gap:8px;margin-top:10px}
-.wish-done-by{display:block;margin-top:8px;font-size:var(--text-sm);font-weight:800;color:var(--star-ink)}
-.wish.done .wish-done-by{color:var(--star-ink)}
+.wish-done-by{display:block;margin-top:8px;font-size:var(--text-sm);font-weight:800;color:var(--ink-2)}
 .wish-hint{display:block;margin-top:10px;font-size:var(--text-sm);font-weight:700;color:var(--ink-2)}
 
 /* ===== Альбомы ===== */
@@ -826,7 +833,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
 @media(max-width:820px){
   .wish-tabs{display:flex;gap:8px;margin-bottom:18px}
   .wish-tab{flex:1;border:1px solid var(--line);background:var(--sky-1);color:var(--ink-2);padding:10px;border-radius:var(--radius-pill);font-size:var(--text-base);font-weight:800;cursor:pointer;transition:.2s}
-  .wish-tab.active{background:var(--star);color:var(--void);border-color:transparent}
+  .wish-tab.active{background:var(--sky-2);color:var(--ink);border-color:var(--line)}
   #wishlistGrid[data-active-wish="gosha"] .wish-section[data-wish-owner="dasha"],
   #wishlistGrid[data-active-wish="dasha"] .wish-section[data-wish-owner="gosha"]{display:none}
 }
