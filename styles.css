@@ -193,8 +193,7 @@ body{
    Раньше тут было три blur(90px)-блоба, анимированных каждый кадр — дорого
    по GPU на телефоне. Звёзды — повторяющийся radial-gradient на двух
    статичных плоскостях, а не тысяча элементов; дешевле на порядок.
-   Параллакс по прокрутке (sky-far/sky-near двигаются с разной скоростью) —
-   фаза 8, сейчас слой статичен. */
+   Параллакс — ниже, @supports (animation-timeline). */
 .sky{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
 .sky-far,.sky-near{position:absolute;inset:-20% 0;display:block;background-repeat:repeat}
 .sky-far{
@@ -1082,6 +1081,20 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .tl-item-photos img{height:70px;border-radius:var(--radius-media);object-fit:cover;flex-shrink:0;cursor:pointer}
 .tl-more-btn{align-self:center;border:1px dashed var(--star);background:transparent;color:var(--star-ink);border-radius:var(--radius-pill);padding:6px 10px;font-size:var(--text-sm);cursor:pointer;flex-shrink:0}
 .tl-more-btn:hover{background:var(--sky-0)}
+
+/* Фаза 8 (NV-61, спека 3.2): всё, что завязано на прокрутку, — через
+   animation-timeline, ноль обработчиков scroll. Небо: две плоскости уходят
+   вверх с разной скоростью — глубина, «уход в прошлое». Ось: день
+   проявляется, въезжая в экран — порядок чтения. Где timeline нет — всё
+   статично и видно сразу (@supports), без полифилов (спека §7). */
+@supports (animation-timeline: scroll()) {
+  .sky-far{animation:skyFar linear both;animation-timeline:scroll(root)}
+  .sky-near{animation:skyNear linear both;animation-timeline:scroll(root)}
+  .axis-day{animation:axisReveal linear both;animation-timeline:view();animation-range:entry 0% entry 70%}
+}
+@keyframes skyFar{to{transform:translateY(-4%)}}
+@keyframes skyNear{to{transform:translateY(-12%)}}
+@keyframes axisReveal{from{opacity:.15;transform:translateY(16px)}}
 
 /* ===== Фаза D: Glass-карточки — полупрозрачные + размытие фона =====
    Блок в конце файла: перекрывает сплошные фоны выше, чтобы слой неба мягко

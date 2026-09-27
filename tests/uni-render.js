@@ -50,6 +50,7 @@ for (const f of fs.readdirSync('src').filter(n => n.endsWith('.js') && !SELF.inc
   if (!pending) assert(!/\besc\(/.test(src), f + ': нет esc() — в html`` экранирование по умолчанию');
   assert(!/\.insertAdjacentHTML\s*\(/.test(src), f + ': нет insertAdjacentHTML — в обход render() экранирование не сработает');
   assert(!/\.outerHTML\s*=(?!=)/.test(src), f + ': нет outerHTML — в обход render() экранирование не сработает');
+  assert(!/addEventListener\(\s*['"]scroll['"]|\.onscroll\s*=/.test(src), f + ': нет обработчиков scroll — спека 3.2, только animation-timeline и IntersectionObserver');
 }
 
 if (failed) {
