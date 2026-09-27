@@ -5959,7 +5959,12 @@ function lbFlyBack(close) {
   const id = lightboxList[lightboxIdx];
   if (!id || !img || !img.style) return false;
   const scope = '#view-' + activeView + ' ';
-  const to = document.querySelector(scope + '[data-photo="' + id + '"], ' + scope + '[data-lightbox="' + id + '"]');
+  // id теоретически может содержать символы, ломающие атрибутный селектор
+  // (кавычки и т.п.) — CSS.escape гарантирует валидный селектор вместо
+  // падения querySelector. В песочнице тестов CSS может не быть — тогда id
+  // как есть (там это либо простые тестовые id, либо ветка не доходит сюда).
+  const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id;
+  const to = document.querySelector(scope + '[data-photo="' + esc + '"], ' + scope + '[data-lightbox="' + esc + '"]');
   if (!to || !to.style) return false;
   const gen = lbGen;
   lbFlyingBack = true;
