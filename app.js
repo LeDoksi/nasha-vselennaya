@@ -4997,12 +4997,12 @@ function renderLabels() {
   const dtCount = db.photos.filter(p => (p.labels || []).includes(DATE_LABEL)).length;
   render(
     bar,
-    html`<button class="album-chip${currentLabel === '' ? ' active' : ''}" data-label="">🖼 Все фото (${db.photos.length})</button>${
-      evCount ? html`<button class="album-chip${currentLabel === EVENT_LABEL ? ' active' : ''}" data-label="${EVENT_LABEL}">📅 События (${evCount})</button>` : ''
-    }${dtCount ? html`<button class="album-chip${currentLabel === DATE_LABEL ? ' active' : ''}" data-label="${DATE_LABEL}">💞 Свидания (${dtCount})</button>` : ''}${db.labels.map(
+    html`<button class="album-chip${currentLabel === '' ? ' active' : ''}" data-label="">Все фото (${db.photos.length})</button>${
+      evCount ? html`<button class="album-chip${currentLabel === EVENT_LABEL ? ' active' : ''}" data-label="${EVENT_LABEL}">События (${evCount})</button>` : ''
+    }${dtCount ? html`<button class="album-chip${currentLabel === DATE_LABEL ? ' active' : ''}" data-label="${DATE_LABEL}">Свидания (${dtCount})</button>` : ''}${db.labels.map(
       l =>
         html`<button class="album-chip${currentLabel === l.id ? ' active' : ''}" data-label="${l.id}" title="Перетащи фото сюда, чтобы навесить лейбл"><span class="label-dot" style="background:${l.color}"></span>${l.name}</button>`
-    )}<button class="btn album-add-btn" data-label-new title="Создать, переименовать, перекрасить или удалить лейблы">🏷 Лейблы</button>`
+    )}<button class="btn btn-ghost album-add-btn" data-label-new title="Создать, переименовать, перекрасить или удалить лейблы">Лейблы</button>`
   );
 }
 // Чистка фото без подтверждения — общая часть deletePhoto()/deleteSelectedPhotos()
