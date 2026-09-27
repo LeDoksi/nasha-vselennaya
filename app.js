@@ -4450,6 +4450,21 @@ function closeOverlay(id) {
   // повторно при каждом заходе на главную (см. src/30-home.js).
   if (id === 'dateInviteOverlay') markInvitesDismissed(pendingDateInvites().map(d => d.id));
 }
+// Долгое нажатие (Task 9, фикс раунда 1): «хвост клика» гасится в обработчике
+// клика ниже, но только пока флаг не завис — платформа может не прислать
+// клик вообще (iOS превращает удержание в contextmenu и подавляет click, см.
+// 71-photo-grid.js). Без глобального сброса флаг оставался бы true до
+// следующего долгого нажатия на #photosGrid и глушил бы ПЕРВЫЙ обычный клик
+// по любому другому [data-photo] — календарь (41-calendar-photos.js), хотелки
+// (61-wishes.js). Сбрасываем на pointerdown в фазе перехвата (документ —
+// первым на пути события, раньше, чем сработает таймер #photosGrid).
+document.addEventListener(
+  'pointerdown',
+  () => {
+    photoLongPressed = false;
+  },
+  true
+);
 document.addEventListener('click', e => {
   const day = e.target.closest('[data-day]');
   if (day) {
@@ -4630,7 +4645,10 @@ document.addEventListener('click', e => {
   }
   const photo = e.target.closest('[data-photo]');
   if (photo) {
-    if (photoLongPressed) {
+    // Долгое нажатие возможно только на #photosGrid — клик по [data-photo] в
+    // календаре (41-calendar-photos.js) или в хотелках (61-wishes.js) глушить
+    // нельзя, даже если флаг завис (см. document pointerdown ниже).
+    if (photoLongPressed && photo.closest('#photosGrid')) {
       photoLongPressed = false; // клик — хвост долгого нажатия, выбор уже сделан
       return;
     }
@@ -5315,7 +5333,8 @@ if (photosGridEl && photosGridEl.addEventListener) {
     pressTimer = null;
   };
   photosGridEl.addEventListener('pointerdown', e => {
-    photoLongPressed = false; // хвост прошлого нажатия без клика (iOS шлёт contextmenu вместо click)
+    // photoLongPressed гасится глобально (см. document pointerdown, capture,
+    // в 62-global-clicks.js) — раньше, чем сработает этот обработчик.
     const img = e.target.closest && e.target.closest('[data-photo]');
     if (!img || photoReorderMode || e.button > 0) return;
     pressX = e.clientX;

@@ -53,7 +53,14 @@ const sandbox = {
     createElement() {
       return makeEl();
     },
-    addEventListener() {},
+    _handlers: {},
+    // Раньше addEventListener был пустышкой — document-уровневые обработчики
+    // (клик-делегат, фикс round 1: pointerdown-сброс photoLongPressed) нечем
+    // было проверить. Третий аргумент (capture) не используется — все
+    // сценарии здесь достаточно различает порядок регистрации.
+    addEventListener(type, fn) {
+      (this._handlers[type] = this._handlers[type] || []).push(fn);
+    },
     querySelector(sel) {
       return registry[sel] || (registry[sel] = makeEl());
     },
@@ -168,6 +175,27 @@ const firebase = {
   firestore: mock.firestore
 };
 firebase.auth.GoogleAuthProvider = function GoogleAuthProvider() {};
+
+// Фикс round 1 (Task 9): проверка глобального клик-делегата (document
+// addEventListener) требует настоящего диспетча — раньше addEventListener на
+// фейковом document был пустышкой. fireDocEvent зовёт зарегистрированные
+// обработчики напрямую, e — просто { target }, этого хватает для всех веток
+// делегата (all closest() идут от e.target).
+function fireDocEvent(type, target) {
+  (sandbox.document._handlers[type] || []).forEach(fn => fn({ target }));
+}
+// Фейковый [data-photo] элемент вне/внутри #photosGrid — closest() отвечает
+// только на селекторы, которые реально проверяет делегат в 62-global-clicks.js.
+function fakePhotoEl(id, insideGrid) {
+  return {
+    dataset: { photo: id },
+    closest(sel) {
+      if (sel === '[data-photo]') return this;
+      if (sel === '#photosGrid') return insideGrid ? {} : null;
+      return null;
+    }
+  };
+}
 
 let results = [];
 function assert(cond, msg) {
@@ -1027,6 +1055,22 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(w('(s)=>s.photoSelectMode') === false, 'долгое нажатие: в режиме порядка не срабатывает');
   w('(s)=>{ s.togglePhotoReorderMode(); s.renderPhotos(); return 1; }');
   assert(!registry['#photosGrid'].innerHTML.includes('photo-label-del'), 'плитка: без крестиков на чипах лейблов');
+
+  // --- Фикс round 1 (ревью Task 9): photoLongPressed — сброс глобальный,
+  // глушим клик только внутри #photosGrid (календарь/хотелки — тоже
+  // [data-photo], но вне сетки, долгого нажатия там нет вообще) ---
+  w('(s)=>{ if (s.photoSelectMode) s.togglePhotoSelectMode(); s.selectedPhotos.clear(); s.closeOverlay("lightbox"); return 1; }'); // closeOverlay заодно лениво заводит registry["#lightbox"]
+  w(`(s)=>{ s.photoLongPress('zz1'); return 1; }`); // взводит флаг И включает photoSelectMode (см. photoLongPress)
+  fireDocEvent('click', fakePhotoEl('zz1', false)); // фото ВНЕ #photosGrid (календарь/хотелки) — режим выбора тут ни при чём
+  assert(registry['#lightbox'].hidden === false, 'фикс: клик по [data-photo] вне #photosGrid не глушится зависшим долгим нажатием — лайтбокс открылся');
+  // Выключаем режим выбора, чтобы клик внутри сетки бил по лайтбоксу
+  // (иначе тап в режиме выбора всегда выбирает, а не открывает — это отдельная,
+  // уже проверенная ветка, не про сброс photoLongPressed).
+  w('(s)=>{ s.closeOverlay("lightbox"); s.togglePhotoSelectMode(); return 1; }');
+  fireDocEvent('click', fakePhotoEl('zz1', true)); // тот же непогашенный флаг, теперь фото ВНУТРИ #photosGrid
+  assert(registry['#lightbox'].hidden === true, 'долгое нажатие всё ещё глушит следующий клик внутри #photosGrid');
+  fireDocEvent('click', fakePhotoEl('zz1', true)); // флаг уже потрачен — второй клик подряд не глушится
+  assert(registry['#lightbox'].hidden === false, 'флаг разовый: повторный клик внутри #photosGrid уже открывает лайтбокс');
 
   // --- Настройки: личный кабинет ---
   w('(s)=>s.go("settings")');

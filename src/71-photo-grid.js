@@ -220,7 +220,8 @@ if (photosGridEl && photosGridEl.addEventListener) {
     pressTimer = null;
   };
   photosGridEl.addEventListener('pointerdown', e => {
-    photoLongPressed = false; // хвост прошлого нажатия без клика (iOS шлёт contextmenu вместо click)
+    // photoLongPressed гасится глобально (см. document pointerdown, capture,
+    // в 62-global-clicks.js) — раньше, чем сработает этот обработчик.
     const img = e.target.closest && e.target.closest('[data-photo]');
     if (!img || photoReorderMode || e.button > 0) return;
     pressX = e.clientX;
