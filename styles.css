@@ -841,6 +841,12 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
      сотни фото по одному неудобно. Три колонки — привычная плотность
      фотолент (Instagram/Google Photos). */
   .photos-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px}
+  /* Плитки стали втрое уже (100px вместо 180px) — оценка размера офскрин-плитки
+     из десктопного contain-intrinsic-size (180px/374px) завышена, из-за чего
+     подгруженные страницы дёргают скролл, когда плитка досчитывает реальную
+     высоту. Числа — фактическая высота плитки при 100px-колонке (H5). */
+  .photo{contain-intrinsic-size:auto 110px}
+  .photo--big{contain-intrinsic-size:auto 228px}
   .sel-photo,.photo .drag-handle{width:26px;height:26px;top:6px;left:6px}
   /* Шапка на мобильном: лого + кнопки темы/пользователя не помещались в одну
      строку и переносились на вторую — sticky-шапка съедала заметную часть
