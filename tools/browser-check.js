@@ -165,6 +165,38 @@ async function checkPhotoLongPress(page, log) {
   return ok;
 }
 
+// Гонка contextmenu на Android 12+ Chrome (H2, фаза 6): системный таймаут
+// долгого нажатия (400мс) короче LONG_PRESS_MS (450) — contextmenu приходит
+// раньше, чем наш таймер. pointerdown зажат, но contextmenu дёргается ДО
+// 450мс — ожидание: режим выбора включается тем же обработчиком и системное
+// меню гасится (preventDefault), не дожидаясь нашего таймера.
+async function checkPhotoContextMenuRace(page, log) {
+  await page.evaluate(() => {
+    go('photos');
+    if (photoReorderMode) togglePhotoReorderMode();
+    if (photoSelectMode) togglePhotoSelectMode();
+  });
+  await page.waitForTimeout(200);
+  const box = await page.locator('#photosGrid .photo img').first().boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(200); // меньше LONG_PRESS_MS=450 — наш таймер ещё не сработал
+  const r = await page.evaluate(() => {
+    const img = document.querySelector('#photosGrid .photo img');
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    img.dispatchEvent(ev);
+    return { prevented: ev.defaultPrevented, mode: photoSelectMode };
+  });
+  await page.mouse.up();
+  await page.waitForTimeout(100);
+  const ok = r.mode === true && r.prevented === true;
+  log.push((ok ? 'OK' : 'FAIL') + ' contextmenu-гонка: режим=' + r.mode + ', preventDefault=' + r.prevented);
+  await page.evaluate(() => {
+    if (photoSelectMode) togglePhotoSelectMode();
+  });
+  return ok;
+}
+
 (async () => {
   const log = [];
   const scriptErrors = [];
@@ -204,6 +236,7 @@ async function checkPhotoLongPress(page, log) {
     allOk = (await checkListsReorder(page, log)) && allOk;
     allOk = (await checkPhotosReorder(page, log)) && allOk;
     allOk = (await checkPhotoLongPress(page, log)) && allOk;
+    allOk = (await checkPhotoContextMenuRace(page, log)) && allOk;
     allOk = (await checkSheetSwipe(browser, log)) && allOk;
   } catch (e) {
     allOk = false;

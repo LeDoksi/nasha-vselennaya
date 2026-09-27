@@ -237,6 +237,16 @@ if (photosGridEl && photosGridEl.addEventListener) {
   });
   ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => photosGridEl.addEventListener(t, cancelPress));
   photosGridEl.addEventListener('contextmenu', e => {
+    // Android 12+ Chrome: системный таймаут долгого нажатия (400мс) короче
+    // LONG_PRESS_MS (450) — contextmenu приходит раньше, чем наш таймер
+    // сработает и выставит photoLongPressed. Если таймер ещё висит — это
+    // тоже долгое нажатие, просто наш засёк его позже системы; включаем
+    // режим выбора прямо тут и глушим системное меню картинки.
+    const img = pressTimer && e.target.closest && e.target.closest('[data-photo]');
+    if (img) {
+      cancelPress();
+      photoLongPress(img.dataset.photo);
+    }
     if (photoLongPressed) e.preventDefault(); // системное меню картинки после долгого нажатия
   });
 }
