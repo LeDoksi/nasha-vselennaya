@@ -62,9 +62,16 @@ const oklchExceptions = new Set(['oklch(90% .02 280 / .5)', 'oklch(90% .02 280 /
 for (const m of rest.matchAll(/oklch\((?!from\b)[^)]*\)/g)) {
   if (!oklchExceptions.has(m[0])) fails.push('oklch ' + m[0]);
 }
+// Фаза 8 (NV-60): движение — только токенами --dur-*/--ease-* из слоя tokens.
+// Литеральная длительность или cubic-bezier вне слоя — ровно то, чем был
+// разнобой .2s/.22s/.25s/.28s/.3s до фазы 8.
+for (const m of rest.matchAll(/(?:transition|animation)(?:-duration|-delay|-timing-function)?\s*:([^;}]+)/g)) {
+  for (const t of m[1].matchAll(/(?<![\w.-])\d*\.?\d+m?s\b/g)) fails.push('длительность ' + t[0] + ' в «' + m[0].trim().slice(0, 60) + '»');
+  if (/cubic-bezier\(|linear\(/.test(m[1])) fails.push('кривая в «' + m[0].trim().slice(0, 60) + '»');
+}
 if (fails.length) {
   console.log('FAIL: хардкод вне токенов (' + fails.length + '):');
   for (const f of [...new Set(fails)].slice(0, 30)) console.log('  ' + f);
   process.exit(1);
 }
-console.log('OK: цвета и радиусы только в токенах');
+console.log('OK: цвета, радиусы и движение только в токенах');

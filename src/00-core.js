@@ -306,6 +306,9 @@ let fsReady = false; // Firestore подключён и готов (см. src/03
 // 40-calendar.js, поэтому объявлено здесь, а не в 04-repo.js — TDZ.
 let loadedMonths = new Set();
 let photosCursor = null; // курсор пагинации галереи
+// id фото, загруженных в этой сессии и ещё ни разу не нарисованных в сетке:
+// renderPhotosNow даёт им класс photo--fresh (пружина появления) и очищает набор.
+const freshPhotoIds = new Set();
 // Идёт ли сейчас запрос следующей страницы галереи — без этого флага два
 // параллельных вызова loadMorePhotos() (например, повторное срабатывание
 // photosObserver или гонка между ним и ручным вызовом) читали бы Firestore

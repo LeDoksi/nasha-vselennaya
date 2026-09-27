@@ -85,7 +85,7 @@ function renderPhotosNow() {
         // асинхронно (как в «Памяти» и на «Главной»), чтобы миниатюры появлялись сами.
         const url = photoSrc(p);
         return html`
-    <div class="photo${p.pinned ? ' pinned' : ''}${!photoReorderMode && (p.pinned || bigIds.has(p.id)) ? ' photo--big' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}">
+    <div class="photo${p.pinned ? ' pinned' : ''}${!photoReorderMode && (p.pinned || bigIds.has(p.id)) ? ' photo--big' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}${freshPhotoIds.has(p.id) ? ' photo--fresh' : ''}" data-id="${p.id}">
       <img${url ? html` src="${url}"` : html` data-photo-src="${p.id}"`} alt="${p.title}" data-photo="${p.id}" loading="lazy">
       ${
         photoSelectMode
@@ -114,6 +114,7 @@ function renderPhotosNow() {
   // плитка на всю ширину колонки.
   render(grid, html`${cards}<div id="photosSentinel" aria-hidden="true" style="grid-column:1/-1;height:1px"></div>`);
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
+  freshPhotoIds.clear();
   // render() каждый раз пересоздаёт разметку целиком — старая метка
   // уничтожена вместе с ней, новую нужно заново отдать тому же наблюдателю.
   if (photosObserver) {

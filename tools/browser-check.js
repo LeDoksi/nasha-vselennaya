@@ -197,6 +197,45 @@ async function checkPhotoContextMenuRace(page, log) {
   return ok;
 }
 
+// Фаза 8 (NV-97): плитка ушла за экран, пока открыт лайтбокс — закрытие без
+// перелёта (иначе фото улетает за край).
+// Отклонение от брифа: там сценарий — window.scrollTo() после открытия
+// лайтбокса. В реальном коде это не воспроизводит баг — `html:has(.overlay[open])
+// {overflow:hidden}` (styles.css) блокирует прокрутку страницы, пока открыт
+// любой оверлей, так что scrollTo — no-op, плитка остаётся на месте. Настоящая
+// причина NV-97 — не скролл, а живая перерисовка сетки (партнёр догрузил
+// фото, пока лайтбокс открыт): та же лента, тот же scrollY, но нужная плитка
+// уехала на N строк вниз. Воспроизводим этим — падаем 60 фото перед текущим
+// и зовём renderPhotosNow(), не трогая scroll.
+async function checkLightboxOffscreen(page, log) {
+  const r = await page.evaluate(async () => {
+    go('photos');
+    await new Promise(ok => setTimeout(ok, 200));
+    const img = document.querySelector('#photosGrid .photo img[data-photo]');
+    const real = Document.prototype.startViewTransition;
+    document.startViewTransition = undefined;
+    openLightboxFrom(img);
+    for (let i = 0; i < 60; i++) db.photos.unshift({ id: 'nv97pad' + i, title: 'x', order: -100 - i, labels: [] });
+    renderPhotosNow();
+    await new Promise(ok => setTimeout(ok, 100));
+    let calls = 0;
+    document.startViewTransition = cb => {
+      calls++;
+      return real.call(document, cb);
+    };
+    closeOverlay('lightbox');
+    await new Promise(ok => setTimeout(ok, 400));
+    document.startViewTransition = undefined;
+    const closed = document.getElementById('lightbox').hidden;
+    db.photos = db.photos.filter(p => !p.id.startsWith('nv97pad'));
+    renderPhotosNow();
+    return { calls, closed };
+  });
+  const ok = r.calls === 0 && r.closed;
+  log.push((ok ? 'OK' : 'FAIL') + ' лайтбокс, плитка за экраном: перелётов=' + r.calls + ', закрыт=' + r.closed);
+  return ok;
+}
+
 (async () => {
   const log = [];
   const scriptErrors = [];
@@ -241,6 +280,7 @@ async function checkPhotoContextMenuRace(page, log) {
     allOk = (await checkPhotosReorder(page, log)) && allOk;
     allOk = (await checkPhotoLongPress(page, log)) && allOk;
     allOk = (await checkPhotoContextMenuRace(page, log)) && allOk;
+    allOk = (await checkLightboxOffscreen(page, log)) && allOk;
     allOk = (await checkSheetSwipe(browser, log)) && allOk;
   } catch (e) {
     allOk = false;

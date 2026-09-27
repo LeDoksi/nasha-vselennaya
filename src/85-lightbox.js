@@ -148,6 +148,16 @@ function lbResetState() {
   lightboxIdx = 0;
   lightboxZoom = 1;
 }
+// Плитка, куда возвращается фото, должна быть на экране хотя бы центром —
+// иначе перелёт уходит за край и выглядит как сбой (NV-97). Без размеров
+// (песочница тестов) считаем, что видна.
+function lbTileOnScreen(el) {
+  if (typeof el.getBoundingClientRect !== 'function' || typeof window === 'undefined' || !window.innerHeight) return true;
+  const r = el.getBoundingClientRect();
+  const cx = r.left + r.width / 2,
+    cy = r.top + r.height / 2;
+  return cx >= 0 && cx <= window.innerWidth && cy >= 0 && cy <= window.innerHeight;
+}
 // Обратный перелёт: если миниатюра текущего фото видна на активной вкладке —
 // имя переезжает на неё, браузер анимирует возврат. true — переход запущен,
 // закрытие (close) выполнит он сам.
@@ -167,7 +177,7 @@ function lbFlyBack(close) {
   // как есть (там это либо простые тестовые id, либо ветка не доходит сюда).
   const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id;
   const to = document.querySelector(scope + '[data-photo="' + esc + '"], ' + scope + '[data-lightbox="' + esc + '"]');
-  if (!to || !to.style) return false;
+  if (!to || !to.style || !lbTileOnScreen(to)) return false;
   const gen = lbGen;
   lbFlyingBack = true;
   const t = runViewTransition(() => {

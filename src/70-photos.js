@@ -83,6 +83,7 @@ $('#photoInput').addEventListener('change', async e => {
       } catch (e) {}
       const ph = { id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0, takenAt };
       db.photos.unshift(ph);
+      freshPhotoIds.add(ph.id);
       setThumbUrl(ph.id, data); // мгновенный показ из кэша миниатюр
       // Сразу кладём в photoStore — дальше фото живёт в IndexedDB (зашифровано).
       // Миниатюру (WebP) генерируем при загрузке; после записи убираем base64 из памяти.

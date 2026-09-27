@@ -256,6 +256,7 @@ function __TEST__(s){
   Object.defineProperty(s, 'dpSuppressReopen', { get: () => dpSuppressReopen, configurable: true });
   Object.defineProperty(s, 'photosRenderQueued', { get: () => photosRenderQueued, set: v => { photosRenderQueued = v; }, configurable: true });
   s.selectedPhotos = selectedPhotos; s.renderLabels = renderLabels;
+  s.freshPhotoIds = freshPhotoIds; s.renderPhotosNow = renderPhotosNow;
   s.toggleSelectedPin = toggleSelectedPin;
   s.togglePhotoSelectMode = togglePhotoSelectMode; s.togglePhotoReorderMode = togglePhotoReorderMode;
   s.photoLongPress = photoLongPress;
@@ -1072,6 +1073,14 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{ s.togglePhotoReorderMode(); s.renderPhotos(); return 1; }');
   assert(!registry['#photosGrid'].innerHTML.includes('photo--big'), 'галерея: в режиме порядка все плитки одинаковые');
   w(`(s)=>{ s.togglePhotoReorderMode(); s.db.photos = s.db.photos.filter(p => p.id !== 'big1'); return 1; }`);
+
+  // Фаза 8 (NV-60): только что загруженное фото «падает» в сетку пружиной —
+  // один раз; следующая перерисовка его уже не анимирует.
+  w('(s)=>{s.db.photos.unshift({id:"fresh1",title:"x",order:-1,labels:[]}); s.freshPhotoIds.add("fresh1"); s.renderPhotosNow(); return 1;}');
+  assert(registry['#photosGrid'].innerHTML.includes('photo--fresh'), 'свежее фото помечено photo--fresh');
+  w('(s)=>{s.renderPhotosNow(); return 1;}');
+  assert(!registry['#photosGrid'].innerHTML.includes('photo--fresh'), 'вторая перерисовка свежесть не повторяет');
+  w('(s)=>{s.db.photos = s.db.photos.filter(p=>p.id!=="fresh1"); return 1;}');
 
   // --- Фаза 6: долгое нажатие, тихая плитка ---
   const pid = 'lp1'; // photoLongPress не требует, чтобы фото существовало

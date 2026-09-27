@@ -306,6 +306,9 @@ let fsReady = false; // Firestore подключён и готов (см. src/03
 // 40-calendar.js, поэтому объявлено здесь, а не в 04-repo.js — TDZ.
 let loadedMonths = new Set();
 let photosCursor = null; // курсор пагинации галереи
+// id фото, загруженных в этой сессии и ещё ни разу не нарисованных в сетке:
+// renderPhotosNow даёт им класс photo--fresh (пружина появления) и очищает набор.
+const freshPhotoIds = new Set();
 // Идёт ли сейчас запрос следующей страницы галереи — без этого флага два
 // параллельных вызова loadMorePhotos() (например, повторное срабатывание
 // photosObserver или гонка между ним и ручным вызовом) читали бы Firestore
@@ -4955,6 +4958,7 @@ $('#photoInput').addEventListener('change', async e => {
       } catch (e) {}
       const ph = { id: uid(), data, title: f.name, labels: [], pinned: false, ts: Date.now(), order: 0, takenAt };
       db.photos.unshift(ph);
+      freshPhotoIds.add(ph.id);
       setThumbUrl(ph.id, data); // мгновенный показ из кэша миниатюр
       // Сразу кладём в photoStore — дальше фото живёт в IndexedDB (зашифровано).
       // Миниатюру (WebP) генерируем при загрузке; после записи убираем base64 из памяти.
@@ -5200,7 +5204,7 @@ function renderPhotosNow() {
         // асинхронно (как в «Памяти» и на «Главной»), чтобы миниатюры появлялись сами.
         const url = photoSrc(p);
         return html`
-    <div class="photo${p.pinned ? ' pinned' : ''}${!photoReorderMode && (p.pinned || bigIds.has(p.id)) ? ' photo--big' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}" data-id="${p.id}">
+    <div class="photo${p.pinned ? ' pinned' : ''}${!photoReorderMode && (p.pinned || bigIds.has(p.id)) ? ' photo--big' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}${freshPhotoIds.has(p.id) ? ' photo--fresh' : ''}" data-id="${p.id}">
       <img${url ? html` src="${url}"` : html` data-photo-src="${p.id}"`} alt="${p.title}" data-photo="${p.id}" loading="lazy">
       ${
         photoSelectMode
@@ -5229,6 +5233,7 @@ function renderPhotosNow() {
   // плитка на всю ширину колонки.
   render(grid, html`${cards}<div id="photosSentinel" aria-hidden="true" style="grid-column:1/-1;height:1px"></div>`);
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
+  freshPhotoIds.clear();
   // render() каждый раз пересоздаёт разметку целиком — старая метка
   // уничтожена вместе с ней, новую нужно заново отдать тому же наблюдателю.
   if (photosObserver) {
@@ -5935,6 +5940,16 @@ function lbResetState() {
   lightboxIdx = 0;
   lightboxZoom = 1;
 }
+// Плитка, куда возвращается фото, должна быть на экране хотя бы центром —
+// иначе перелёт уходит за край и выглядит как сбой (NV-97). Без размеров
+// (песочница тестов) считаем, что видна.
+function lbTileOnScreen(el) {
+  if (typeof el.getBoundingClientRect !== 'function' || typeof window === 'undefined' || !window.innerHeight) return true;
+  const r = el.getBoundingClientRect();
+  const cx = r.left + r.width / 2,
+    cy = r.top + r.height / 2;
+  return cx >= 0 && cx <= window.innerWidth && cy >= 0 && cy <= window.innerHeight;
+}
 // Обратный перелёт: если миниатюра текущего фото видна на активной вкладке —
 // имя переезжает на неё, браузер анимирует возврат. true — переход запущен,
 // закрытие (close) выполнит он сам.
@@ -5954,7 +5969,7 @@ function lbFlyBack(close) {
   // как есть (там это либо простые тестовые id, либо ветка не доходит сюда).
   const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id;
   const to = document.querySelector(scope + '[data-photo="' + esc + '"], ' + scope + '[data-lightbox="' + esc + '"]');
-  if (!to || !to.style) return false;
+  if (!to || !to.style || !lbTileOnScreen(to)) return false;
   const gen = lbGen;
   lbFlyingBack = true;
   const t = runViewTransition(() => {
