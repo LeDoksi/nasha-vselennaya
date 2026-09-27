@@ -222,6 +222,8 @@ function __TEST__(s){
   // песочнице (как и в реальных старых окружениях) не роняет рендер.
   s.renderPhotos = renderPhotos;
   Object.defineProperty(s, 'photosObserver', { get: () => photosObserver, configurable: true });
+  s.jumpCalendar = jumpCalendar;
+  Object.defineProperty(s, 'toastText', { get: () => (document.querySelector('#appToast') || {}).textContent, configurable: true });
 }
 `;
 
@@ -667,6 +669,12 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   mock._failNextWrite('couples/main/dates/failDt', 'unavailable');
   await w('(s)=>s.repoDelete("dates", "failDt")');
   assert(mock._store['couples/main/dates/failDt'] !== undefined, 'документ уцелел, когда repoDelete упал (не подчистился наполовину)');
+
+  // Фаза 9 (NV-62): месяц календаря не догрузился — человек узнаёт, а не смотрит в пустую сетку
+  mock._failNextGet('events');
+  w('(s)=>{ s.jumpCalendar(4, 2031); return 1; }'); // jumpCalendar → loadCalMonthNeighbors
+  await new Promise(r => setTimeout(r, 20));
+  assert(String(w('(s)=>s.toastText')).includes('Не удалось загрузить события'), 'ошибка догрузки месяца — тост с объяснением');
 
   console.log('OK: ' + results.length + ' repo checks passed');
 })().catch(e => {

@@ -104,9 +104,11 @@ $('#photoInput').addEventListener('change', async e => {
         }
       } catch (err) {
         console.warn('Не удалось сохранить фото в хранилище', err);
+        notify('Фото «' + f.name + '» не сохранилось — попробуй загрузить его ещё раз.', true);
       }
     } catch (err) {
       console.warn('Не удалось загрузить фото', err);
+      notify('Фото «' + f.name + '» не сохранилось — попробуй загрузить его ещё раз.', true);
     }
   }
   e.target.value = '';

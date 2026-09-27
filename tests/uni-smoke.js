@@ -312,6 +312,7 @@ function __TEST__(s){
   s.openLightbox = openLightbox; s.openLightboxFrom = openLightboxFrom;
   s.lbNav = lbNav; s.lbZoomTo = lbZoomTo; s.lbZoomToggle = lbZoomToggle; s.lbClose = lbClose; s.lbRender = lbRender;
   s.emptyState = emptyState; s.onEmptyActionClick = onEmptyActionClick;
+  s.showBootSkeleton = showBootSkeleton; s.onOffline = onOffline; s.loadCalMonthNeighbors = loadCalMonthNeighbors;
 }`;
 const wrapped = new Function(
   'sandbox',
@@ -1698,6 +1699,14 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // вызовах init/stop (например, при смене пользователя без перезагрузки) ---
   w('(s)=>{s.initPhotoSync(); s.stopPhotoSync(); return 1;}');
   assert(true, 'initPhotoSync/stopPhotoSync не бросают исключений');
+
+  // --- Фаза 9 (NV-62): загрузка, ошибки, офлайн ---
+  w('(s)=>{s.showBootSkeleton(true);return 1;}');
+  assert(registry['#bootSkeleton'].hidden === false && registry['#gateCard'].hidden === true, 'загрузка после входа: скелетон вместо карточки входа');
+  w('(s)=>{s.showBootSkeleton(false);return 1;}');
+  assert(registry['#bootSkeleton'].hidden === true && registry['#gateCard'].hidden === false, 'скелетон снят — карточка входа вернулась (на ней покажется ошибка, если она была)');
+  w('(s)=>{s.onOffline();return 1;}');
+  assert(registry['#appToast'].textContent.includes('Нет сети') && registry['#appToast'].textContent.includes('уйдёт'), 'офлайн: тост объясняет, что изменения не пропадут');
 
   console.log('OK: ' + results.length + ' checks passed\n' + results.join('\n'));
 })().catch(e => {

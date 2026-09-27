@@ -12,6 +12,7 @@ function makeFsMock() {
   let colGetCount = 0; // сколько раз реально выполнили запрос коллекции (colRef.get()) — тест на гонку loadMorePhotos проверяет, что параллельные вызовы не читают одну и ту же страницу дважды
   let forcedUpdateError = null; // { path, code } — одноразовая подмена ошибки update(), чтобы проверить проброс НЕ-not-found ошибок из repoMeta
   let forcedWriteError = null; // { path, code } — то же самое для set()/delete() (repoSet/repoDelete/repoBatch), NV-12
+  let forcedGetError = null; // имя коллекции — одноразовый отказ colRef.get() (NV-62: догрузка месяца календаря)
 
   const clone = v => JSON.parse(JSON.stringify(v));
   const notify = () => listeners.forEach(l => l.fire());
@@ -113,6 +114,10 @@ function makeFsMock() {
       },
       async get() {
         colGetCount++;
+        if (forcedGetError && path.endsWith('/' + forcedGetError)) {
+          forcedGetError = null;
+          throw new Error('offline (мок)');
+        }
         return { docs: run() };
       },
       onSnapshot(cb) {
@@ -192,6 +197,9 @@ function makeFsMock() {
     },
     _failNextWrite(path, code) {
       forcedWriteError = { path, code };
+    },
+    _failNextGet(collection) {
+      forcedGetError = collection;
     }
   };
 }

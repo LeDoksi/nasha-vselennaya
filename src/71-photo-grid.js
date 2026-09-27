@@ -112,7 +112,10 @@ function renderPhotosNow() {
   // чтобы знать, когда догружать следующую страницу. grid-column:1/-1 и
   // высота 1px — иначе в CSS grid (photos-grid) это была бы лишняя пустая
   // плитка на всю ширину колонки.
-  render(grid, html`${cards}<div id="photosSentinel" aria-hidden="true" style="grid-column:1/-1;height:1px"></div>`);
+  // Пока есть следующая страница — в конце сетки скелетон-плитки (класс
+  // photo-sk, не photo: обработчики галереи ищут .photo[data-id]).
+  const skeleton = photosCursor && list.length ? html`${[0, 1, 2].map(() => html`<div class="photo-sk sk" aria-hidden="true"></div>`)}` : '';
+  render(grid, html`${cards}${skeleton}<div id="photosSentinel" aria-hidden="true" style="grid-column:1/-1;height:1px"></div>`);
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
   freshPhotoIds.clear();
   // render() каждый раз пересоздаёт разметку целиком — старая метка
@@ -141,9 +144,11 @@ if (typeof IntersectionObserver === 'function') {
   photosObserver = new IntersectionObserver(entries => {
     if (!entries.some(e => e.isIntersecting)) return;
     if (activeView !== 'photos' || !db.photos.length || !photosCursor) return;
-    loadMorePhotos().then(added => {
-      if (added) renderPhotos();
-    });
+    loadMorePhotos()
+      .then(added => {
+        if (added) renderPhotos();
+      })
+      .catch(() => notify('Не удалось догрузить фото. Проверь интернет — продолжу, когда прокрутишь ещё раз.', true));
   });
 }
 // Витрина «📅 События»: кнопки «год → месяц → событие» появляются по мере выбора

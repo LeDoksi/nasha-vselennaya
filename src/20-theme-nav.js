@@ -223,8 +223,14 @@ function updateOfflineBadge() {
   if (!el) return;
   el.hidden = typeof navigator === 'undefined' || navigator.onLine !== false;
 }
+// Ушли в офлайн — один раз объясняем, что будет с изменениями: Firestore
+// копит записи локально и отправит их сам (см. комментарий в src/04-repo.js).
+function onOffline() {
+  updateOfflineBadge();
+  notify('Нет сети. Всё, что изменишь, сохранится и уйдёт, когда связь вернётся.');
+}
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('online', updateOfflineBadge);
-  window.addEventListener('offline', updateOfflineBadge);
+  window.addEventListener('offline', onOffline);
 }
 updateOfflineBadge();

@@ -100,10 +100,10 @@ function setPopover(el, on) {
 function notify(msg, isError) {
   const t = $('#appToast');
   if (!t) return;
-  t.textContent = msg;
   t.classList.toggle('toast-error', !!isError);
   setPopover(t, false);
   setPopover(t, true); // скрыть и показать заново — встаёт поверх диалога, открытого позже него
+  t.textContent = msg; // после переноса: aria-live объявляет изменение на новом месте (NV-97)
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     setPopover(t, false);

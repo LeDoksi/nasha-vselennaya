@@ -100,10 +100,10 @@ function setPopover(el, on) {
 function notify(msg, isError) {
   const t = $('#appToast');
   if (!t) return;
-  t.textContent = msg;
   t.classList.toggle('toast-error', !!isError);
   setPopover(t, false);
   setPopover(t, true); // скрыть и показать заново — встаёт поверх диалога, открытого позже него
+  t.textContent = msg; // после переноса: aria-live объявляет изменение на новом месте (NV-97)
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     setPopover(t, false);
@@ -395,6 +395,15 @@ function showGateErr(msg) {
   if (el) el.textContent = msg || '';
 }
 
+// Загрузка после входа (фаза 9): скелетон формы Главной вместо карточки входа.
+// false — карточка возвращается (на ней ошибка, если вход не удался).
+function showBootSkeleton(on) {
+  const sk = $('#bootSkeleton');
+  const card = $('#gateCard');
+  if (sk) sk.hidden = !on;
+  if (card) card.hidden = on;
+}
+
 /* ===== Ключ шифрования фото: локальный кэш → Firestore → (первый запуск) новый ===== */
 async function importRawKey(rawB64) {
   return crypto.subtle.importKey('raw', unb64(rawB64), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
@@ -503,11 +512,12 @@ async function tryEnterWithUser(user) {
   try {
     gateUser = user;
     setUser(GATE_WHO_BY_EMAIL[user.email]);
-    showGateErr('Загружаем…');
+    showBootSkeleton(true);
     await initFirestore();
     const key = await ensureMasterKey();
     await unlockWithKey(key);
   } catch (e) {
+    showBootSkeleton(false);
     console.warn('[gate] вход не завершился', e);
     showGateErr('Что-то пошло не так при загрузке данных. Обнови страницу и попробуй ещё раз 💜');
   }
@@ -579,6 +589,7 @@ function showAuth(which) {
   $('#gateScreen').hidden = which !== 'gate';
 }
 function unlockApp() {
+  showBootSkeleton(false);
   authLocked = false;
   document.body.classList.remove('auth');
   setTheme(getTheme());
@@ -2088,9 +2099,15 @@ function updateOfflineBadge() {
   if (!el) return;
   el.hidden = typeof navigator === 'undefined' || navigator.onLine !== false;
 }
+// Ушли в офлайн — один раз объясняем, что будет с изменениями: Firestore
+// копит записи локально и отправит их сам (см. комментарий в src/04-repo.js).
+function onOffline() {
+  updateOfflineBadge();
+  notify('Нет сети. Всё, что изменишь, сохранится и уйдёт, когда связь вернётся.');
+}
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('online', updateOfflineBadge);
-  window.addEventListener('offline', updateOfflineBadge);
+  window.addEventListener('offline', onOffline);
 }
 updateOfflineBadge();
 /* ===== Главная: счётчик дней ===== */
@@ -3004,10 +3021,22 @@ function addDayEvent() {
 // Календарь держит в памяти не все события, а только загруженные окна
 // месяцев — после любой смены calY/calM дотягиваем сам месяц и оба соседних
 // (соседние — заранее, чтобы дальнейшее листание шло без пауз на сеть).
+// Сколько догрузок текущего месяца в полёте: быстрые перелистывания
+// накладываются, aria-busy снимается, когда закончилась последняя.
+let calLoads = 0;
 function loadCalMonthNeighbors() {
-  loadMonth(calY, calM).then(() => renderCalendar());
-  loadMonth(calM === 0 ? calY - 1 : calY, calM === 0 ? 11 : calM - 1);
-  loadMonth(calM === 11 ? calY + 1 : calY, calM === 11 ? 0 : calM + 1);
+  const cal = $('#calendar');
+  calLoads++;
+  if (cal) cal.setAttribute('aria-busy', 'true');
+  loadMonth(calY, calM)
+    .then(() => renderCalendar())
+    .catch(() => notify('Не удалось загрузить события этого месяца. Проверь интернет и открой месяц ещё раз.', true))
+    .finally(() => {
+      if (--calLoads === 0 && cal) cal.removeAttribute('aria-busy');
+    });
+  // соседние — заранее и молча: не догрузились сейчас — догрузятся при переходе
+  loadMonth(calM === 0 ? calY - 1 : calY, calM === 0 ? 11 : calM - 1).catch(() => {});
+  loadMonth(calM === 11 ? calY + 1 : calY, calM === 11 ? 0 : calM + 1).catch(() => {});
 }
 $('#calPrev').addEventListener('click', () => {
   calM--;
@@ -5016,9 +5045,11 @@ $('#photoInput').addEventListener('change', async e => {
         }
       } catch (err) {
         console.warn('Не удалось сохранить фото в хранилище', err);
+        notify('Фото «' + f.name + '» не сохранилось — попробуй загрузить его ещё раз.', true);
       }
     } catch (err) {
       console.warn('Не удалось загрузить фото', err);
+      notify('Фото «' + f.name + '» не сохранилось — попробуй загрузить его ещё раз.', true);
     }
   }
   e.target.value = '';
@@ -5268,7 +5299,10 @@ function renderPhotosNow() {
   // чтобы знать, когда догружать следующую страницу. grid-column:1/-1 и
   // высота 1px — иначе в CSS grid (photos-grid) это была бы лишняя пустая
   // плитка на всю ширину колонки.
-  render(grid, html`${cards}<div id="photosSentinel" aria-hidden="true" style="grid-column:1/-1;height:1px"></div>`);
+  // Пока есть следующая страница — в конце сетки скелетон-плитки (класс
+  // photo-sk, не photo: обработчики галереи ищут .photo[data-id]).
+  const skeleton = photosCursor && list.length ? html`${[0, 1, 2].map(() => html`<div class="photo-sk sk" aria-hidden="true"></div>`)}` : '';
+  render(grid, html`${cards}${skeleton}<div id="photosSentinel" aria-hidden="true" style="grid-column:1/-1;height:1px"></div>`);
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
   freshPhotoIds.clear();
   // render() каждый раз пересоздаёт разметку целиком — старая метка
@@ -5297,9 +5331,11 @@ if (typeof IntersectionObserver === 'function') {
   photosObserver = new IntersectionObserver(entries => {
     if (!entries.some(e => e.isIntersecting)) return;
     if (activeView !== 'photos' || !db.photos.length || !photosCursor) return;
-    loadMorePhotos().then(added => {
-      if (added) renderPhotos();
-    });
+    loadMorePhotos()
+      .then(added => {
+        if (added) renderPhotos();
+      })
+      .catch(() => notify('Не удалось догрузить фото. Проверь интернет — продолжу, когда прокрутишь ещё раз.', true));
   });
 }
 // Витрина «📅 События»: кнопки «год → месяц → событие» появляются по мере выбора

@@ -395,6 +395,9 @@ h3{font-weight:800}
 .cal-jump-info:hover{border-color:var(--ink-2);color:var(--ink)}
 .cal-jump-info[hidden]{display:none}
 .calendar{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:14px;box-shadow:var(--shadow)}
+/* Догрузка месяца (NV-62): ячейки притухают, только если загрузка дольше
+   --dur-state — быстрый ответ из офлайн-кэша не мигает (transition-delay). */
+.calendar[aria-busy="true"] .cal-cell:not(.cal-dow){opacity:.55;transition:opacity var(--dur-state) var(--dur-state)}
 .cal-row{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
 /* Раньше все дни месяца были в ОДНОМ .cal-row (grid сам переносил лишние
    ячейки на новые визуальные строки, вертикальный отступ давал общий gap).
@@ -569,6 +572,8 @@ img[data-photo-src]{visibility:hidden}
    кнопки перекрывали половину маленькой миниатюры) — .photo.pinned остаётся
    единственным индикатором «закреплено» прямо в сетке, пассивным, не кнопкой. */
 .photo.pinned{border-color:var(--star);box-shadow:0 0 0 3px oklch(from var(--star) l c h / .5)}
+/* Скелетон-плитки в конце сетки, пока грузится следующая страница (NV-62) */
+.photo-sk{aspect-ratio:1;border-radius:var(--radius-media)}
 .photo-bar-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 
 /* ===== Настройки ===== */
@@ -976,11 +981,19 @@ body.auth .header, body.auth main{display:none} /* пока замок закр�
 }
 .auth-screen[hidden]{display:none}
 body:not(.auth) .auth-screen{display:none}
+.auth-card[hidden],.boot-skeleton[hidden]{display:none}
 .auth-card{
   width:min(400px,100%);background:var(--sky-1);border:1px solid var(--line);
   border-radius:var(--radius-sheet);padding:34px 30px;box-shadow:var(--shadow);text-align:center;
   display:flex;flex-direction:column;gap:12px;animation:pop var(--dur-enter) var(--ease-spring);
 }
+.boot-skeleton{width:min(420px,100%);display:grid;justify-items:center;gap:16px}
+/* Скелетон повторяет форму будущего содержимого (NV-62): орбита, две строки, две карточки */
+.sk{display:block;border-radius:var(--radius-card);background:linear-gradient(100deg,var(--sky-1) 30%,var(--sky-2) 50%,var(--sky-1) 70%);background-size:200% 100%;animation:shimmer var(--dur-loop) ease-in-out infinite}
+.sk-ring{width:min(78vw,300px);aspect-ratio:1;border-radius:50%}
+.sk-line{width:60%;height:14px;border-radius:var(--radius-pill)}
+.sk-short{width:40%}
+.sk-card{width:100%;height:88px}
 .auth-logo{font-size:44px;line-height:1}
 .auth-card h1{font-family:var(--font-display);font-size:28px;font-weight:400;color:var(--star)}
 .auth-sub{color:var(--ink-2);font-size:var(--text-base);margin:-4px 0 6px;line-height:1.5}
@@ -1023,6 +1036,15 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
    падал до 1.43:1/1.58:1. Заменено на color-mix() в --sky-1 — тот же
    тёмно-красный/бледно-красный тон, но непрозрачный (5.10:1/5.21:1). */
 .app-toast.toast-error{background:color-mix(in oklab,var(--danger-ink) 14%,var(--sky-1));border-color:color-mix(in oklab,var(--danger-ink) 40%,var(--sky-1));color:var(--danger-ink)}
+/* Ревью фазы 8: тост внизу (bottom:24px) перекрывал bottom-nav и, когда
+   показывался в открытой шторке, кнопку «Сохранить» на 5с. На телефоне
+   переносим его наверх, под липкую шапку — там он никого не закрывает.
+   Правило обязано стоять ПОСЛЕ базового .app-toast{bottom:24px} выше (та же
+   специфичность, а безусловное правило позже в файле перебило бы медиа-запрос —
+   урок ревью фазы 8, констрейнт «специфичность перебивает новое правило»). */
+@media(max-width:820px){
+  .app-toast{top:calc(var(--header-h,56px) + 12px);bottom:auto}
+}
 
 /* Переключатель-строка (уведомления): подпись слева, свитч справа */
 .switch-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--line);font-weight:700;color:var(--ink);cursor:pointer}

@@ -155,10 +155,22 @@ function addDayEvent() {
 // Календарь держит в памяти не все события, а только загруженные окна
 // месяцев — после любой смены calY/calM дотягиваем сам месяц и оба соседних
 // (соседние — заранее, чтобы дальнейшее листание шло без пауз на сеть).
+// Сколько догрузок текущего месяца в полёте: быстрые перелистывания
+// накладываются, aria-busy снимается, когда закончилась последняя.
+let calLoads = 0;
 function loadCalMonthNeighbors() {
-  loadMonth(calY, calM).then(() => renderCalendar());
-  loadMonth(calM === 0 ? calY - 1 : calY, calM === 0 ? 11 : calM - 1);
-  loadMonth(calM === 11 ? calY + 1 : calY, calM === 11 ? 0 : calM + 1);
+  const cal = $('#calendar');
+  calLoads++;
+  if (cal) cal.setAttribute('aria-busy', 'true');
+  loadMonth(calY, calM)
+    .then(() => renderCalendar())
+    .catch(() => notify('Не удалось загрузить события этого месяца. Проверь интернет и открой месяц ещё раз.', true))
+    .finally(() => {
+      if (--calLoads === 0 && cal) cal.removeAttribute('aria-busy');
+    });
+  // соседние — заранее и молча: не догрузились сейчас — догрузятся при переходе
+  loadMonth(calM === 0 ? calY - 1 : calY, calM === 0 ? 11 : calM - 1).catch(() => {});
+  loadMonth(calM === 11 ? calY + 1 : calY, calM === 11 ? 0 : calM + 1).catch(() => {});
 }
 $('#calPrev').addEventListener('click', () => {
   calM--;

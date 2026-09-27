@@ -47,6 +47,15 @@ function showGateErr(msg) {
   if (el) el.textContent = msg || '';
 }
 
+// Загрузка после входа (фаза 9): скелетон формы Главной вместо карточки входа.
+// false — карточка возвращается (на ней ошибка, если вход не удался).
+function showBootSkeleton(on) {
+  const sk = $('#bootSkeleton');
+  const card = $('#gateCard');
+  if (sk) sk.hidden = !on;
+  if (card) card.hidden = on;
+}
+
 /* ===== Ключ шифрования фото: локальный кэш → Firestore → (первый запуск) новый ===== */
 async function importRawKey(rawB64) {
   return crypto.subtle.importKey('raw', unb64(rawB64), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
@@ -155,11 +164,12 @@ async function tryEnterWithUser(user) {
   try {
     gateUser = user;
     setUser(GATE_WHO_BY_EMAIL[user.email]);
-    showGateErr('Загружаем…');
+    showBootSkeleton(true);
     await initFirestore();
     const key = await ensureMasterKey();
     await unlockWithKey(key);
   } catch (e) {
+    showBootSkeleton(false);
     console.warn('[gate] вход не завершился', e);
     showGateErr('Что-то пошло не так при загрузке данных. Обнови страницу и попробуй ещё раз 💜');
   }
@@ -231,6 +241,7 @@ function showAuth(which) {
   $('#gateScreen').hidden = which !== 'gate';
 }
 function unlockApp() {
+  showBootSkeleton(false);
   authLocked = false;
   document.body.classList.remove('auth');
   setTheme(getTheme());
