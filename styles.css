@@ -210,7 +210,13 @@ body{
 }
 .logo{font-size:var(--text-xl);font-weight:900;letter-spacing:.3px;padding:14px 0}
 .header-actions{display:flex;align-items:center;gap:8px;padding:8px 0}
-.theme-toggle{padding:9px 14px}
+/* Тема — служебная кнопка, как настройки рядом: тихая пилюля. Янтарём
+   горела на каждом экране и спорила с активной вкладкой (фаза 7). Составной
+   селектор — .btn (ниже в файле, та же специфичность в один класс) иначе
+   перебивает фон/рамку/тень своим более поздним правилом (тот же урок 2,
+   что у .btn-ghost.btn-sm). */
+.btn.theme-toggle{padding:9px 12px;background:var(--sky-1);color:var(--ink-2);border:1px solid var(--line);box-shadow:none}
+.btn.theme-toggle:hover{border-color:var(--star);color:var(--star-ink)}
 /* Настройки переехали из ряда вкладок сюда, рядом с переключателем темы —
    .nav-btn даёт бесплатно active-подсветку и клик-делегат (см. 20-theme-nav.js),
    но пилюля из одного эмодзи выглядела бы слишком широкой — сузили padding. */
@@ -225,7 +231,7 @@ body{
 }
 @keyframes invitePulse{0%,100%{box-shadow:0 0 0 0 oklch(from var(--star) l c h / .45)}50%{box-shadow:0 0 0 6px oklch(from var(--star) l c h / 0)}}
 /* Плашка «нет сети» в шапке (см. updateOfflineBadge в src/20-theme-nav.js) —
-   ненавязчивая, в духе .invite-badge/.motion-toggle: тихий контур, без ярких
+   ненавязчивая, в духе .invite-badge/.switch-row: тихий контур, без ярких
    акцентов и анимации — это не ошибка, а спокойная справка «вот почему». */
 .offline-badge{
   display:flex;align-items:center;gap:4px;padding:6px 10px;
@@ -557,10 +563,13 @@ img[data-photo-src]{visibility:hidden}
 .photo-bar-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 
 /* ===== Настройки ===== */
-.settings-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:24px;box-shadow:var(--shadow);margin-bottom:20px}
-.settings-card h3{font-size:var(--text-lg);margin-bottom:10px}
+#view-settings{max-width:640px;margin:0 auto}
+.settings-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:24px;margin-bottom:16px}
+.settings-card h3{font-size:var(--text-lg);margin-bottom:8px}
 .settings-card p{color:var(--ink-2);font-size:var(--text-base);margin-bottom:16px}
 .settings-btns{display:flex;gap:12px;flex-wrap:wrap}
+.settings-hint{color:var(--ink-2);font-size:var(--text-sm);margin:12px 0 0}
+.settings-hint:empty{display:none}
 
 /* ===== Оверлеи / модалки ===== */
 /* Модалки — нативный <dialog> на весь экран (фаза 4): прозрачный слой-контейнер,
@@ -882,7 +891,7 @@ input[type=date]::-webkit-inner-spin-button,input[type=date]::-webkit-clear-butt
      в одну строку на типичных 360-430px. */
   .header-inner{padding:0 14px;gap:8px}
   .logo{font-size:var(--text-md);padding:10px 0;white-space:nowrap}
-  .theme-toggle{padding:7px 10px;font-size:var(--text-base)}
+  .btn.theme-toggle{padding:7px 10px;font-size:var(--text-base)}
 }
 /* Мобильная навигация: шапка-пилюли уступает закреплённой нижней панели */
 @media(max-width:820px){
@@ -995,10 +1004,12 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
    тёмно-красный/бледно-красный тон, но непрозрачный (5.10:1/5.21:1). */
 .app-toast.toast-error{background:color-mix(in oklab,var(--danger-ink) 14%,var(--sky-1));border-color:color-mix(in oklab,var(--danger-ink) 40%,var(--sky-1));color:var(--danger-ink)}
 
-/* ===== Переключатель (используется настройками уведомлений) ===== */
-.motion-toggle{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:var(--text-base);font-weight:700;color:var(--ink);padding:10px 16px;border:1px solid var(--line);border-radius:var(--radius-pill);background:var(--sky-1);transition:.2s}
-.motion-toggle:hover{border-color:var(--star);background:var(--sky-2)}
-.motion-toggle input{width:18px;height:18px;accent-color:var(--star);cursor:pointer}
+/* Переключатель-строка (уведомления): подпись слева, свитч справа */
+.switch-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--line);font-weight:700;color:var(--ink);cursor:pointer}
+.switch-row input{appearance:none;-webkit-appearance:none;flex:none;position:relative;width:44px;height:26px;margin:0;border-radius:var(--radius-pill);background:var(--line);cursor:pointer;transition:background .2s}
+.switch-row input::before{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--paper);transition:transform .2s}
+.switch-row input:checked{background:var(--star)}
+.switch-row input:checked::before{transform:translateX(18px)}
 
 /* Анимации не отключаются ни тумблером, ни prefers-reduced-motion: решение
    владельца 21.09.2026, пользователей ровно двое и оба этого хотят. Если

@@ -211,3 +211,22 @@ try {
   console.log('FAIL: ' + e.message);
   process.exit(1);
 }
+
+// Сценарий 4 (фаза 7): go() с несуществующим экраном не трогает адрес.
+// Кнопка приглашений (.nav-btn без data-view) звала go(undefined) и писала #/undefined.
+try {
+  const ctx4 = makeCtx('#/notes', false);
+  const realQS = ctx4.document.querySelector;
+  ctx4.document.querySelector = sel => (sel === '#view-undefined' ? null : realQS(sel));
+  vm.createContext(ctx4);
+  vm.runInContext(src, ctx4, { filename: file });
+  vm.runInContext('go(undefined)', ctx4);
+  if (ctx4.location.hash !== '#/notes') {
+    console.log('FAIL: go(undefined) переписал адрес на ' + ctx4.location.hash);
+    process.exit(1);
+  }
+  console.log('OK: go(undefined) не трогает адрес');
+} catch (e) {
+  console.log('FAIL: ' + e.message);
+  process.exit(1);
+}

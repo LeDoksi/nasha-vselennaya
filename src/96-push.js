@@ -130,7 +130,7 @@ async function renderPushSettings() {
   const sub = await currentPushSubscription();
   t.checked = !!sub;
   if (hint) {
-    hint.textContent = isStandalone() ? '' : '💡 На телефоне уведомления надёжно работают только после установки сайта на экран «Домой» (в Safari на iOS — иначе они не приходят вообще).';
+    hint.textContent = isStandalone() ? '' : 'На телефоне уведомления надёжно работают только после установки сайта на экран «Домой» (в Safari на iOS — иначе они не приходят вообще).';
   }
 }
 const pushToggleEl = $('#pushToggle');

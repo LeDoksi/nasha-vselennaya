@@ -307,7 +307,7 @@ function openDateModal(id) {
   editingDateId = typeof id === 'string' ? id : null;
   const dt = editingDateId ? db.dates.find(x => x.id === editingDateId) : null;
   const title = $('#dtModalTitle');
-  if (title) title.textContent = dt ? '✏️ Изменить свидание' : '💘 Назначить свидание';
+  if (title) title.textContent = dt ? 'Изменить свидание' : 'Назначить свидание';
   if (dt) {
     $('#dtDate').value = dt.date;
     $('#dtTime').value = dt.time || '19:00';

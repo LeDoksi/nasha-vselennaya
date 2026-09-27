@@ -56,8 +56,6 @@ function setTheme(t) {
       render(btn, navIconHtml(t === 'dark' ? 'sun' : 'moon'));
       btn.setAttribute('aria-pressed', String(t === 'dark'));
     }
-    const sbtn = $('#settingsThemeBtn');
-    if (sbtn) sbtn.textContent = t === 'dark' ? '☀️ Включить светлую тему' : '🌙 Включить тёмную тему';
   };
   // Фаза D: смена темы — тоже плавным переходом (если браузер умеет и анимации не выключены)
   if (!runViewTransition(apply)) apply();
@@ -133,6 +131,7 @@ function showView(view) {
 }
 function go(view) {
   view = resolveView(view);
+  if (!$('#view-' + view)) return; // кнопка без экрана (приглашения в шапке) — адрес не трогаем
   showView(view);
   // hash-роутинг: #/view — кнопка «назад» в браузере и прямые ссылки на вкладку.
   // location нет в песочнице тестов — там остаёмся на синхронном показе.

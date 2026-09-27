@@ -1918,8 +1918,6 @@ function setTheme(t) {
       render(btn, navIconHtml(t === 'dark' ? 'sun' : 'moon'));
       btn.setAttribute('aria-pressed', String(t === 'dark'));
     }
-    const sbtn = $('#settingsThemeBtn');
-    if (sbtn) sbtn.textContent = t === 'dark' ? '☀️ Включить светлую тему' : '🌙 Включить тёмную тему';
   };
   // Фаза D: смена темы — тоже плавным переходом (если браузер умеет и анимации не выключены)
   if (!runViewTransition(apply)) apply();
@@ -1995,6 +1993,7 @@ function showView(view) {
 }
 function go(view) {
   view = resolveView(view);
+  if (!$('#view-' + view)) return; // кнопка без экрана (приглашения в шапке) — адрес не трогаем
   showView(view);
   // hash-роутинг: #/view — кнопка «назад» в браузере и прямые ссылки на вкладку.
   // location нет в песочнице тестов — там остаёмся на синхронном показе.
@@ -2385,7 +2384,7 @@ function openDateModal(id) {
   editingDateId = typeof id === 'string' ? id : null;
   const dt = editingDateId ? db.dates.find(x => x.id === editingDateId) : null;
   const title = $('#dtModalTitle');
-  if (title) title.textContent = dt ? '✏️ Изменить свидание' : '💘 Назначить свидание';
+  if (title) title.textContent = dt ? 'Изменить свидание' : 'Назначить свидание';
   if (dt) {
     $('#dtDate').value = dt.date;
     $('#dtTime').value = dt.time || '19:00';
@@ -5147,7 +5146,7 @@ function renderPhotosNow() {
   const hint = $('#dragHint');
   if (hint) {
     if (photoReorderMode) {
-      hint.textContent = '↕ Перетаскивай фото за ⠿ для порядка.';
+      hint.textContent = 'Перетаскивай фото за ⠿, чтобы поменять порядок.';
       hint.style.display = list.length > 1 ? 'block' : 'none';
     } else if (photoSelectMode) {
       hint.textContent = 'Нажимай на фото, чтобы выбрать несколько. Долгое нажатие включает выбор из любого места.';
@@ -5156,12 +5155,12 @@ function renderPhotosNow() {
   }
   const selectBtn = $('#photoSelectModeBtn');
   if (selectBtn) {
-    selectBtn.textContent = photoSelectMode ? '✓ Готово' : '☑️ Выбрать';
+    selectBtn.textContent = photoSelectMode ? '✓ Готово' : 'Выбрать';
     selectBtn.classList.toggle('active', photoSelectMode);
   }
   const reorderBtn = $('#photoReorderModeBtn');
   if (reorderBtn) {
-    reorderBtn.textContent = photoReorderMode ? '✓ Готово' : '↕ Порядок';
+    reorderBtn.textContent = photoReorderMode ? '✓ Готово' : 'Порядок';
     reorderBtn.classList.toggle('active', photoReorderMode);
   }
   const selBar = $('#photoSelBar');
@@ -5176,7 +5175,7 @@ function renderPhotosNow() {
       if (pinBtn) {
         const targets = db.photos.filter(p => selectedPhotos.has(p.id));
         const allPinned = targets.length > 0 && targets.every(p => p.pinned);
-        pinBtn.textContent = allPinned ? '⭐ Открепить' : '☆ Закрепить';
+        pinBtn.textContent = allPinned ? 'Открепить' : 'Закрепить';
       }
     }
   }
@@ -5435,7 +5434,7 @@ function renderLabelManageList() {
       ${
         editing
           ? html`<input type="text" class="label-name-editor" id="labelNameEdit-${l.id}" value="${l.name}">
-           <button class="mini-x" data-save-label="${l.id}" title="Сохранить">💜</button>
+           <button class="mini-x" data-save-label="${l.id}" title="Сохранить" aria-label="Сохранить">${navIconHtml('check')}</button>
            <button class="mini-x" data-cancel-label title="Отмена">✕</button>`
           : html`<span class="label-row-name">${l.name}</span>
            <span class="label-row-count">${count} фото</span>
@@ -6202,7 +6201,6 @@ function spawnHeart() {
 }
 
 $('#themeToggle').addEventListener('click', toggleTheme);
-$('#settingsThemeBtn').addEventListener('click', toggleTheme);
 
 setInterval(() => {
   // сердечки летают не слишком часто, не под замком и не во время открытых модалок
@@ -6999,7 +6997,7 @@ async function renderPushSettings() {
   const sub = await currentPushSubscription();
   t.checked = !!sub;
   if (hint) {
-    hint.textContent = isStandalone() ? '' : '💡 На телефоне уведомления надёжно работают только после установки сайта на экран «Домой» (в Safari на iOS — иначе они не приходят вообще).';
+    hint.textContent = isStandalone() ? '' : 'На телефоне уведомления надёжно работают только после установки сайта на экран «Домой» (в Safari на iOS — иначе они не приходят вообще).';
   }
 }
 const pushToggleEl = $('#pushToggle');

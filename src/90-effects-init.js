@@ -11,7 +11,6 @@ function spawnHeart() {
 }
 
 $('#themeToggle').addEventListener('click', toggleTheme);
-$('#settingsThemeBtn').addEventListener('click', toggleTheme);
 
 setInterval(() => {
   // сердечки летают не слишком часто, не под замком и не во время открытых модалок

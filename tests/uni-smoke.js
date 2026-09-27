@@ -524,7 +524,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // теряя ответы обоих) — правка не должна трогать from/responses.
   const datesCountBeforeEdit = w('(s)=>s.db.dates.length');
   w(`(s)=>s.openDateModal("${lastDateId}")`);
-  assert(registry['#dtModalTitle'].textContent === '✏️ Изменить свидание', 'заголовок модалки меняется в режиме правки');
+  assert(registry['#dtModalTitle'].textContent === 'Изменить свидание', 'заголовок модалки меняется в режиме правки');
   registry['#dtPlace'].value = 'Новое кафе';
   w('(s)=>s.saveDateFromModal()');
   const editedDate = w(`(s)=>s.db.dates.find(d=>d.id==="${lastDateId}")`);
@@ -999,13 +999,13 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(phHtml.includes('photo selected'), 'выбранное фото подсвечено');
   assert(registry['#photoSelBar'].style.display === 'flex', 'панель выбора показана');
 
-  // --- Массовое закрепление (панель выбора «⭐/☆ Закрепить») — тот же тоггл,
+  // --- Массовое закрепление (панель выбора «Закрепить/Открепить») — тот же тоггл,
   // что и у применения лейблов: не все выбранные закреплены → закрепляет все;
   // повторный вызов, когда уже все закреплены, → снимает со всех ---
-  assert(registry['#selPinBtn'].textContent === '☆ Закрепить', 'подпись кнопки — «Закрепить», пока не все выбранные закреплены');
+  assert(registry['#selPinBtn'].textContent === 'Закрепить', 'подпись кнопки — «Закрепить», пока не все выбранные закреплены');
   w('(s)=>s.toggleSelectedPin()');
   assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").pinned') === true, 'toggleSelectedPin закрепляет выбранное фото');
-  assert(registry['#selPinBtn'].textContent === '⭐ Открепить', 'подпись сменилась на «Открепить», раз все выбранные уже закреплены');
+  assert(registry['#selPinBtn'].textContent === 'Открепить', 'подпись сменилась на «Открепить», раз все выбранные уже закреплены');
   w('(s)=>s.toggleSelectedPin()');
   assert(w('(s)=>s.db.photos.find(p=>p.id==="p2").pinned') === false, 'повторный toggleSelectedPin открепляет (все были закреплены)');
 

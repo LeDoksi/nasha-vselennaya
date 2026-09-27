@@ -72,7 +72,7 @@ function renderLabelManageList() {
       ${
         editing
           ? html`<input type="text" class="label-name-editor" id="labelNameEdit-${l.id}" value="${l.name}">
-           <button class="mini-x" data-save-label="${l.id}" title="Сохранить">💜</button>
+           <button class="mini-x" data-save-label="${l.id}" title="Сохранить" aria-label="Сохранить">${navIconHtml('check')}</button>
            <button class="mini-x" data-cancel-label title="Отмена">✕</button>`
           : html`<span class="label-row-name">${l.name}</span>
            <span class="label-row-count">${count} фото</span>

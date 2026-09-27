@@ -36,7 +36,7 @@ function renderPhotosNow() {
   const hint = $('#dragHint');
   if (hint) {
     if (photoReorderMode) {
-      hint.textContent = '↕ Перетаскивай фото за ⠿ для порядка.';
+      hint.textContent = 'Перетаскивай фото за ⠿, чтобы поменять порядок.';
       hint.style.display = list.length > 1 ? 'block' : 'none';
     } else if (photoSelectMode) {
       hint.textContent = 'Нажимай на фото, чтобы выбрать несколько. Долгое нажатие включает выбор из любого места.';
@@ -45,12 +45,12 @@ function renderPhotosNow() {
   }
   const selectBtn = $('#photoSelectModeBtn');
   if (selectBtn) {
-    selectBtn.textContent = photoSelectMode ? '✓ Готово' : '☑️ Выбрать';
+    selectBtn.textContent = photoSelectMode ? '✓ Готово' : 'Выбрать';
     selectBtn.classList.toggle('active', photoSelectMode);
   }
   const reorderBtn = $('#photoReorderModeBtn');
   if (reorderBtn) {
-    reorderBtn.textContent = photoReorderMode ? '✓ Готово' : '↕ Порядок';
+    reorderBtn.textContent = photoReorderMode ? '✓ Готово' : 'Порядок';
     reorderBtn.classList.toggle('active', photoReorderMode);
   }
   const selBar = $('#photoSelBar');
@@ -65,7 +65,7 @@ function renderPhotosNow() {
       if (pinBtn) {
         const targets = db.photos.filter(p => selectedPhotos.has(p.id));
         const allPinned = targets.length > 0 && targets.every(p => p.pinned);
-        pinBtn.textContent = allPinned ? '⭐ Открепить' : '☆ Закрепить';
+        pinBtn.textContent = allPinned ? 'Открепить' : 'Закрепить';
       }
     }
   }

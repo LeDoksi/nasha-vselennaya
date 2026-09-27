@@ -309,7 +309,6 @@ const PREIDS = [
   'noteAddBtn',
   'noteText',
   'themeToggle',
-  'settingsThemeBtn',
   'calPrev',
   'calNext',
   'calMonthSelect',
