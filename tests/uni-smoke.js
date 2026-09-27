@@ -582,7 +582,13 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // --- Календарь отмечает дату со свиданием ---
   // Фаза 7: has-date (акцентная рамка) убран — свидание в ячейке метится
   // только точкой 💘 (cal-dot), рамка теперь только у «сегодня».
-  w('(s)=>{s.go("calendar");s.renderCalendar();}');
+  // dateIn3Days ("через 3 дня от сегодня") в последние дни месяца уезжает в
+  // следующий месяц — go('calendar') (см. showView в 20-theme-nav.js) сам
+  // сбрасывает calM/calY на ТЕКУЩИЙ месяц (сегодняшний), поэтому calM/calY
+  // выставляем ПОСЛЕ go(), перед повторным renderCalendar(): без этого тест
+  // падает только в последние 1-3 дня каждого месяца (обнаружено при ревью
+  // фазы 8 — сам тест «не может упасть» оказался таким только случайно).
+  w('(s)=>{s.go("calendar");s.calM=' + dateIn3Days.getMonth() + ';s.calY=' + dateIn3Days.getFullYear() + ';s.renderCalendar();}');
   const calHtml = registry['#calendar'].innerHTML;
   assert(calHtml.includes('💘'), 'calendar has date marker');
   w('(s)=>{s.selectedDate=s.iso(' + dateIn3Days.getFullYear() + ',' + dateIn3Days.getMonth() + ',' + dateIn3Days.getDate() + ');s.renderDayPanel();}');
