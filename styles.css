@@ -567,8 +567,12 @@ img[data-photo-src]{visibility:hidden}
 .overlay::backdrop{background:oklch(from var(--void) l c h / .5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 /* Страница под открытой модалкой не прокручивается (на телефоне иначе едет фон) */
 html:has(.overlay[open]){overflow:hidden}
+/* Модалка/шторка — сплошная (спека 1.1: --sky-2 — цвет шторки/поднятого слоя),
+   не стекло: на телефоне сквозь полупрозрачную .modal просвечивал фон под
+   overlay (NV-57, ревью раунд 1, п.2). .modal исключена из глянцевых списков
+   ниже (Фаза D). */
 .modal{
-  background:var(--sky-1);border-radius:var(--radius-sheet);padding:28px;width:min(420px,100%);
+  background:var(--sky-2);border-radius:var(--radius-sheet);padding:28px;width:min(420px,100%);
   display:flex;flex-direction:column;gap:12px;position:relative;animation:pop .3s ease;
   max-height:92vh;overflow-y:auto;overscroll-behavior:contain;
 }
@@ -1054,7 +1058,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
    просвечивал сквозь карточки. var(--glass-bg) уже разный в двух темах —
    отдельных [data-theme="dark"] дублей для тех же селекторов больше не
    нужно, как и раньше на этой странице. */
-.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.dates-empty,.rem-empty,.tl-card,.modal,.date-pop,.auth-card{
+.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.dates-empty,.rem-empty,.tl-card,.date-pop,.auth-card{
   background:var(--glass-bg);
   -webkit-backdrop-filter:blur(var(--blur));
   backdrop-filter:blur(var(--blur));
@@ -1063,7 +1067,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .note.pinned{background:oklch(from var(--sky-2) l c h / .82)}
 .auth-card{background:var(--glass-strong)}
 /* Тонкая кромка — как блик на стекле */
-.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.tl-card,.modal,.date-pop,.auth-card{
+.date-card,.note,.list-card,.calendar,.day-panel,.settings-card,.wish,.photo,.tl-card,.date-pop,.auth-card{
   border-color:var(--glass-brd);
 }
 .note.pinned{border-color:var(--star)}

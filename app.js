@@ -2928,7 +2928,7 @@ function renderDayPanel() {
   const [y, m, d] = selectedDate.split('-').map(Number);
   const evs = eventsOn(selectedDate, m - 1, d);
   const dts = datesOn(selectedDate);
-  const fmtDate = `${d} ${MONTHS[m - 1].toLowerCase()} ${y}`;
+  const fmtDate = `${d} ${MONTHS_GEN[m - 1]} ${y}`;
   render(
     panel,
     html`<h3 class="day-head">${fmtDate}</h3>
@@ -2961,7 +2961,7 @@ function renderDayPanel() {
       <div class="day-add">
         <input type="text" id="dayTitle" placeholder="Название события" />
         <input type="text" id="dayEmoji" value="💜" maxlength="4" />
-        <button class="btn" id="dayAdd">＋ Добавить</button>
+        <button class="btn btn-ghost" id="dayAdd">＋ Добавить</button>
       </div>`
   );
   const addBtn = $('#dayAdd');

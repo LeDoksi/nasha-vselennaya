@@ -84,6 +84,17 @@ function disableHeartInterval() {
       // совпадает байт в байт со вторым прогоном (где шрифт уже в кэше).
       await page.evaluate(() => document.fonts.ready);
       await page.addStyleTag({ content: HIDE_FLAKY });
+      // go(view) в основном цикле ниже идёт через View Transitions API
+      // (src/20-theme-nav.js, runViewTransition) — apply() (рендер вида)
+      // выполняется не синхронно, а на следующей возможности отрисовки.
+      // Без отключения снимок иногда ловит кадр ДО применения: например,
+      // *-calendar.png мог захватить дефолтную (нерасчитанную) разметку
+      // #jumpNextBtn вместо того, что реально выставил updateNearestJump()
+      // (ревью раунд 1, п.5 — тот же класс гонки, что Task 1 обошёл только
+      // локально для calendar-day). Отключаем один раз на всю страницу.
+      await page.evaluate(() => {
+        document.startViewTransition = undefined;
+      });
       await page.evaluate(t => setTheme(t), theme);
       const shot = (name, fullPage = true) =>
         page.screenshot({
@@ -106,17 +117,10 @@ function disableHeartInterval() {
       }
       // Фаза 7: панель выбранного дня и шторка «Добавить дату» — половина
       // перерисовки Календаря, без этих кадров её не видно. День — первый с
-      // событием в текущем месяце, иначе сегодняшний.
+      // событием в текущем месяце, иначе сегодняшний. View Transitions уже
+      // отключены разом на странице (выше, после HIDE_FLAKY) — здесь эту
+      // гонку заново разбирать не нужно.
       await page.evaluate(() => {
-        // go('calendar') идёт через View Transitions API (src/20-theme-nav.js,
-        // runViewTransition) — document.startViewTransition вызывает apply()
-        // (сброс selectedDate=null + renderCalendar()) не синхронно, а на
-        // следующей возможности отрисовки. Без этой строки наш выбор дня ниже
-        // либо гонится с этим сбросом и иногда проигрывает: renderCalendar()
-        // из отложенного apply() приходит ПОСЛЕ нашего и стирает selectedDate
-        // обратно в null — снимок ловит подсказку «нажми на день» вместо
-        // панели с событием.
-        document.startViewTransition = undefined;
         go('calendar');
         const cell = [...document.querySelectorAll('#calendar .cal-cell[data-day]')].find(c => c.querySelector('.cal-dot')) || document.querySelector('#calendar .cal-cell.today');
         selectedDate = cell.dataset.day;

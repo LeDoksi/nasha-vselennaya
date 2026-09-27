@@ -778,6 +778,8 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // Фаза 7: свидание в ячейке не обводится акцентом (он у «сегодня»), удаление — иконкой корзины
   assert(!registry['#calendar'].innerHTML.includes('has-date'), 'ячейка со свиданием без акцентной рамки has-date');
   assert(registry['#dayPanel'].innerHTML.includes('#icon-trash') && registry['#dayPanel'].innerHTML.includes('aria-label="Удалить"'), 'удаление события — иконка корзины с подписью');
+  // Фаза 7 (ревью раунд 1, п.3): заголовок панели дня — родительный падеж («20 августа»), не именительный («20 август»)
+  assert(registry['#dayPanel'].innerHTML.includes('20 августа 2026'), 'заголовок панели дня — родительный падеж месяца');
 
   // --- Конец раньше начала — событие не сохраняется ---
   w('(s)=>{s.openEventModal();}');
