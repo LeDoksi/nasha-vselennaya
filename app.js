@@ -57,16 +57,18 @@ function confirmDelete(msg) {
 }
 let toastTimer = null;
 // Фаза 6: активная мобильная вкладка хотелок (renderWishlist в 61-wishes.js)
-// — объявлено тут, а не там, чтобы прямая ссылка #/wishlist не ловила TDZ
+// — объявлено тут, а не там: страховка от TDZ (с NV-119 стартовый showView()
+// откладывается на микрозадачу и идёт уже после всех top-level объявлений,
+// но список имён, читаемых при старте, не закрыт — переносить сюда безопаснее).
 // (см. комментарий у renderWishlist). null → renderWishlist подставит getUser().
 let wishlistTab = null;
 // Стек открытых модалок (используется topOverlayEl/openOverlay/closeOverlay,
 // см. src/62-global-clicks.js) — объявлен тут, а не там, по той же причине,
-// что toastTimer/wishlistTab выше: прямая ссылка #/notes|#/lists|#/wishlist
-// вызывает showView() из top-level кода 20-theme-nav.js ДО того, как
-// выполнится 62-global-clicks.js, а setPopover ниже уже читает
-// topOverlayEl() → без переноса сюда это TDZ (ReferenceError на
-// «openOverlayStack»), которая до старта интерфейса рвёт весь app.js.
+// что toastTimer/wishlistTab выше: страховка от TDZ. Исторически прямая ссылка
+// #/notes|#/lists|#/wishlist вызывала showView() из top-level кода
+// 20-theme-nav.js ДО 62-global-clicks.js, а setPopover читает topOverlayEl() →
+// ReferenceError на «openOverlayStack» рвал весь app.js. С NV-119 showView()
+// уходит в микрозадачу после скрипта, но переменная тут остаётся на всякий случай.
 let openOverlayStack = [];
 // Поверх открытого <dialog> (top layer) z-index не пробивается — календарик
 // и тост поднимаются туда же как popover="manual". hidden держим в согласии:
@@ -4528,11 +4530,11 @@ function wishCard(w) {
 // media query max-width:820px), на десктопе он скрыт и обе секции видны
 // как раньше. wishlistTab влияет только на CSS-класс — сама разметка обеих
 // секций рендерится всегда, десктопу нечего скрывать. Само состояние
-// (`let wishlistTab`) объявлено в 00-core.js, не здесь — прямая ссылка
-// #/wishlist триггерит showView('wishlist')→renderWishlist() ещё во время
-// начального прохода hash-резолвинга в 20-theme-nav.js, который выполняется
-// раньше этого файла в собранном app.js; если бы `let` стоял тут, это была
-// бы TDZ-ошибка (тот же класс бага, что и с BOTTOM_PRIMARY/FIREBASE_CONFIG).
+// (`let wishlistTab`) объявлено в 00-core.js, не здесь — историческая причина
+// и страховка от TDZ: до NV-119 прямая ссылка #/wishlist триггерила
+// showView('wishlist')→renderWishlist() ещё в начальном проходе 20-theme-nav.js,
+// раньше этого файла в собранном app.js. Теперь showView() откладывается на
+// микрозадачу после всего скрипта, но `let` остаётся в 00-core.js.
 function renderWishlist() {
   const grid = $('#wishlistGrid');
   if (!grid) return;
@@ -5656,7 +5658,7 @@ if (photosGridEl && photosGridEl.addEventListener) {
     if (pressTimer && Math.hypot(e.clientX - pressX, e.clientY - pressY) > 10) cancelPress();
   });
   ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => photosGridEl.addEventListener(t, cancelPress));
-  // Клавиатура (ревью раунд 1, дополняет NV-119): Enter/Space на плитке — как
+  // Клавиатура (ревью раунд 1, NV-97/NV-115): Enter/Space на плитке — как
   // клик по ней. Делегат на сетке, а не на каждой картинке — плитки
   // пересоздаются при каждом рендере. Повторяет логику document-делегата
   // клика (62-global-clicks.js) для [data-photo], без ветки photoLongPressed

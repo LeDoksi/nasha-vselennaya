@@ -57,16 +57,18 @@ function confirmDelete(msg) {
 }
 let toastTimer = null;
 // Фаза 6: активная мобильная вкладка хотелок (renderWishlist в 61-wishes.js)
-// — объявлено тут, а не там, чтобы прямая ссылка #/wishlist не ловила TDZ
+// — объявлено тут, а не там: страховка от TDZ (с NV-119 стартовый showView()
+// откладывается на микрозадачу и идёт уже после всех top-level объявлений,
+// но список имён, читаемых при старте, не закрыт — переносить сюда безопаснее).
 // (см. комментарий у renderWishlist). null → renderWishlist подставит getUser().
 let wishlistTab = null;
 // Стек открытых модалок (используется topOverlayEl/openOverlay/closeOverlay,
 // см. src/62-global-clicks.js) — объявлен тут, а не там, по той же причине,
-// что toastTimer/wishlistTab выше: прямая ссылка #/notes|#/lists|#/wishlist
-// вызывает showView() из top-level кода 20-theme-nav.js ДО того, как
-// выполнится 62-global-clicks.js, а setPopover ниже уже читает
-// topOverlayEl() → без переноса сюда это TDZ (ReferenceError на
-// «openOverlayStack»), которая до старта интерфейса рвёт весь app.js.
+// что toastTimer/wishlistTab выше: страховка от TDZ. Исторически прямая ссылка
+// #/notes|#/lists|#/wishlist вызывала showView() из top-level кода
+// 20-theme-nav.js ДО 62-global-clicks.js, а setPopover читает topOverlayEl() →
+// ReferenceError на «openOverlayStack» рвал весь app.js. С NV-119 showView()
+// уходит в микрозадачу после скрипта, но переменная тут остаётся на всякий случай.
 let openOverlayStack = [];
 // Поверх открытого <dialog> (top layer) z-index не пробивается — календарик
 // и тост поднимаются туда же как popover="manual". hidden держим в согласии:

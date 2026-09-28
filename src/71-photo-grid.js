@@ -263,7 +263,7 @@ if (photosGridEl && photosGridEl.addEventListener) {
     if (pressTimer && Math.hypot(e.clientX - pressX, e.clientY - pressY) > 10) cancelPress();
   });
   ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => photosGridEl.addEventListener(t, cancelPress));
-  // Клавиатура (ревью раунд 1, дополняет NV-119): Enter/Space на плитке — как
+  // Клавиатура (ревью раунд 1, NV-97/NV-115): Enter/Space на плитке — как
   // клик по ней. Делегат на сетке, а не на каждой картинке — плитки
   // пересоздаются при каждом рендере. Повторяет логику document-делегата
   // клика (62-global-clicks.js) для [data-photo], без ветки photoLongPressed

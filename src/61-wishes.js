@@ -50,11 +50,11 @@ function wishCard(w) {
 // media query max-width:820px), на десктопе он скрыт и обе секции видны
 // как раньше. wishlistTab влияет только на CSS-класс — сама разметка обеих
 // секций рендерится всегда, десктопу нечего скрывать. Само состояние
-// (`let wishlistTab`) объявлено в 00-core.js, не здесь — прямая ссылка
-// #/wishlist триггерит showView('wishlist')→renderWishlist() ещё во время
-// начального прохода hash-резолвинга в 20-theme-nav.js, который выполняется
-// раньше этого файла в собранном app.js; если бы `let` стоял тут, это была
-// бы TDZ-ошибка (тот же класс бага, что и с BOTTOM_PRIMARY/FIREBASE_CONFIG).
+// (`let wishlistTab`) объявлено в 00-core.js, не здесь — историческая причина
+// и страховка от TDZ: до NV-119 прямая ссылка #/wishlist триггерила
+// showView('wishlist')→renderWishlist() ещё в начальном проходе 20-theme-nav.js,
+// раньше этого файла в собранном app.js. Теперь showView() откладывается на
+// микрозадачу после всего скрипта, но `let` остаётся в 00-core.js.
 function renderWishlist() {
   const grid = $('#wishlistGrid');
   if (!grid) return;
