@@ -2157,7 +2157,19 @@ if (typeof window !== 'undefined' && window.addEventListener) {
   // Открытие по ссылке вида index.html#/notes — сразу показываем нужную вкладку.
   // '#/home' не трогаем: главная активна по умолчанию в разметке.
   const initial = hashView();
-  if (initial && initial !== 'home' && $('#view-' + initial)) showView(initial);
+  // NV-119: без поддержки View Transitions showView() (внутри apply()) выполняется
+  // синхронно — тем же тиком, что и весь остальной app.js. Прямая ссылка на
+  // вкладку, чей renderX() читает top-level let/const из файла, что идёт позже
+  // 20-theme-nav.js по алфавиту (calY/calM — 40-calendar.js, photosRenderQueued —
+  // 71-photo-grid.js, PUSH_CONFIG — 96-push.js), падает с TDZ ReferenceError —
+  // эти объявления физически ещё не выполнились. Не переносить их по одной в
+  // 00-core.js (список читаемых renderCalendar/renderPhotos/renderSettings имён
+  // не закрыт и будет расти) — откладываем сам вызов на микрозадачу: она
+  // выполняется сразу после того, как скрипт целиком доисполнится (HTML-спека,
+  // microtask checkpoint после script), то есть уже после ВСЕХ top-level
+  // объявлений app.js, и раньше первой отрисовки — заметной «мигалки» Главной
+  // не возникает.
+  if (initial && initial !== 'home' && $('#view-' + initial)) Promise.resolve().then(() => showView(initial));
 }
 $$('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 $$('.our-tab').forEach(b => b.addEventListener('click', () => go(b.dataset.our)));
