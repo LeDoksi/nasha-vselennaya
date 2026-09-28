@@ -190,6 +190,7 @@ $$('.our-tab').forEach(b => b.addEventListener('click', () => go(b.dataset.our))
 // «Наше» — tablist: Tab попадает только на активную вкладку, стрелки и
 // Home/End переключают (APG, roving tabindex; NV-97).
 function onOurSwitchKeydown(e) {
+  if (e.altKey || e.ctrlKey || e.metaKey) return; // Alt+←/→ — «назад/вперёд» браузера, Ctrl+Home/End — прокрутка (L5)
   const i = OUR_TABS.indexOf(activeView);
   if (i < 0) return;
   const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: OUR_TABS.length - 1 }[e.key];

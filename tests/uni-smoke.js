@@ -1493,6 +1493,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w(`(s)=>{ s.renderProgressRing(new Date(${sy + 1}, ${sm - 1}, ${sd})); return 1; }`);
   const annivHtml = registry['#progressRing'].innerHTML;
   assert(annivHtml.includes('сегодня годовщина'), 'в день годовщины текст — «сегодня годовщина», а не отсчёт дней');
+  assert(annivHtml.includes('aria-label="Сегодня годовщина"'), 'в день годовщины у кольца aria-label «Сегодня годовщина» (L6: одной негативной проверки мало — она проходит и без label)');
   assert(!/до годовщины/i.test(annivHtml), 'в день годовщины фразы «до годовщины» нет ни в тексте, ни в aria-label (NV-97: регистрозависимая проверка пропускала «До годовщины»)');
   assert(annivHtml.includes('1 год'), 'в день первой годовщины полный год посчитан по календарю (1 год), а не floor(days/365.25)');
   w(`(s)=>{ s.renderProgressRing(new Date(${sy + 1}, ${sm - 1}, ${sd - 1})); return 1; }`);
@@ -1641,10 +1642,12 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
 
   // --- Фаза 10 (NV-97): стрелки лайтбокса идут в визуальном порядке сетки, а не DOM ---
   {
-    const mk = (id, top, left) => ({ dataset: { photo: id }, style: {}, getBoundingClientRect: () => ({ top, left }) });
+    // Положение плитки — у обёртки .photo (L9: rect самой <img> внутри content-visibility:auto
+    // форсирует layout каждой пропущенной плитки); у <img> в моке все нули — по нему порядок не собрать.
+    const mk = (id, top, left) => ({ dataset: { photo: id }, style: {}, getBoundingClientRect: () => ({ top: 0, left: 0 }), __box: { getBoundingClientRect: () => ({ top, left }) } });
     const tiles = [mk('a', 0, 0), mk('b', 0, 200), mk('c', 200, 0), mk('d', 100, 400)]; // dense поднял «d» во вторую строку
     const grid = { querySelectorAll: () => tiles };
-    tiles.forEach(t => (t.closest = sel => (sel === '#photosGrid' || sel === '.view' ? grid : null)));
+    tiles.forEach(t => (t.closest = sel => (sel === '#photosGrid' || sel === '.view' ? grid : sel === '.photo' ? t.__box : null)));
     sandbox.__denseTile = tiles[0];
     w('(s)=>{ s.openLightboxFrom(s.__denseTile); return 1; }');
     assert(w('(s)=>s.lightboxList.join("")') === 'abdc', 'dense-сетка: порядок лайтбокса — сверху вниз, слева направо');

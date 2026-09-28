@@ -139,8 +139,11 @@ function openLightboxFrom(el) {
   let els = scope.querySelectorAll ? [...scope.querySelectorAll('[data-photo], [data-lightbox]')] : [];
   // Галерея: стрелки листают так, как фото видны — сверху вниз, слева направо
   // (NV-97). На оси порядок DOM и так визуальный, а скрытые «ещё» дали бы 0,0.
-  if (el.closest('#photosGrid') && els.every(x => typeof x.getBoundingClientRect === 'function')) {
-    const pos = new Map(els.map(x => [x, x.getBoundingClientRect()]));
+  // Положение берём у плитки .photo, а не у <img>: содержимое пропущенных плиток
+  // лежит под content-visibility:auto, rect картинки форсировал бы layout каждой (L9).
+  const box = x => (x.closest && x.closest('.photo')) || x;
+  if (el.closest('#photosGrid') && els.every(x => typeof box(x).getBoundingClientRect === 'function')) {
+    const pos = new Map(els.map(x => [x, box(x).getBoundingClientRect()]));
     els = els.sort((a, b) => pos.get(a).top - pos.get(b).top || pos.get(a).left - pos.get(b).left);
   }
   const src = el.dataset.lightbox || el.dataset.photo;
@@ -164,6 +167,16 @@ function lbTileOnScreen(el) {
     cy = r.top + r.height / 2;
   return cx >= 0 && cx <= window.innerWidth && cy >= 0 && cy <= window.innerHeight;
 }
+// Миниатюра фото на активной вкладке (или null).
+function lbTileFor(id) {
+  const scope = '#view-' + activeView + ' ';
+  // id теоретически может содержать символы, ломающие атрибутный селектор
+  // (кавычки и т.п.) — CSS.escape гарантирует валидный селектор вместо
+  // падения querySelector. В песочнице тестов CSS может не быть — тогда id
+  // как есть (там это либо простые тестовые id, либо ветка не доходит сюда).
+  const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id;
+  return document.querySelector(scope + '[data-photo="' + esc + '"], ' + scope + '[data-lightbox="' + esc + '"]');
+}
 // Обратный перелёт: если миниатюра текущего фото видна на активной вкладке —
 // имя переезжает на неё, браузер анимирует возврат. true — переход запущен,
 // закрытие (close) выполнит он сам.
@@ -176,13 +189,7 @@ function lbFlyBack(close) {
   const img = $('#lightboxImg');
   const id = lightboxList[lightboxIdx];
   if (!id || !img || !img.style) return false;
-  const scope = '#view-' + activeView + ' ';
-  // id теоретически может содержать символы, ломающие атрибутный селектор
-  // (кавычки и т.п.) — CSS.escape гарантирует валидный селектор вместо
-  // падения querySelector. В песочнице тестов CSS может не быть — тогда id
-  // как есть (там это либо простые тестовые id, либо ветка не доходит сюда).
-  const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id;
-  const to = document.querySelector(scope + '[data-photo="' + esc + '"], ' + scope + '[data-lightbox="' + esc + '"]');
+  const to = lbTileFor(id);
   if (!to || !to.style || !lbTileOnScreen(to)) return false;
   const gen = lbGen;
   lbFlyingBack = true;

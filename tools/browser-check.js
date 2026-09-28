@@ -272,6 +272,10 @@ async function checkKeyboard(page, log) {
   });
   await page.keyboard.press('ArrowRight');
   out.push(['«Наше»: стрелка переключает на Списки', await page.evaluate(() => activeView === 'lists' && document.activeElement.dataset.our === 'lists')]);
+  // L5: браузерные сочетания не перехватываем — Alt+стрелки это Назад/Вперёд, Ctrl+Home/End это прокрутка
+  await page.keyboard.press('Alt+ArrowRight');
+  await page.keyboard.press('Control+End');
+  out.push(['«Наше»: Alt+стрелка и Ctrl+End не переключают вкладку', await page.evaluate(() => activeView === 'lists' && document.activeElement.dataset.our === 'lists')]);
   // Roving tabindex: в Tab-порядке ровно одна вкладка «Наше» (m2 — убрать b.tabIndex в showView)
   out.push(['«Наше»: roving tabindex — в Tab-порядке одна вкладка', await page.evaluate(() => [...document.querySelectorAll('.our-tab')].map(t => t.tabIndex).join() === '-1,0,-1')]);
   await page.keyboard.press('ArrowLeft');
@@ -296,6 +300,15 @@ async function checkKeyboard(page, log) {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(150);
   out.push(['ось: Esc закрывает лайтбокс, фокус возвращается на фото', await page.evaluate(() => document.getElementById('lightbox').hidden && document.activeElement.dataset.lightbox === 'kb1')]);
+  // L5: Ctrl+Enter и автоповтор Enter (e.repeat) — не открытие
+  const axisRep = await page.evaluate(() => {
+    const el = document.querySelector('[data-lightbox="kb1"]');
+    const fire = init => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init }));
+    fire({ repeat: true });
+    fire({ ctrlKey: true });
+    return document.getElementById('lightbox').hidden;
+  });
+  out.push(['ось: автоповтор Enter и Ctrl+Enter не открывают лайтбокс', axisRep]);
   await page.evaluate(() => {
     db.photos = db.photos.filter(p => p.id !== 'kb1');
     renderHome();
@@ -325,6 +338,24 @@ async function checkKeyboard(page, log) {
     'галерея: Esc закрывает лайтбокс, фокус возвращается на плитку',
     await page.evaluate(() => document.getElementById('lightbox').hidden && document.activeElement.hasAttribute('data-photo'))
   ]);
+  // L5: то же на плитке галереи
+  const gridRep = await page.evaluate(() => {
+    const el = document.querySelector('#photosGrid .photo img[data-photo]');
+    const fire = init => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init }));
+    fire({ repeat: true });
+    fire({ metaKey: true });
+    return document.getElementById('lightbox').hidden;
+  });
+  out.push(['галерея: автоповтор Enter и Meta+Enter не открывают лайтбокс', gridRep]);
+  // L3: плитку перерисовали, пока открыт лайтбокс — Esc всё равно возвращает фокус на плитку по id
+  await page.evaluate(() => document.querySelector('#photosGrid .photo img[data-photo]').focus());
+  const lbId = await page.evaluate(() => document.activeElement.dataset.photo);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(150);
+  await page.evaluate(() => renderPhotosNow());
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  out.push(['галерея: перерисовка под лайтбоксом, Esc — фокус на плитке с тем же id', await page.evaluate(id => document.getElementById('lightbox').hidden && document.activeElement.dataset.photo === id, lbId)]);
   // Режим выбора (L1, m3): Space переключает выбор, фокус остаётся на той же плитке
   // после перерисовки сетки, состояние объявлено через aria-pressed.
   await page.evaluate(() => {

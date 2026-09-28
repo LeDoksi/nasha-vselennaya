@@ -272,10 +272,12 @@ if (photosGridEl && photosGridEl.addEventListener) {
   // плитка), иначе — лайтбокс.
   photosGridEl.addEventListener('keydown', e => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.altKey || e.ctrlKey || e.metaKey) return; // сочетания с модификаторами не наши (L5)
     const img = e.target.closest && e.target.closest('[data-photo]');
     if (!img) return;
     if (photoReorderMode) return; // плитка в этом режиме не кнопка: Space пусть скроллит как обычно
     e.preventDefault();
+    if (e.repeat) return; // автоповтор зажатой клавиши не жмёт снова (L5)
     if (photoSelectMode) {
       const id = img.dataset.photo;
       if (selectedPhotos.has(id)) selectedPhotos.delete(id);

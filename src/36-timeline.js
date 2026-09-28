@@ -79,9 +79,9 @@ function renderTimeline(box, more, days) {
   box.querySelectorAll('[data-lightbox]').forEach(img => {
     img.addEventListener('click', () => openLightboxFrom(img));
     img.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') {
+      if ((e.key === 'Enter' || e.key === ' ') && !e.altKey && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        openLightboxFrom(img);
+        if (!e.repeat) openLightboxFrom(img); // автоповтор зажатой клавиши не открывает повторно (L5)
       }
     });
   });

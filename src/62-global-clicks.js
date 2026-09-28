@@ -55,6 +55,15 @@ function closeOverlayNow(id) {
   const pop = $('#datePop');
   if (pop && !pop.hidden && pop._popoverHost === el) closeDatePop();
   if (id === 'lightbox') {
+    // dialog.close() вернул фокус на «открывалку», а плитки могли перерисовать
+    // под лайтбоксом (живое обновление, подгрузка миниатюр) — тогда открывалки
+    // нет в DOM и фокус в <body> (или ещё на кнопке скрытого диалога, пока браузер
+    // не «подобрал» фокус). Возвращаем его на плитку с тем же id (L3).
+    const ae = document.activeElement;
+    if (!ae || ae === document.body || el.contains(ae)) {
+      const tile = lbTileFor(lightboxList[lightboxIdx]);
+      if (tile && tile.focus) tile.focus({ preventScroll: true });
+    }
     lbResetState(); // светбокс закрыт — сбрасываем список и зум
     lbFlyingBack = false; // на случай закрытия мимо lbFlyBack — флаг не должен зависнуть
     const lbImg = $('#lightboxImg');

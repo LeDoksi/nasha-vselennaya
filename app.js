@@ -2179,6 +2179,7 @@ $$('.our-tab').forEach(b => b.addEventListener('click', () => go(b.dataset.our))
 // «Наше» — tablist: Tab попадает только на активную вкладку, стрелки и
 // Home/End переключают (APG, roving tabindex; NV-97).
 function onOurSwitchKeydown(e) {
+  if (e.altKey || e.ctrlKey || e.metaKey) return; // Alt+←/→ — «назад/вперёд» браузера, Ctrl+Home/End — прокрутка (L5)
   const i = OUR_TABS.indexOf(activeView);
   if (i < 0) return;
   const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: OUR_TABS.length - 1 }[e.key];
@@ -2997,9 +2998,9 @@ function renderTimeline(box, more, days) {
   box.querySelectorAll('[data-lightbox]').forEach(img => {
     img.addEventListener('click', () => openLightboxFrom(img));
     img.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') {
+      if ((e.key === 'Enter' || e.key === ' ') && !e.altKey && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        openLightboxFrom(img);
+        if (!e.repeat) openLightboxFrom(img); // автоповтор зажатой клавиши не открывает повторно (L5)
       }
     });
   });
@@ -4697,6 +4698,15 @@ function closeOverlayNow(id) {
   const pop = $('#datePop');
   if (pop && !pop.hidden && pop._popoverHost === el) closeDatePop();
   if (id === 'lightbox') {
+    // dialog.close() вернул фокус на «открывалку», а плитки могли перерисовать
+    // под лайтбоксом (живое обновление, подгрузка миниатюр) — тогда открывалки
+    // нет в DOM и фокус в <body> (или ещё на кнопке скрытого диалога, пока браузер
+    // не «подобрал» фокус). Возвращаем его на плитку с тем же id (L3).
+    const ae = document.activeElement;
+    if (!ae || ae === document.body || el.contains(ae)) {
+      const tile = lbTileFor(lightboxList[lightboxIdx]);
+      if (tile && tile.focus) tile.focus({ preventScroll: true });
+    }
     lbResetState(); // светбокс закрыт — сбрасываем список и зум
     lbFlyingBack = false; // на случай закрытия мимо lbFlyBack — флаг не должен зависнуть
     const lbImg = $('#lightboxImg');
@@ -5655,10 +5665,12 @@ if (photosGridEl && photosGridEl.addEventListener) {
   // плитка), иначе — лайтбокс.
   photosGridEl.addEventListener('keydown', e => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.altKey || e.ctrlKey || e.metaKey) return; // сочетания с модификаторами не наши (L5)
     const img = e.target.closest && e.target.closest('[data-photo]');
     if (!img) return;
     if (photoReorderMode) return; // плитка в этом режиме не кнопка: Space пусть скроллит как обычно
     e.preventDefault();
+    if (e.repeat) return; // автоповтор зажатой клавиши не жмёт снова (L5)
     if (photoSelectMode) {
       const id = img.dataset.photo;
       if (selectedPhotos.has(id)) selectedPhotos.delete(id);
@@ -6243,8 +6255,11 @@ function openLightboxFrom(el) {
   let els = scope.querySelectorAll ? [...scope.querySelectorAll('[data-photo], [data-lightbox]')] : [];
   // Галерея: стрелки листают так, как фото видны — сверху вниз, слева направо
   // (NV-97). На оси порядок DOM и так визуальный, а скрытые «ещё» дали бы 0,0.
-  if (el.closest('#photosGrid') && els.every(x => typeof x.getBoundingClientRect === 'function')) {
-    const pos = new Map(els.map(x => [x, x.getBoundingClientRect()]));
+  // Положение берём у плитки .photo, а не у <img>: содержимое пропущенных плиток
+  // лежит под content-visibility:auto, rect картинки форсировал бы layout каждой (L9).
+  const box = x => (x.closest && x.closest('.photo')) || x;
+  if (el.closest('#photosGrid') && els.every(x => typeof box(x).getBoundingClientRect === 'function')) {
+    const pos = new Map(els.map(x => [x, box(x).getBoundingClientRect()]));
     els = els.sort((a, b) => pos.get(a).top - pos.get(b).top || pos.get(a).left - pos.get(b).left);
   }
   const src = el.dataset.lightbox || el.dataset.photo;
@@ -6268,6 +6283,16 @@ function lbTileOnScreen(el) {
     cy = r.top + r.height / 2;
   return cx >= 0 && cx <= window.innerWidth && cy >= 0 && cy <= window.innerHeight;
 }
+// Миниатюра фото на активной вкладке (или null).
+function lbTileFor(id) {
+  const scope = '#view-' + activeView + ' ';
+  // id теоретически может содержать символы, ломающие атрибутный селектор
+  // (кавычки и т.п.) — CSS.escape гарантирует валидный селектор вместо
+  // падения querySelector. В песочнице тестов CSS может не быть — тогда id
+  // как есть (там это либо простые тестовые id, либо ветка не доходит сюда).
+  const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id;
+  return document.querySelector(scope + '[data-photo="' + esc + '"], ' + scope + '[data-lightbox="' + esc + '"]');
+}
 // Обратный перелёт: если миниатюра текущего фото видна на активной вкладке —
 // имя переезжает на неё, браузер анимирует возврат. true — переход запущен,
 // закрытие (close) выполнит он сам.
@@ -6280,13 +6305,7 @@ function lbFlyBack(close) {
   const img = $('#lightboxImg');
   const id = lightboxList[lightboxIdx];
   if (!id || !img || !img.style) return false;
-  const scope = '#view-' + activeView + ' ';
-  // id теоретически может содержать символы, ломающие атрибутный селектор
-  // (кавычки и т.п.) — CSS.escape гарантирует валидный селектор вместо
-  // падения querySelector. В песочнице тестов CSS может не быть — тогда id
-  // как есть (там это либо простые тестовые id, либо ветка не доходит сюда).
-  const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id;
-  const to = document.querySelector(scope + '[data-photo="' + esc + '"], ' + scope + '[data-lightbox="' + esc + '"]');
+  const to = lbTileFor(id);
   if (!to || !to.style || !lbTileOnScreen(to)) return false;
   const gen = lbGen;
   lbFlyingBack = true;
