@@ -548,6 +548,8 @@ body.uni-dragging{user-select:none;-webkit-user-select:none}
 .photo--fresh{animation:photoIn var(--dur-enter) var(--ease-spring) both}
 @keyframes photoIn{from{opacity:0;transform:scale(.86)}}
 .photo img{width:100%;aspect-ratio:1;object-fit:cover;display:block;cursor:pointer;-webkit-touch-callout:none;user-select:none;-webkit-user-select:none}
+/* .photo режет содержимое (overflow:hidden) — общее кольцо с offset 2px наружу невидимо; рисуем его внутрь плитки (ревью раунд 2) */
+.photo img:focus-visible{outline-offset:-3px}
 /* Миниатюра ещё не докачана/расшифрована (data-photo-src ждёт hydratePhotoImgs,
    см. src/05-photostore.js) — до этого у <img> нет src вообще. Без этого
    правила такой <img> всё равно рисуется браузером как «битый»: рамка +

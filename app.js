@@ -5469,7 +5469,7 @@ function renderPhotosNow() {
         const url = photoSrc(p);
         return html`
     <div class="photo${p.pinned ? ' pinned' : ''}${!photoReorderMode && (p.pinned || bigIds.has(p.id)) ? ' photo--big' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}${freshPhotoIds.has(p.id) ? ' photo--fresh' : ''}" data-id="${p.id}">
-      <img${url ? html` src="${url}"` : html` data-photo-src="${p.id}"`} alt="${p.title}" data-photo="${p.id}" loading="lazy" tabindex="0" role="button" aria-label="Открыть фото">
+      <img${url ? html` src="${url}"` : html` data-photo-src="${p.id}"`} alt="${p.title}" data-photo="${p.id}" loading="lazy" tabindex="0" role="button"${p.title ? '' : raw(' aria-label="Фото"')}>
       ${
         photoSelectMode
           ? html`<button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>`

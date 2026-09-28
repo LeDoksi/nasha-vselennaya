@@ -276,7 +276,18 @@ async function checkKeyboard(page, log) {
   // и возвращает фокус на неё же (lbFlyBack, NV-97).
   await page.evaluate(() => go('photos'));
   await page.waitForTimeout(200);
+  // Кольцо фокуса на плитке видно: .photo режет содержимое (overflow:hidden),
+  // кольцо с offset наружу невидимо — кадры сфокусированной и обычной плитки
+  // были бы побайтно равны (ревью раунда 2).
+  const tile = page.locator('#photosGrid .photo').first();
+  await page.evaluate(() => document.activeElement && document.activeElement.blur());
+  await page.waitForTimeout(100);
+  const shotBlur = await tile.screenshot();
   await page.evaluate(() => document.querySelector('#photosGrid .photo img[data-photo]').focus());
+  await page.waitForTimeout(100);
+  const shotFocus = await tile.screenshot();
+  out.push(['галерея: кольцо фокуса на плитке нарисовано внутрь (offset < 0)', await page.evaluate(() => parseFloat(getComputedStyle(document.activeElement).outlineOffset) < 0)]);
+  out.push(['галерея: кадры плитки в фокусе и без него различаются', !shotBlur.equals(shotFocus)]);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(150);
   out.push(['галерея: Enter на плитке открывает лайтбокс', await page.evaluate(() => !document.getElementById('lightbox').hidden)]);
