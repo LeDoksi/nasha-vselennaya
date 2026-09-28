@@ -107,7 +107,9 @@ function renderPhotosNow() {
       ${currentLabel === EVENT_LABEL && p.title ? html`<span class="photo-caption">${eventFilter.title || p.title}</span>` : ''}
     </div>`;
       })
-    : emptyState('photos', 'Здесь будут ваши фото. Они хранятся зашифрованными и видны вам обоим.', ['Загрузить фото', 'photo']);
+    : currentLabel
+      ? emptyState('photos', photosFilterEmptyText()) // пусто под фильтром — загрузка тут не поможет (M1)
+      : emptyState('photos', 'Здесь будут ваши фото. Они хранятся зашифрованными и видны вам обоим.', ['Загрузить фото', 'photo']);
   // Невидимая метка в конце сетки — на неё наводится photosObserver ниже,
   // чтобы знать, когда догружать следующую страницу. grid-column:1/-1 и
   // высота 1px — иначе в CSS grid (photos-grid) это была бы лишняя пустая
@@ -139,6 +141,12 @@ function renderPhotosNow() {
 // IntersectionObserver есть не везде (песочница тестов, старые окружения) —
 // тогда наблюдатель просто не создаётся, а пагинация (loadMorePhotos)
 // тестируется напрямую.
+function photosFilterEmptyText() {
+  if (currentLabel === EVENT_LABEL) return 'Для этого события фото пока нет.';
+  if (currentLabel === DATE_LABEL) return 'Со свиданий фото пока нет.';
+  const l = labelById(currentLabel);
+  return l ? 'С лейблом «' + l.name + '» фото пока нет.' : 'С этим лейблом фото пока нет.';
+}
 // Именованная, а не инлайн — тест дёргает её напрямую (в песочнице нет IO).
 function onPhotosSentinel(entries) {
   if (!entries.some(e => e.isIntersecting)) return;

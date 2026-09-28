@@ -363,7 +363,8 @@
       <p class="auth-err" id="gateErr" role="alert" aria-live="polite"></p>
     </div>
     <!-- Пока после входа грузятся данные (фаза 9): форма будущей Главной, а не строка «Загружаем…» -->
-    <div class="boot-skeleton" id="bootSkeleton" hidden aria-busy="true" aria-label="Загружаем">
+    <div class="boot-skeleton" id="bootSkeleton" hidden role="status">
+      <span class="dp-live">Загружаем…</span>
       <span class="sk sk-ring"></span>
       <span class="sk sk-line"></span>
       <span class="sk sk-line sk-short"></span>

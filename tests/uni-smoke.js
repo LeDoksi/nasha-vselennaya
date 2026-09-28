@@ -759,6 +759,18 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>s.deleteLabelSilent("📅 События")');
   assert(w(`(s)=>s.db.photos.find(p=>p.id==="${evPhId}").labels.includes("📅 События")`), 'служебный лейбл «События» нельзя удалить');
   w('(s)=>{s.eventFilter={year:"",month:"",title:""};s.currentLabel="";s.renderPhotos();}');
+  // M1: пусто под фильтром — свой текст и без кнопки «Загрузить фото»
+  w('(s)=>{s.db.labels.push({id:"lblEmpty",name:"Пустой",color:"#000"});s.currentLabel="lblEmpty";s.renderPhotos();}');
+  assert(
+    registry['#photosGrid'].innerHTML.includes('С лейблом «Пустой» фото пока нет') && !registry['#photosGrid'].innerHTML.includes('data-empty-action'),
+    'M1: лейбл без фото — текст фильтра, без загрузки'
+  );
+  w('(s)=>{s.currentLabel="📅 События";s.eventFilter={year:"1999",month:"",title:""};s.renderPhotos();}');
+  assert(
+    registry['#photosGrid'].innerHTML.includes('Для этого события фото пока нет') && !registry['#photosGrid'].innerHTML.includes('data-empty-action'),
+    'M1: событие без фото — текст фильтра, без загрузки'
+  );
+  w('(s)=>{s.db.labels=s.db.labels.filter(l=>l.id!=="lblEmpty");s.eventFilter={year:"",month:"",title:""};s.currentLabel="";s.renderPhotos();}');
 
   // --- Удаление фото убирает его и из события (в календаре не остаётся «мёртвых» миниатюр) ---
   w(`(s)=>{const ph=s.db.photos.find(p=>p.id==="${evPhId}");s.deletePhoto(ph.id);}`);
@@ -891,6 +903,10 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(wdUndo.includes('data-wish-done') && wdUndo.includes('Снять отметку'), 'исполнивший может снять отметку');
   const wdLocked = w('(s)=>s.wishCard({id:"x",text:"x",owner:"dasha",done:true,doneBy:"dasha",doneAt:1,ts:1})');
   assert(!wdLocked.includes('data-wish-done'), 'чужую отметку нельзя снять');
+  // M8(c): пустые списки хотелок — свой зовёт добавить, чужой констатирует
+  w('(s)=>{s.db.wishlist.length=0;s.renderWishlist();}');
+  assert(registry['#wishlistGrid'].innerHTML.includes('Твой список пуст'), 'пустой свой список хотелок зовёт добавить');
+  assert(registry['#wishlistGrid'].innerHTML.includes('У Даши пока нет хотелок'), 'пустой чужой список хотелок — нейтральная констатация');
 
   // --- Списки: произвольные блоки вместо жёстких «Покупки/Дела» ---
   w('(s)=>{s.db.lists=[{id:"L1",name:"Подарки",items:[]},{id:"L2",name:"Дела",items:[]}];s.renderLists();return 1;}');
