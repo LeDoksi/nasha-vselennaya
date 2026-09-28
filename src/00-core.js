@@ -322,6 +322,7 @@ let axisEventsLoaded = false; // все разовые события раньш
 let axisPhotosCursor = null; // курсор фото по дате съёмки (takenAt desc)
 let axisPhotosDone = false;
 let axisLoading = false; // защита от параллельных догрузок, как photosLoadingMore
+let axisPrefetched = false; // первая страница оси уже запрошена Главной (K4b, src/36-timeline.js)
 
 function getUser() {
   return currentUser || 'gosha';

@@ -195,6 +195,7 @@ function __TEST__(s){
   // Фикс-волна фазы 9 (K1–K6, M5, M6): ось и галерея через свои метки догрузки.
   s.axisDays = axisDays; s.renderTimeline = renderTimeline;
   s.onAxisSentinel = onAxisSentinel; s.onPhotosSentinel = onPhotosSentinel;
+  s.renderHome = renderHome;
   Object.defineProperty(s, 'activeView', { get: () => activeView, set: v => { activeView = v; }, configurable: true });
   Object.defineProperty(s, 'axisLoading', { get: () => axisLoading, set: v => { axisLoading = v; }, configurable: true });
   Object.defineProperty(s, 'photosCursor', { get: () => photosCursor, configurable: true });
@@ -792,6 +793,47 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   await tick();
   assert(w('(s)=>s.photosCursor') === null && !registry['#photosGrid'].innerHTML.includes('photo-sk'), 'K1: последняя страница из одного фото — курсор null, скелетон уходит');
   w('(s)=>{ s.activeView = "home"; return 1; }');
+
+  // K6b: горячий набор фото из офлайн-кэша — не конец галереи.
+  clearStore();
+  for (let i = 0; i < 5; i++) mock._store['couples/main/photos/k6b' + i] = { order: i, ts: i };
+  mock._nextGetFromCache('photos');
+  await w('(s)=>s.loadHotSet()');
+  assert(w('(s)=>s.photosCursor && s.photosCursor.id') === 'k6b4', 'K6b: короткая страница горячего набора из кэша не обнуляет курсор');
+  clearStore();
+  mock._nextGetFromCache('photos');
+  await w('(s)=>s.loadHotSet()');
+  assert(w('(s)=>!!s.photosCursor'), 'K6b: пустой горячий набор фото из кэша — курсор не null');
+  for (let i = 0; i < 3; i++) mock._store['couples/main/photos/k6c' + i] = { order: i, ts: i };
+  assert((await w('(s)=>s.loadMorePhotos()')) === 3 && w('(s)=>s.photosCursor') === null, 'K6b: с сетью галерея дочитывается с начала');
+
+  // K4b: первая страница оси — сразу после Главной, не дожидаясь прокрутки к метке.
+  clearStore();
+  mock._store['couples/main/events/k4bOld'] = { title: 'Годовщина-не-повтор', date: '2021-04-04', repeat: false };
+  await w('(s)=>s.loadHotSet()');
+  let gK4b = mock._colGetCount;
+  w('(s)=>{ s.renderHome(); return 1; }');
+  await tick();
+  assert(mock._colGetCount - gK4b === 2 && w('(s)=>s.db.events.some(e=>e.id==="k4bOld")'), 'K4b: Главная сама запросила первую страницу оси (события + фото)');
+  assert(registry['#homeTimeline'].innerHTML.includes('Годовщина-не-повтор'), 'K4b: и перерисовала ось с прошлым');
+  gK4b = mock._colGetCount;
+  w('(s)=>{ s.renderHome(); return 1; }');
+  await tick();
+  assert(mock._colGetCount === gK4b, 'K4b: повторная Главная больше не запрашивает');
+  await w('(s)=>s.loadHotSet()');
+  gK4b = mock._colGetCount;
+  w('(s)=>{ s.axisLoading = true; s.renderHome(); s.axisLoading = false; return 1; }');
+  await tick();
+  assert(mock._colGetCount === gK4b, 'K4b: страница уже летит — второго запроса нет');
+  await w('(s)=>s.loadHotSet()');
+  mock._failNextGet('events');
+  w('(s)=>{ s.renderHome(); return 1; }');
+  await tick();
+  assert(String(w('(s)=>s.toastText')).includes('Не удалось догрузить прошлое'), 'K4b: ошибка — тот же тост, что у метки');
+  gK4b = mock._colGetCount;
+  w('(s)=>{ s.renderHome(); return 1; }');
+  await tick();
+  assert(mock._colGetCount === gK4b, 'K4b: после ошибки Главная не долбит Firestore на каждой перерисовке');
 
   // РЕВЬЮ задачи 10 (Important, повторное ревью): дозагрузка по scroll
   // тупиковала, если галерея умещалась в экран без прокрутки (scroll ни разу

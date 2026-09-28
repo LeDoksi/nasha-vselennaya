@@ -322,6 +322,7 @@ let axisEventsLoaded = false; // все разовые события раньш
 let axisPhotosCursor = null; // курсор фото по дате съёмки (takenAt desc)
 let axisPhotosDone = false;
 let axisLoading = false; // защита от параллельных догрузок, как photosLoadingMore
+let axisPrefetched = false; // первая страница оси уже запрошена Главной (K4b, src/36-timeline.js)
 
 function getUser() {
   return currentUser || 'gosha';
@@ -732,10 +733,13 @@ function fromCache(snap) {
 }
 
 // Курсор страницы: неполная страница — последняя, null сразу (без лишнего
-// чтения пустой страницы, K1). Из кэша — только курсор, без вывода о конце.
+// чтения пустой страницы, K1). Из кэша — вывода о конце нет (K6b): курсор на
+// последнем документе, а пустой кэш — «читать с начала».
+const PHOTOS_FROM_START = { fromStart: true };
 function pageCursor(snap) {
   const n = snap.docs.length;
-  return n && (n === PHOTO_PAGE || fromCache(snap)) ? snap.docs[n - 1] : null;
+  if (fromCache(snap)) return n ? snap.docs[n - 1] : PHOTOS_FROM_START;
+  return n === PHOTO_PAGE ? snap.docs[n - 1] : null;
 }
 
 // Firestore не гарантирует порядок документов ни между вызовами .get(), ни
@@ -802,6 +806,7 @@ async function loadHotSet() {
   axisEventsLoaded = false;
   axisPhotosCursor = null;
   axisPhotosDone = false;
+  axisPrefetched = false;
 }
 
 // Одно и то же событие приходит и запросом повторяющихся, и запросом окна —
@@ -837,7 +842,9 @@ async function loadMorePhotos() {
   if (!fsReady || !photosCursor || photosLoadingMore) return 0;
   photosLoadingMore = true;
   try {
-    const snap = await fsCol('photos').orderBy('order', 'asc').startAfter(photosCursor).limit(PHOTO_PAGE).get();
+    let q = fsCol('photos').orderBy('order', 'asc');
+    if (photosCursor !== PHOTOS_FROM_START) q = q.startAfter(photosCursor);
+    const snap = await q.limit(PHOTO_PAGE).get();
     // Из кэша — 0: ни данных, ни курсора; метка останется на месте и
     // дочитает страницу, когда сеть вернётся (K6).
     if (fromCache(snap)) return 0;
@@ -2251,6 +2258,7 @@ function renderHome() {
   // Фаза B: кольцо прогресса (в блоке — коллаж фото, события «в этот день», статистика)
   renderProgressRing();
   renderTimeline($('#homeTimeline'));
+  prefetchAxis($('#homeTimeline'));
   maybeCelebrateAnniversary(rem);
 }
 
@@ -2982,14 +2990,27 @@ function onAxisSentinel(entries) {
     else if (!axisLoading)
       loadAxisPage()
         .then(() => renderTimeline(box, true))
-        .catch(() => {
-          // Ошибка: скелетон «грузится» не должен висеть (M6) — убираем метку,
-          // следующая перерисовка (живое обновление, возврат на Главную) вернёт
-          // её. Без бесконечных повторов.
-          box.querySelectorAll('[data-axis-more]').forEach(n => n.remove());
-          notify('Не удалось догрузить прошлое — проверь интернет.', true);
-        });
+        .catch(() => axisPageFailed(box));
   }
+}
+// Ошибка страницы: скелетон «грузится» не должен висеть (M6) — убираем метку,
+// следующая перерисовка (живое обновление, возврат на Главную) вернёт её.
+// Без бесконечных повторов.
+function axisPageFailed(box) {
+  box.querySelectorAll('[data-axis-more]').forEach(n => n.remove());
+  notify('Не удалось догрузить прошлое — проверь интернет.', true);
+}
+// Первая страница оси — сразу после Главной, не дожидаясь прокрутки к метке
+// (K4b): иначе до неё «Память» — один скелетон, хотя годовщины уже в db.
+// Раз на горячий набор (loadHotSet сбрасывает axisPrefetched), в том числе
+// после ошибки — перерисовки Главной не долбят Firestore. Страница уже летит
+// или уже прочитана — не запрашиваем.
+function prefetchAxis(box) {
+  if (!box || axisPrefetched || axisLoading || axisEventsLoaded || !axisHasMore()) return;
+  axisPrefetched = true;
+  loadAxisPage()
+    .then(() => renderTimeline(box))
+    .catch(() => axisPageFailed(box));
 }
 let timelineObserver = null;
 if (typeof IntersectionObserver === 'function') timelineObserver = new IntersectionObserver(onAxisSentinel, { rootMargin: '600px 0px' });
@@ -5473,7 +5494,9 @@ function photosFilterEmptyText() {
 // Именованная, а не инлайн — тест дёргает её напрямую (в песочнице нет IO).
 function onPhotosSentinel(entries) {
   if (!entries.some(e => e.isIntersecting)) return;
-  if (activeView !== 'photos' || !db.photos.length || !photosCursor) return;
+  // Без проверки db.photos.length: пустой горячий набор из офлайн-кэша оставляет
+  // курсор «с начала» (K6b), и метка должна дочитать галерею с сетью.
+  if (activeView !== 'photos' || !photosCursor) return;
   loadMorePhotos()
     .then(added => {
       // Пустая последняя страница тоже перерисовывает: курсор стал null —

@@ -150,7 +150,9 @@ function photosFilterEmptyText() {
 // Именованная, а не инлайн — тест дёргает её напрямую (в песочнице нет IO).
 function onPhotosSentinel(entries) {
   if (!entries.some(e => e.isIntersecting)) return;
-  if (activeView !== 'photos' || !db.photos.length || !photosCursor) return;
+  // Без проверки db.photos.length: пустой горячий набор из офлайн-кэша оставляет
+  // курсор «с начала» (K6b), и метка должна дочитать галерею с сетью.
+  if (activeView !== 'photos' || !photosCursor) return;
   loadMorePhotos()
     .then(added => {
       // Пустая последняя страница тоже перерисовывает: курсор стал null —

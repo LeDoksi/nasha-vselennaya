@@ -34,10 +34,13 @@ function fromCache(snap) {
 }
 
 // Курсор страницы: неполная страница — последняя, null сразу (без лишнего
-// чтения пустой страницы, K1). Из кэша — только курсор, без вывода о конце.
+// чтения пустой страницы, K1). Из кэша — вывода о конце нет (K6b): курсор на
+// последнем документе, а пустой кэш — «читать с начала».
+const PHOTOS_FROM_START = { fromStart: true };
 function pageCursor(snap) {
   const n = snap.docs.length;
-  return n && (n === PHOTO_PAGE || fromCache(snap)) ? snap.docs[n - 1] : null;
+  if (fromCache(snap)) return n ? snap.docs[n - 1] : PHOTOS_FROM_START;
+  return n === PHOTO_PAGE ? snap.docs[n - 1] : null;
 }
 
 // Firestore не гарантирует порядок документов ни между вызовами .get(), ни
@@ -104,6 +107,7 @@ async function loadHotSet() {
   axisEventsLoaded = false;
   axisPhotosCursor = null;
   axisPhotosDone = false;
+  axisPrefetched = false;
 }
 
 // Одно и то же событие приходит и запросом повторяющихся, и запросом окна —
@@ -139,7 +143,9 @@ async function loadMorePhotos() {
   if (!fsReady || !photosCursor || photosLoadingMore) return 0;
   photosLoadingMore = true;
   try {
-    const snap = await fsCol('photos').orderBy('order', 'asc').startAfter(photosCursor).limit(PHOTO_PAGE).get();
+    let q = fsCol('photos').orderBy('order', 'asc');
+    if (photosCursor !== PHOTOS_FROM_START) q = q.startAfter(photosCursor);
+    const snap = await q.limit(PHOTO_PAGE).get();
     // Из кэша — 0: ни данных, ни курсора; метка останется на месте и
     // дочитает страницу, когда сеть вернётся (K6).
     if (fromCache(snap)) return 0;

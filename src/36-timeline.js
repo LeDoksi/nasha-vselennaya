@@ -103,14 +103,27 @@ function onAxisSentinel(entries) {
     else if (!axisLoading)
       loadAxisPage()
         .then(() => renderTimeline(box, true))
-        .catch(() => {
-          // Ошибка: скелетон «грузится» не должен висеть (M6) — убираем метку,
-          // следующая перерисовка (живое обновление, возврат на Главную) вернёт
-          // её. Без бесконечных повторов.
-          box.querySelectorAll('[data-axis-more]').forEach(n => n.remove());
-          notify('Не удалось догрузить прошлое — проверь интернет.', true);
-        });
+        .catch(() => axisPageFailed(box));
   }
+}
+// Ошибка страницы: скелетон «грузится» не должен висеть (M6) — убираем метку,
+// следующая перерисовка (живое обновление, возврат на Главную) вернёт её.
+// Без бесконечных повторов.
+function axisPageFailed(box) {
+  box.querySelectorAll('[data-axis-more]').forEach(n => n.remove());
+  notify('Не удалось догрузить прошлое — проверь интернет.', true);
+}
+// Первая страница оси — сразу после Главной, не дожидаясь прокрутки к метке
+// (K4b): иначе до неё «Память» — один скелетон, хотя годовщины уже в db.
+// Раз на горячий набор (loadHotSet сбрасывает axisPrefetched), в том числе
+// после ошибки — перерисовки Главной не долбят Firestore. Страница уже летит
+// или уже прочитана — не запрашиваем.
+function prefetchAxis(box) {
+  if (!box || axisPrefetched || axisLoading || axisEventsLoaded || !axisHasMore()) return;
+  axisPrefetched = true;
+  loadAxisPage()
+    .then(() => renderTimeline(box))
+    .catch(() => axisPageFailed(box));
 }
 let timelineObserver = null;
 if (typeof IntersectionObserver === 'function') timelineObserver = new IntersectionObserver(onAxisSentinel, { rootMargin: '600px 0px' });

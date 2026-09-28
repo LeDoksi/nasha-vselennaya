@@ -35,6 +35,7 @@ function renderHome() {
   // Фаза B: кольцо прогресса (в блоке — коллаж фото, события «в этот день», статистика)
   renderProgressRing();
   renderTimeline($('#homeTimeline'));
+  prefetchAxis($('#homeTimeline'));
   maybeCelebrateAnniversary(rem);
 }
 
