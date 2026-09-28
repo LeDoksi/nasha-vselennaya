@@ -76,7 +76,15 @@ function renderTimeline(box, more, days) {
     </div>`
   );
   hydratePhotoImgs(box);
-  box.querySelectorAll('[data-lightbox]').forEach(img => img.addEventListener('click', () => openLightboxFrom(img)));
+  box.querySelectorAll('[data-lightbox]').forEach(img => {
+    img.addEventListener('click', () => openLightboxFrom(img));
+    img.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openLightboxFrom(img);
+      }
+    });
+  });
   // Каждый рендер (в т.ч. живое обновление из Firestore) рисует новую метку
   // [data-axis-more] — старую надо отписать явно, иначе IntersectionObserver
   // копит наблюдателей на уже удалённых из DOM узлах (утечка).

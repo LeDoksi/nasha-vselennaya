@@ -1486,7 +1486,7 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w(`(s)=>{ s.renderProgressRing(new Date(${sy + 1}, ${sm - 1}, ${sd})); return 1; }`);
   const annivHtml = registry['#progressRing'].innerHTML;
   assert(annivHtml.includes('сегодня годовщина'), 'в день годовщины текст — «сегодня годовщина», а не отсчёт дней');
-  assert(!annivHtml.includes('до годовщины'), 'в день годовщины старой фразы «до годовщины» больше нет');
+  assert(!/до годовщины/i.test(annivHtml), 'в день годовщины фразы «до годовщины» нет ни в тексте, ни в aria-label (NV-97: регистрозависимая проверка пропускала «До годовщины»)');
   assert(annivHtml.includes('1 год'), 'в день первой годовщины полный год посчитан по календарю (1 год), а не floor(days/365.25)');
   w(`(s)=>{ s.renderProgressRing(new Date(${sy + 1}, ${sm - 1}, ${sd - 1})); return 1; }`);
   const dayBeforeAnnivHtml = registry['#progressRing'].innerHTML;
@@ -1608,8 +1608,17 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(w('(s)=>s.lightboxList.length') === 0, 'при закрытии список фото очищается');
 
   // --- Фаза 6: плитка → лайтбокс общим элементом ---
+  // NV-97: настоящий startViewTransition зовёт свой колбэк не сразу — заглушка
+  // считает вызовы (svtFly), чтобы отличить перелёт от прямого closeOverlay
+  // (раньше заглушка просто выполняла колбэк, и «закрылось перелётом» и
+  // «закрылось напрямую» выглядели в тесте одинаково).
+  let svtFly = 0;
+  sandbox.document.startViewTransition = cb => {
+    svtFly++;
+    cb();
+    return { finished: Promise.resolve() };
+  };
   w(`(s)=>{
-    s.document.startViewTransition = cb => { cb(); return { finished: Promise.resolve() }; };
     const tile = { dataset: { photo: 'p1' }, style: {}, closest: () => null };
     s.openLightbox(['p1'], 0, tile);
     return 1;
@@ -1620,7 +1629,21 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{ s.closeOverlay("lightbox"); return 1; }');
   assert(registry['#lightbox'].hidden === true, 'лайтбокс: закрыт обратным перелётом');
   assert(lbImg.style.viewTransitionName === '', 'лайтбокс: имя снято с картинки');
-  w('(s)=>{ delete s.document.startViewTransition; return 1; }');
+  assert(svtFly === 2, 'лайтбокс: закрытие шло перелётом (второй переход), а не прямым close');
+  delete sandbox.document.startViewTransition;
+
+  // --- Фаза 10 (NV-97): стрелки лайтбокса идут в визуальном порядке сетки, а не DOM ---
+  {
+    const mk = (id, top, left) => ({ dataset: { photo: id }, style: {}, getBoundingClientRect: () => ({ top, left }) });
+    const tiles = [mk('a', 0, 0), mk('b', 0, 200), mk('c', 200, 0), mk('d', 100, 400)]; // dense поднял «d» во вторую строку
+    const grid = { querySelectorAll: () => tiles };
+    tiles.forEach(t => (t.closest = sel => (sel === '#photosGrid' || sel === '.view' ? grid : null)));
+    sandbox.__denseTile = tiles[0];
+    w('(s)=>{ s.openLightboxFrom(s.__denseTile); return 1; }');
+    assert(w('(s)=>s.lightboxList.join("")') === 'abdc', 'dense-сетка: порядок лайтбокса — сверху вниз, слева направо');
+    delete sandbox.__denseTile;
+    w('(s)=>{ s.closeOverlay("lightbox"); return 1; }');
+  }
 
   // --- Фаза 6, раунд 1 (ревью): гонка двойного закрытия / переоткрытия во
   // время ОТЛОЖЕННОГО обратного перелёта. Настоящий document.startViewTransition

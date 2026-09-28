@@ -162,7 +162,7 @@ function renderProgressRing(at) {
   render(
     box,
     html`<div class="orbit">
-        <svg class="orbit-ring" viewBox="0 0 200 200" role="img" aria-label="До годовщины ${info.left} ${pluralDays(info.left)}, пройдено ${info.pct}%">
+        <svg class="orbit-ring" viewBox="0 0 200 200" role="img" aria-label="${info.left === info.total ? 'Сегодня годовщина' : 'До годовщины ' + info.left + ' ' + pluralDays(info.left) + ', пройдено ' + info.pct + '%'}">
           <circle class="orbit-track" cx="100" cy="100" r="92"></circle>
           <circle class="orbit-arc" cx="100" cy="100" r="92" transform="rotate(-90 100 100)" stroke-dasharray="${geo.circ}" stroke-dashoffset="${geo.off}"></circle>
           <circle class="orbit-star" cx="${geo.x}" cy="${geo.y}" r="6"></circle>
@@ -237,7 +237,7 @@ const memoryExpanded = new Set();
 
 function tlPhotoImg(p, more, open) {
   const url = photoSrc(p);
-  return html`<img alt="" data-lightbox="${p.id}" ${more ? html`class="tl-more-photo" ${open ? '' : raw('style="display:none"')}` : ''} ${url ? html`src="${url}"` : html`data-photo-src="${p.id}"`} />`;
+  return html`<img alt="" tabindex="0" role="button" aria-label="Открыть фото" data-lightbox="${p.id}" ${more ? html`class="tl-more-photo" ${open ? '' : raw('style="display:none"')}` : ''} ${url ? html`src="${url}"` : html`data-photo-src="${p.id}"`} />`;
 }
 function memoryPhotosHtml(photos, groupId, rowCls) {
   const shown = photos.slice(0, MEMORY_PHOTOS_PREVIEW);

@@ -241,6 +241,45 @@ async function checkLightboxOffscreen(page, log) {
   return ok;
 }
 
+// Клавиатурный проход (NV-97): Esc у шторки и у календарика внутри неё,
+// тост, показанный поверх шторки, переживает её закрытие, стрелки «Наше»
+// переключают вкладку и переносят фокус (roving tabindex).
+async function checkKeyboard(page, log) {
+  const out = [];
+  // Esc у шторки: cancel → closeOverlay, hidden в согласии с open
+  await page.evaluate(() => openDateModal());
+  await page.keyboard.press('Escape');
+  out.push(['Esc закрывает шторку', await page.evaluate(() => document.getElementById('dateOverlay').hidden && !document.getElementById('dateOverlay').open)]);
+  // Esc в календарике: закрыт только он, шторка открыта, фокус в поле даты
+  await page.evaluate(() => {
+    openEventModal();
+    document.getElementById('evDate').focus();
+  });
+  await page.waitForTimeout(100);
+  await page.keyboard.press('Escape');
+  out.push(['Esc в календарике закрывает только его', await page.evaluate(() => document.getElementById('datePop').hidden && !document.getElementById('eventOverlay').hidden)]);
+  out.push(['фокус вернулся в поле даты, календарик не открылся снова', await page.evaluate(() => document.activeElement.id === 'evDate' && document.getElementById('datePop').hidden)]);
+  // Тост, показанный в шторке, возвращается в body, когда шторка закрывается
+  await page.evaluate(() => {
+    notify('проверка');
+    closeOverlay('eventOverlay');
+  });
+  out.push(['тост пережил закрытие шторки', await page.evaluate(() => document.getElementById('appToast').parentNode === document.body && !document.getElementById('appToast').hidden)]);
+  // «Наше»: стрелка вправо переключает вкладку и переносит фокус
+  await page.evaluate(() => {
+    go('notes');
+    document.querySelector('.our-tab[data-our="notes"]').focus();
+  });
+  await page.keyboard.press('ArrowRight');
+  out.push(['«Наше»: стрелка переключает на Списки', await page.evaluate(() => activeView === 'lists' && document.activeElement.dataset.our === 'lists')]);
+  let ok = true;
+  for (const [name, pass] of out) {
+    log.push((pass ? 'OK' : 'FAIL') + ' клавиатура: ' + name);
+    ok = ok && pass;
+  }
+  return ok;
+}
+
 (async () => {
   const log = [];
   const scriptErrors = [];
@@ -286,6 +325,7 @@ async function checkLightboxOffscreen(page, log) {
     allOk = (await checkPhotoLongPress(page, log)) && allOk;
     allOk = (await checkPhotoContextMenuRace(page, log)) && allOk;
     allOk = (await checkLightboxOffscreen(page, log)) && allOk;
+    allOk = (await checkKeyboard(page, log)) && allOk;
     allOk = (await checkSheetSwipe(browser, log)) && allOk;
   } catch (e) {
     allOk = false;

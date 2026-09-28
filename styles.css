@@ -1114,6 +1114,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .tl-item b{font-weight:700}
 .tl-item-photos{display:flex;gap:6px;flex-wrap:wrap;padding:4px 0}
 .tl-item-photos img{height:70px;border-radius:var(--radius-media);object-fit:cover;flex-shrink:0;cursor:pointer}
+.tl-photos img:focus-visible,.tl-item-photos img:focus-visible{outline:2px solid var(--star);outline-offset:2px}
 /* Вторичная кнопка — не акцентная (J5, см. constraints.md: --star только для
    первичных/активных элементов, не для декоративных рамок второстепенных кнопок). */
 .tl-more-btn{align-self:center;border:1px solid var(--line);background:transparent;color:var(--ink-2);border-radius:var(--radius-pill);padding:6px 10px;font-size:var(--text-sm);cursor:pointer;flex-shrink:0;transition:var(--t-ui)}

@@ -136,7 +136,13 @@ function openLightbox(ids, idx, fromEl) {
 function openLightboxFrom(el) {
   if (!el || !el.closest) return;
   const scope = el.closest('[data-photo-group]') || el.closest('.view') || document.body;
-  const els = scope.querySelectorAll ? [...scope.querySelectorAll('[data-photo], [data-lightbox]')] : [];
+  let els = scope.querySelectorAll ? [...scope.querySelectorAll('[data-photo], [data-lightbox]')] : [];
+  // Галерея: стрелки листают так, как фото видны — сверху вниз, слева направо
+  // (NV-97). На оси порядок DOM и так визуальный, а скрытые «ещё» дали бы 0,0.
+  if (el.closest('#photosGrid') && els.every(x => typeof x.getBoundingClientRect === 'function')) {
+    const pos = new Map(els.map(x => [x, x.getBoundingClientRect()]));
+    els = els.sort((a, b) => pos.get(a).top - pos.get(b).top || pos.get(a).left - pos.get(b).left);
+  }
   const src = el.dataset.lightbox || el.dataset.photo;
   const list = els.map(x => x.dataset.lightbox || x.dataset.photo);
   let at = list.indexOf(src);

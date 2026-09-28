@@ -119,6 +119,7 @@ function showView(view) {
     $$('.our-tab').forEach(b => {
       b.classList.toggle('active', b.dataset.our === view);
       b.setAttribute('aria-selected', String(b.dataset.our === view));
+      b.tabIndex = b.dataset.our === view ? 0 : -1;
     });
     if (view === 'home') renderHome();
     if (view === 'calendar') {
@@ -173,6 +174,22 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 }
 $$('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 $$('.our-tab').forEach(b => b.addEventListener('click', () => go(b.dataset.our)));
+
+// «Наше» — tablist: Tab попадает только на активную вкладку, стрелки и
+// Home/End переключают (APG, roving tabindex; NV-97).
+function onOurSwitchKeydown(e) {
+  const i = OUR_TABS.indexOf(activeView);
+  if (i < 0) return;
+  const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: OUR_TABS.length - 1 }[e.key];
+  if (next === undefined) return;
+  e.preventDefault();
+  const view = OUR_TABS[(next + OUR_TABS.length) % OUR_TABS.length];
+  go(view);
+  const tab = $$('.our-tab').find(b => b.dataset.our === view);
+  if (tab) tab.focus();
+}
+const ourSwitchEl = $('#ourSwitch');
+if (ourSwitchEl) ourSwitchEl.addEventListener('keydown', onOurSwitchKeydown);
 
 /* ===== Нижняя навигация на мобильных: все вкладки в одном ряду =====
    Четыре вкладки (спека 2.1): Главная, Календарь, Фото, Наше. «Наше»

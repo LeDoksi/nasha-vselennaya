@@ -2106,6 +2106,7 @@ function showView(view) {
     $$('.our-tab').forEach(b => {
       b.classList.toggle('active', b.dataset.our === view);
       b.setAttribute('aria-selected', String(b.dataset.our === view));
+      b.tabIndex = b.dataset.our === view ? 0 : -1;
     });
     if (view === 'home') renderHome();
     if (view === 'calendar') {
@@ -2160,6 +2161,22 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 }
 $$('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 $$('.our-tab').forEach(b => b.addEventListener('click', () => go(b.dataset.our)));
+
+// «Наше» — tablist: Tab попадает только на активную вкладку, стрелки и
+// Home/End переключают (APG, roving tabindex; NV-97).
+function onOurSwitchKeydown(e) {
+  const i = OUR_TABS.indexOf(activeView);
+  if (i < 0) return;
+  const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: OUR_TABS.length - 1 }[e.key];
+  if (next === undefined) return;
+  e.preventDefault();
+  const view = OUR_TABS[(next + OUR_TABS.length) % OUR_TABS.length];
+  go(view);
+  const tab = $$('.our-tab').find(b => b.dataset.our === view);
+  if (tab) tab.focus();
+}
+const ourSwitchEl = $('#ourSwitch');
+if (ourSwitchEl) ourSwitchEl.addEventListener('keydown', onOurSwitchKeydown);
 
 /* ===== Нижняя навигация на мобильных: все вкладки в одном ряду =====
    Четыре вкладки (спека 2.1): Главная, Календарь, Фото, Наше. «Наше»
@@ -2764,7 +2781,7 @@ function renderProgressRing(at) {
   render(
     box,
     html`<div class="orbit">
-        <svg class="orbit-ring" viewBox="0 0 200 200" role="img" aria-label="До годовщины ${info.left} ${pluralDays(info.left)}, пройдено ${info.pct}%">
+        <svg class="orbit-ring" viewBox="0 0 200 200" role="img" aria-label="${info.left === info.total ? 'Сегодня годовщина' : 'До годовщины ' + info.left + ' ' + pluralDays(info.left) + ', пройдено ' + info.pct + '%'}">
           <circle class="orbit-track" cx="100" cy="100" r="92"></circle>
           <circle class="orbit-arc" cx="100" cy="100" r="92" transform="rotate(-90 100 100)" stroke-dasharray="${geo.circ}" stroke-dashoffset="${geo.off}"></circle>
           <circle class="orbit-star" cx="${geo.x}" cy="${geo.y}" r="6"></circle>
@@ -2839,7 +2856,7 @@ const memoryExpanded = new Set();
 
 function tlPhotoImg(p, more, open) {
   const url = photoSrc(p);
-  return html`<img alt="" data-lightbox="${p.id}" ${more ? html`class="tl-more-photo" ${open ? '' : raw('style="display:none"')}` : ''} ${url ? html`src="${url}"` : html`data-photo-src="${p.id}"`} />`;
+  return html`<img alt="" tabindex="0" role="button" aria-label="Открыть фото" data-lightbox="${p.id}" ${more ? html`class="tl-more-photo" ${open ? '' : raw('style="display:none"')}` : ''} ${url ? html`src="${url}"` : html`data-photo-src="${p.id}"`} />`;
 }
 function memoryPhotosHtml(photos, groupId, rowCls) {
   const shown = photos.slice(0, MEMORY_PHOTOS_PREVIEW);
@@ -2963,7 +2980,15 @@ function renderTimeline(box, more, days) {
     </div>`
   );
   hydratePhotoImgs(box);
-  box.querySelectorAll('[data-lightbox]').forEach(img => img.addEventListener('click', () => openLightboxFrom(img)));
+  box.querySelectorAll('[data-lightbox]').forEach(img => {
+    img.addEventListener('click', () => openLightboxFrom(img));
+    img.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openLightboxFrom(img);
+      }
+    });
+  });
   // Каждый рендер (в т.ч. живое обновление из Firestore) рисует новую метку
   // [data-axis-more] — старую надо отписать явно, иначе IntersectionObserver
   // копит наблюдателей на уже удалённых из DOM узлах (утечка).
@@ -6170,7 +6195,13 @@ function openLightbox(ids, idx, fromEl) {
 function openLightboxFrom(el) {
   if (!el || !el.closest) return;
   const scope = el.closest('[data-photo-group]') || el.closest('.view') || document.body;
-  const els = scope.querySelectorAll ? [...scope.querySelectorAll('[data-photo], [data-lightbox]')] : [];
+  let els = scope.querySelectorAll ? [...scope.querySelectorAll('[data-photo], [data-lightbox]')] : [];
+  // Галерея: стрелки листают так, как фото видны — сверху вниз, слева направо
+  // (NV-97). На оси порядок DOM и так визуальный, а скрытые «ещё» дали бы 0,0.
+  if (el.closest('#photosGrid') && els.every(x => typeof x.getBoundingClientRect === 'function')) {
+    const pos = new Map(els.map(x => [x, x.getBoundingClientRect()]));
+    els = els.sort((a, b) => pos.get(a).top - pos.get(b).top || pos.get(a).left - pos.get(b).left);
+  }
   const src = el.dataset.lightbox || el.dataset.photo;
   const list = els.map(x => x.dataset.lightbox || x.dataset.photo);
   let at = list.indexOf(src);
