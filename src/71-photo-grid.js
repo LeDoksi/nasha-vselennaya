@@ -86,7 +86,7 @@ function renderPhotosNow() {
         const url = photoSrc(p);
         return html`
     <div class="photo${p.pinned ? ' pinned' : ''}${!photoReorderMode && (p.pinned || bigIds.has(p.id)) ? ' photo--big' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}${freshPhotoIds.has(p.id) ? ' photo--fresh' : ''}" data-id="${p.id}">
-      <img${url ? html` src="${url}"` : html` data-photo-src="${p.id}"`} alt="${p.title}" data-photo="${p.id}" loading="lazy">
+      <img${url ? html` src="${url}"` : html` data-photo-src="${p.id}"`} alt="${p.title}" data-photo="${p.id}" loading="lazy" tabindex="0" role="button" aria-label="Открыть фото">
       ${
         photoSelectMode
           ? html`<button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>`
@@ -254,6 +254,28 @@ if (photosGridEl && photosGridEl.addEventListener) {
     if (pressTimer && Math.hypot(e.clientX - pressX, e.clientY - pressY) > 10) cancelPress();
   });
   ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => photosGridEl.addEventListener(t, cancelPress));
+  // Клавиатура (ревью раунд 1, дополняет NV-119): Enter/Space на плитке — как
+  // клик по ней. Делегат на сетке, а не на каждой картинке — плитки
+  // пересоздаются при каждом рендере. Повторяет логику document-делегата
+  // клика (62-global-clicks.js) для [data-photo], без ветки photoLongPressed
+  // (клавиатура долгих нажатий не знает): в режиме выбора — тоггл выбора, в
+  // режиме перетаскивания — ничего (там место действия — ручка ⠿, не сама
+  // плитка), иначе — лайтбокс.
+  photosGridEl.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const img = e.target.closest && e.target.closest('[data-photo]');
+    if (!img) return;
+    e.preventDefault();
+    if (photoReorderMode) return;
+    if (photoSelectMode) {
+      const id = img.dataset.photo;
+      if (selectedPhotos.has(id)) selectedPhotos.delete(id);
+      else selectedPhotos.add(id);
+      renderPhotos();
+      return;
+    }
+    openLightboxFrom(img);
+  });
   photosGridEl.addEventListener('contextmenu', e => {
     // Android 12+ Chrome: системный таймаут долгого нажатия (400мс) короче
     // LONG_PRESS_MS (450) — contextmenu приходит раньше, чем наш таймер

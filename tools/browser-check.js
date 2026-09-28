@@ -272,6 +272,20 @@ async function checkKeyboard(page, log) {
   });
   await page.keyboard.press('ArrowRight');
   out.push(['«Наше»: стрелка переключает на Списки', await page.evaluate(() => activeView === 'lists' && document.activeElement.dataset.our === 'lists')]);
+  // Галерея (ревью раунд 1): Enter на плитке открывает лайтбокс, Esc закрывает
+  // и возвращает фокус на неё же (lbFlyBack, NV-97).
+  await page.evaluate(() => go('photos'));
+  await page.waitForTimeout(200);
+  await page.evaluate(() => document.querySelector('#photosGrid .photo img[data-photo]').focus());
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(150);
+  out.push(['галерея: Enter на плитке открывает лайтбокс', await page.evaluate(() => !document.getElementById('lightbox').hidden)]);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  out.push([
+    'галерея: Esc закрывает лайтбокс, фокус возвращается на плитку',
+    await page.evaluate(() => document.getElementById('lightbox').hidden && document.activeElement.hasAttribute('data-photo'))
+  ]);
   let ok = true;
   for (const [name, pass] of out) {
     log.push((pass ? 'OK' : 'FAIL') + ' клавиатура: ' + name);
