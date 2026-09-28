@@ -317,6 +317,11 @@ const freshPhotoIds = new Set();
 // по тому же правилу, что и photosCursor выше (TDZ).
 let photosLoadingMore = false;
 let fsUnsubs = []; // активные подписки Firestore (см. src/04-repo.js)
+// Ось Главной (NV-96): что из прошлого уже дочитано сверх горячего набора.
+let axisEventsLoaded = false; // все разовые события раньше окна текущего месяца
+let axisPhotosCursor = null; // курсор фото по дате съёмки (takenAt desc)
+let axisPhotosDone = false;
+let axisLoading = false; // защита от параллельных догрузок, как photosLoadingMore
 
 function getUser() {
   return currentUser || 'gosha';

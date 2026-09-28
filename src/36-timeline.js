@@ -18,19 +18,19 @@ function timelineYears(days) {
   return out;
 }
 
-function memoryDayHtml(day, gid) {
+function memoryDayHtml(day) {
   const dt = parseLocalIso(day.date);
   const label = dt ? dt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) : day.date;
   const card = [html`<div class="tl-date">${label}</div>`];
-  if (day.photos.length) card.push(memoryPhotosHtml(day.photos, 'day' + gid.n++, 'tl-photos'));
+  if (day.photos.length) card.push(memoryPhotosHtml(day.photos, 'day-' + day.date, 'tl-photos'));
   for (const d of day.dates) {
     const info = [d.place, d.time].filter(Boolean).join(' · ');
     card.push(html`<div class="tl-item"><span class="tl-item-emoji">${d.emoji}</span><b>Свидание${info ? html` · ${info}` : ''}</b></div>`);
-    if (d.photos && d.photos.length) card.push(memoryPhotosHtml(d.photos, 'dt' + gid.n++, 'tl-item-photos'));
+    if (d.photos && d.photos.length) card.push(memoryPhotosHtml(d.photos, 'dt-' + d.id, 'tl-item-photos'));
   }
   for (const ev of day.events) {
     card.push(html`<div class="tl-item"><span class="tl-item-emoji">${ev.emoji}</span><b>${ev.title}</b></div>`);
-    if (ev.photos.length) card.push(memoryPhotosHtml(ev.photos, 'ev' + gid.n++, 'tl-item-photos'));
+    if (ev.photos.length) card.push(memoryPhotosHtml(ev.photos, 'ev-' + ev.id, 'tl-item-photos'));
   }
   return html`<article class="axis-day"><span class="axis-dot"></span><div class="tl-card">${card}</div></article>`;
 }
@@ -52,7 +52,6 @@ function renderTimeline(box, more) {
   const prev = timelineShown.get(box) || 0;
   const shown = Math.min(days.length, more ? prev + TIMELINE_PAGE : Math.max(prev, TIMELINE_PAGE));
   timelineShown.set(box, shown);
-  const gid = { n: 0 };
   render(
     box,
     html`<div class="axis">
@@ -60,10 +59,10 @@ function renderTimeline(box, more) {
       ${timelineYears(days.slice(0, shown)).map(
         y => html`<section class="axis-year">
           <h3 class="axis-year-label">${y.year}</h3>
-          ${y.days.map(d => memoryDayHtml(d, gid))}
+          ${y.days.map(d => memoryDayHtml(d))}
         </section>`
       )}
-      ${shown < days.length ? html`<div class="axis-more" data-axis-more></div>` : ''}
+      ${shown < days.length || axisHasMore() ? html`<div class="axis-more" data-axis-more aria-hidden="true"><span class="axis-dot"></span><div class="tl-card sk"></div></div>` : ''}
     </div>`
   );
   hydratePhotoImgs(box);
@@ -85,7 +84,15 @@ if (typeof IntersectionObserver === 'function') {
       for (const e of entries) {
         if (!e.isIntersecting) continue;
         timelineObserver.unobserve(e.target);
-        renderTimeline(e.target.closest('[data-axis]'), true);
+        const box = e.target.closest('[data-axis]');
+        // Локально показано всё — дочитываем прошлое из Firestore (NV-96).
+        // Ошибка: метка остаётся неотслеживаемой до следующей перерисовки
+        // (живое обновление, возврат на Главную) — без бесконечных повторов.
+        if ((timelineShown.get(box) || 0) < memoryByDay().length) renderTimeline(box, true);
+        else
+          loadAxisPage()
+            .then(() => renderTimeline(box, true))
+            .catch(() => notify('Не удалось догрузить прошлое — проверь интернет.', true));
       }
     },
     { rootMargin: '600px 0px' }

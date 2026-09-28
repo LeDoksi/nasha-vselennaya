@@ -200,7 +200,7 @@ function memoryByDay() {
     if (ev.date > todayStr) continue;
     const d = ensure(ev.date);
     const evPhotos = (ev.photos || []).map(id => db.photos.find(p => p.id === id)).filter(Boolean);
-    d.events.push({ emoji: ev.emoji || '💜', title: ev.title, photos: evPhotos });
+    d.events.push({ id: ev.id, emoji: ev.emoji || '💜', title: ev.title, photos: evPhotos });
   }
   for (const dt of db.dates) {
     // Свидание попадает в память только если оно завершено (done:true) И дата уже наступила
@@ -208,7 +208,7 @@ function memoryByDay() {
     if (dt.date > todayStr) continue;
     const d = ensure(dt.date);
     const dtPhotos = (dt.photos || []).map(id => db.photos.find(p => p.id === id)).filter(Boolean);
-    d.dates.push({ emoji: dt.emoji || '💘', place: dt.place, time: dt.time, photos: dtPhotos });
+    d.dates.push({ id: dt.id, emoji: dt.emoji || '💘', place: dt.place, time: dt.time, photos: dtPhotos });
   }
   for (const p of db.photos) {
     if (!p.takenAt) continue; // в сетку дня — только фото с реальной датой снимка (EXIF)
@@ -231,16 +231,23 @@ function memoryByDay() {
 // скрыты и раскрываются кнопкой «Показать ещё N» (клик ловит делегат ниже).
 const MEMORY_PHOTOS_PREVIEW = 3;
 
-function tlPhotoImg(p, extraCls) {
+// Раскрытые ряды «Показать ещё» по стабильному id группы — перерисовка оси
+// (живое обновление) их не сворачивает (NV-97).
+const memoryExpanded = new Set();
+
+function tlPhotoImg(p, more, open) {
   const url = photoSrc(p);
-  return html`<img alt="" data-lightbox="${p.id}" ${extraCls ? html`class="${extraCls}" style="display:none"` : ''} ${url ? html`src="${url}"` : html`data-photo-src="${p.id}"`} />`;
+  return html`<img alt="" data-lightbox="${p.id}" ${more ? html`class="tl-more-photo" ${open ? '' : raw('style="display:none"')}` : ''} ${url ? html`src="${url}"` : html`data-photo-src="${p.id}"`} />`;
 }
 function memoryPhotosHtml(photos, groupId, rowCls) {
   const shown = photos.slice(0, MEMORY_PHOTOS_PREVIEW);
   const rest = photos.slice(MEMORY_PHOTOS_PREVIEW);
-  return html`<div class="${rowCls}" data-photo-group="${groupId}" data-more-count="${rest.length}">
+  const open = memoryExpanded.has(groupId);
+  return html`<div class="${rowCls}" data-photo-group="${groupId}" data-more-count="${rest.length}" data-expanded="${open ? '1' : '0'}">
     ${shown.map(p => tlPhotoImg(p))}${
-      rest.length ? html`<button class="tl-more-btn" data-tl-expand="${groupId}" title="Показать ещё фото">Показать ещё ${rest.length}</button>${rest.map(p => tlPhotoImg(p, 'tl-more-photo'))}` : ''
+      rest.length
+        ? html`<button class="tl-more-btn" data-tl-expand="${groupId}" title="Показать ещё фото">${open ? 'Свернуть' : 'Показать ещё ' + rest.length}</button>${rest.map(p => tlPhotoImg(p, true, open))}`
+        : ''
     }
   </div>`;
 }
@@ -255,6 +262,8 @@ function toggleMemoryPhotos(row) {
   const hidden = row.querySelectorAll ? row.querySelectorAll('.tl-more-photo') : [];
   const btn = row.querySelectorAll ? row.querySelectorAll('[data-tl-expand]')[0] : null;
   const total = +row.dataset.moreCount || hidden.length;
+  const gid = row.dataset && row.dataset.photoGroup;
+  if (gid) collapse ? memoryExpanded.delete(gid) : memoryExpanded.add(gid);
   if (collapse) {
     row.dataset.expanded = '0';
     for (const el of hidden) el.style.display = 'none';

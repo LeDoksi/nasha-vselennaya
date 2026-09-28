@@ -297,6 +297,7 @@ function __TEST__(s){
   s.photoDate = photoDate; s.onThisDayItems = onThisDayItems; s.memoryByDay = memoryByDay;
   s.timelineYears = timelineYears; s.renderTimeline = renderTimeline; s.TIMELINE_PAGE = TIMELINE_PAGE;
   s.memoryPhotosHtml = memoryPhotosHtml; s.toggleMemoryPhotos = toggleMemoryPhotos; s.onTlExpandClick = onTlExpandClick;
+  s.memoryExpanded = memoryExpanded;
   s.renderProgressRing = renderProgressRing;
   s.anniversaryInfo = anniversaryInfo; s.orbitGeometry = orbitGeometry; s.START_DATE = START_DATE;
   s.closeOverlay = closeOverlay;
@@ -1405,6 +1406,12 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
     'memoryPhotosHtml: кнопка показывает число скрытых'
   );
   assert(!w('(s)=>s.memoryPhotosHtml([{id:"a",title:"1"},{id:"b",title:"2"}],"g2","tl-photos")').includes('data-tl-expand'), 'memoryPhotosHtml: при <=3 фото кнопки нет');
+  // NV-97: раскрытый ряд переживает перерисовку
+  const fourPh = '[{id:"a",title:"1"},{id:"b",title:"2"},{id:"c",title:"3"},{id:"d",title:"4"}]';
+  w(`(s)=>{ s.memoryExpanded.add("day-2025-06-06"); return 1; }`);
+  const openRow = String(w(`(s)=>s.memoryPhotosHtml(${fourPh},"day-2025-06-06","tl-photos")`));
+  assert(openRow.includes('data-expanded="1"') && openRow.includes('Свернуть') && !openRow.includes('display:none'), 'раскрытый ряд рисуется раскрытым после перерисовки');
+  w(`(s)=>{ s.memoryExpanded.clear(); return 1; }`);
   // toggleMemoryPhotos принимает саму строку, а не groupId: ось на Главной
   // (#homeTimeline, контейнер с data-axis) — поиск по groupId находил бы ПЕРВУЮ
   // попавшуюся копию, а не ту, где реально кликнули (историческая находка ревью, round 1).

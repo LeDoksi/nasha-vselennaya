@@ -124,6 +124,44 @@ async function loadMorePhotos() {
   }
 }
 
+// Ось времени (NV-96): прошлое, которого нет в горячем наборе. События — один
+// раз все разовые раньше окна текущего месяца (их единицы-десятки, документы
+// маленькие); фото — страницами по дате съёмки, от новых к старым. Фото без
+// takenAt Firestore в такой выборке не отдаёт — на ось они и так не попадают
+// (memoryByDay). Дочитанные фото ложатся в тот же db.photos: галерея
+// сортирует по order и покажет их на своём месте раньше, чем до них дойдёт её
+// собственная страница, — это не дубль (mergeById), а ранний показ.
+function axisHasMore() {
+  return fsReady && (!axisEventsLoaded || !axisPhotosDone);
+}
+async function loadAxisPage() {
+  if (!axisHasMore() || axisLoading) return 0;
+  axisLoading = true;
+  try {
+    let added = 0;
+    if (!axisEventsLoaded) {
+      const now = new Date();
+      const [fromIso] = monthRange(now.getFullYear(), now.getMonth());
+      const snap = await fsCol('events').where('date', '<', fromIso).get();
+      const before = db.events.length;
+      db.events = mergeById(db.events, docsToArray(snap));
+      added += db.events.length - before;
+      axisEventsLoaded = true;
+    }
+    let q = fsCol('photos').orderBy('takenAt', 'desc');
+    if (axisPhotosCursor) q = q.startAfter(axisPhotosCursor);
+    const snap = await q.limit(PHOTO_PAGE).get();
+    const before = db.photos.length;
+    db.photos = mergeById(db.photos, docsToArray(snap));
+    added += db.photos.length - before;
+    if (snap.docs.length) axisPhotosCursor = snap.docs[snap.docs.length - 1];
+    if (snap.docs.length < PHOTO_PAGE) axisPhotosDone = true;
+    return added;
+  } finally {
+    axisLoading = false;
+  }
+}
+
 /* ===== Запись =====
    Пришли на смену save(), который пересохранял весь блоб целиком. Вызывающий
    код по-прежнему сначала меняет db (интерфейс читает его синхронно), а затем

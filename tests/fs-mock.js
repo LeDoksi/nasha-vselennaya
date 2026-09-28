@@ -141,6 +141,7 @@ function makeFsMock() {
           if (op === '==') return v === value;
           if (op === '>=') return v >= value;
           if (op === '<=') return v <= value;
+          if (op === '<') return v < value;
           if (op === 'in') return Array.isArray(value) && value.includes(v);
           throw new Error('мок не умеет оператор ' + op);
         });

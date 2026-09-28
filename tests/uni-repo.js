@@ -191,6 +191,7 @@ function __TEST__(s){
   Object.defineProperty(s, 'fsReady', { get: () => fsReady, configurable: true });
   s.monthKey = monthKey; s.monthRange = monthRange;
   s.loadHotSet = loadHotSet; s.loadMonth = loadMonth; s.loadMorePhotos = loadMorePhotos;
+  s.loadAxisPage = loadAxisPage; s.axisHasMore = axisHasMore;
   s.repoSet = repoSet; s.repoDelete = repoDelete; s.repoBatch = repoBatch; s.repoMeta = repoMeta;
   // Тестовый сброс антиспам-таймера алертов о провале записи (NV-12) — без
   // него порядок тестов в этом файле влияет на то, покажется ли alert (окно
@@ -603,6 +604,26 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(JSON.stringify(raceResults) === '[0,0]', 'обе параллельные догрузки вернули 0 (курсор уже в конце коллекции)');
   assert(mock._colGetCount - getsBefore === 1, 'photosLoadingMore не дал второму параллельному вызову прочитать ту же страницу — реальное чтение Firestore случилось только одно');
   assert(w('(s)=>s.photosLoadingMore') === false, 'после завершения обеих догрузок флаг снова снят');
+
+  // NV-96: ось дочитывает прошлое, которого нет в горячем наборе — разовые
+  // события раньше текущего месяца (один раз все) и фото по дате съёмки страницами.
+  Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  mock._store['couples/main/events/old1'] = { title: 'Поездка', date: '2025-05-12', repeat: false };
+  for (let i = 0; i < 70; i++) mock._store['couples/main/photos/ax' + i] = { order: i, ts: i, takenAt: Date.UTC(2024, 0, 1) + i * 864e5 };
+  w('(s)=>{ s.db = s.defaultDB(); return 1; }');
+  await w('(s)=>s.loadHotSet()');
+  assert(!w('(s)=>s.db.events.some(e=>e.id==="old1")'), 'разовое прошлое событие не в горячем наборе');
+  assert(w('(s)=>s.axisHasMore()') === true, 'у оси есть что дочитать');
+  const added1 = await w('(s)=>s.loadAxisPage()');
+  assert(w('(s)=>s.db.events.some(e=>e.id==="old1")'), 'первая страница оси принесла прошлые разовые события');
+  assert(w('(s)=>s.db.photos.some(p=>p.id==="ax69")'), 'и самые свежие по дате съёмки фото — даже если они дальше первых 60 по порядку галереи');
+  assert(added1 > 0, 'loadAxisPage вернула число добавленных записей');
+  await w('(s)=>s.loadAxisPage()');
+  assert(w('(s)=>s.db.photos.filter(p=>p.id.startsWith("ax")).length') === 70, 'вторая страница дочитала остаток, без дублей');
+  assert(w('(s)=>s.axisHasMore()') === false, 'прошлое дочитано до конца');
+  const getsEnd = mock._colGetCount;
+  await w('(s)=>s.loadAxisPage()');
+  assert(mock._colGetCount === getsEnd, 'дочитанная ось больше не ходит в Firestore');
 
   // РЕВЬЮ задачи 10 (Important, повторное ревью): дозагрузка по scroll
   // тупиковала, если галерея умещалась в экран без прокрутки (scroll ни разу

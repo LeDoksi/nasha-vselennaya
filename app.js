@@ -317,6 +317,11 @@ const freshPhotoIds = new Set();
 // по тому же правилу, что и photosCursor выше (TDZ).
 let photosLoadingMore = false;
 let fsUnsubs = []; // активные подписки Firestore (см. src/04-repo.js)
+// Ось Главной (NV-96): что из прошлого уже дочитано сверх горячего набора.
+let axisEventsLoaded = false; // все разовые события раньше окна текущего месяца
+let axisPhotosCursor = null; // курсор фото по дате съёмки (takenAt desc)
+let axisPhotosDone = false;
+let axisLoading = false; // защита от параллельных догрузок, как photosLoadingMore
 
 function getUser() {
   return currentUser || 'gosha';
@@ -814,6 +819,44 @@ async function loadMorePhotos() {
     return rows.length;
   } finally {
     photosLoadingMore = false;
+  }
+}
+
+// Ось времени (NV-96): прошлое, которого нет в горячем наборе. События — один
+// раз все разовые раньше окна текущего месяца (их единицы-десятки, документы
+// маленькие); фото — страницами по дате съёмки, от новых к старым. Фото без
+// takenAt Firestore в такой выборке не отдаёт — на ось они и так не попадают
+// (memoryByDay). Дочитанные фото ложатся в тот же db.photos: галерея
+// сортирует по order и покажет их на своём месте раньше, чем до них дойдёт её
+// собственная страница, — это не дубль (mergeById), а ранний показ.
+function axisHasMore() {
+  return fsReady && (!axisEventsLoaded || !axisPhotosDone);
+}
+async function loadAxisPage() {
+  if (!axisHasMore() || axisLoading) return 0;
+  axisLoading = true;
+  try {
+    let added = 0;
+    if (!axisEventsLoaded) {
+      const now = new Date();
+      const [fromIso] = monthRange(now.getFullYear(), now.getMonth());
+      const snap = await fsCol('events').where('date', '<', fromIso).get();
+      const before = db.events.length;
+      db.events = mergeById(db.events, docsToArray(snap));
+      added += db.events.length - before;
+      axisEventsLoaded = true;
+    }
+    let q = fsCol('photos').orderBy('takenAt', 'desc');
+    if (axisPhotosCursor) q = q.startAfter(axisPhotosCursor);
+    const snap = await q.limit(PHOTO_PAGE).get();
+    const before = db.photos.length;
+    db.photos = mergeById(db.photos, docsToArray(snap));
+    added += db.photos.length - before;
+    if (snap.docs.length) axisPhotosCursor = snap.docs[snap.docs.length - 1];
+    if (snap.docs.length < PHOTO_PAGE) axisPhotosDone = true;
+    return added;
+  } finally {
+    axisLoading = false;
   }
 }
 
@@ -2690,7 +2733,7 @@ function memoryByDay() {
     if (ev.date > todayStr) continue;
     const d = ensure(ev.date);
     const evPhotos = (ev.photos || []).map(id => db.photos.find(p => p.id === id)).filter(Boolean);
-    d.events.push({ emoji: ev.emoji || '💜', title: ev.title, photos: evPhotos });
+    d.events.push({ id: ev.id, emoji: ev.emoji || '💜', title: ev.title, photos: evPhotos });
   }
   for (const dt of db.dates) {
     // Свидание попадает в память только если оно завершено (done:true) И дата уже наступила
@@ -2698,7 +2741,7 @@ function memoryByDay() {
     if (dt.date > todayStr) continue;
     const d = ensure(dt.date);
     const dtPhotos = (dt.photos || []).map(id => db.photos.find(p => p.id === id)).filter(Boolean);
-    d.dates.push({ emoji: dt.emoji || '💘', place: dt.place, time: dt.time, photos: dtPhotos });
+    d.dates.push({ id: dt.id, emoji: dt.emoji || '💘', place: dt.place, time: dt.time, photos: dtPhotos });
   }
   for (const p of db.photos) {
     if (!p.takenAt) continue; // в сетку дня — только фото с реальной датой снимка (EXIF)
@@ -2721,16 +2764,23 @@ function memoryByDay() {
 // скрыты и раскрываются кнопкой «Показать ещё N» (клик ловит делегат ниже).
 const MEMORY_PHOTOS_PREVIEW = 3;
 
-function tlPhotoImg(p, extraCls) {
+// Раскрытые ряды «Показать ещё» по стабильному id группы — перерисовка оси
+// (живое обновление) их не сворачивает (NV-97).
+const memoryExpanded = new Set();
+
+function tlPhotoImg(p, more, open) {
   const url = photoSrc(p);
-  return html`<img alt="" data-lightbox="${p.id}" ${extraCls ? html`class="${extraCls}" style="display:none"` : ''} ${url ? html`src="${url}"` : html`data-photo-src="${p.id}"`} />`;
+  return html`<img alt="" data-lightbox="${p.id}" ${more ? html`class="tl-more-photo" ${open ? '' : raw('style="display:none"')}` : ''} ${url ? html`src="${url}"` : html`data-photo-src="${p.id}"`} />`;
 }
 function memoryPhotosHtml(photos, groupId, rowCls) {
   const shown = photos.slice(0, MEMORY_PHOTOS_PREVIEW);
   const rest = photos.slice(MEMORY_PHOTOS_PREVIEW);
-  return html`<div class="${rowCls}" data-photo-group="${groupId}" data-more-count="${rest.length}">
+  const open = memoryExpanded.has(groupId);
+  return html`<div class="${rowCls}" data-photo-group="${groupId}" data-more-count="${rest.length}" data-expanded="${open ? '1' : '0'}">
     ${shown.map(p => tlPhotoImg(p))}${
-      rest.length ? html`<button class="tl-more-btn" data-tl-expand="${groupId}" title="Показать ещё фото">Показать ещё ${rest.length}</button>${rest.map(p => tlPhotoImg(p, 'tl-more-photo'))}` : ''
+      rest.length
+        ? html`<button class="tl-more-btn" data-tl-expand="${groupId}" title="Показать ещё фото">${open ? 'Свернуть' : 'Показать ещё ' + rest.length}</button>${rest.map(p => tlPhotoImg(p, true, open))}`
+        : ''
     }
   </div>`;
 }
@@ -2745,6 +2795,8 @@ function toggleMemoryPhotos(row) {
   const hidden = row.querySelectorAll ? row.querySelectorAll('.tl-more-photo') : [];
   const btn = row.querySelectorAll ? row.querySelectorAll('[data-tl-expand]')[0] : null;
   const total = +row.dataset.moreCount || hidden.length;
+  const gid = row.dataset && row.dataset.photoGroup;
+  if (gid) collapse ? memoryExpanded.delete(gid) : memoryExpanded.add(gid);
   if (collapse) {
     row.dataset.expanded = '0';
     for (const el of hidden) el.style.display = 'none';
@@ -2784,19 +2836,19 @@ function timelineYears(days) {
   return out;
 }
 
-function memoryDayHtml(day, gid) {
+function memoryDayHtml(day) {
   const dt = parseLocalIso(day.date);
   const label = dt ? dt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) : day.date;
   const card = [html`<div class="tl-date">${label}</div>`];
-  if (day.photos.length) card.push(memoryPhotosHtml(day.photos, 'day' + gid.n++, 'tl-photos'));
+  if (day.photos.length) card.push(memoryPhotosHtml(day.photos, 'day-' + day.date, 'tl-photos'));
   for (const d of day.dates) {
     const info = [d.place, d.time].filter(Boolean).join(' · ');
     card.push(html`<div class="tl-item"><span class="tl-item-emoji">${d.emoji}</span><b>Свидание${info ? html` · ${info}` : ''}</b></div>`);
-    if (d.photos && d.photos.length) card.push(memoryPhotosHtml(d.photos, 'dt' + gid.n++, 'tl-item-photos'));
+    if (d.photos && d.photos.length) card.push(memoryPhotosHtml(d.photos, 'dt-' + d.id, 'tl-item-photos'));
   }
   for (const ev of day.events) {
     card.push(html`<div class="tl-item"><span class="tl-item-emoji">${ev.emoji}</span><b>${ev.title}</b></div>`);
-    if (ev.photos.length) card.push(memoryPhotosHtml(ev.photos, 'ev' + gid.n++, 'tl-item-photos'));
+    if (ev.photos.length) card.push(memoryPhotosHtml(ev.photos, 'ev-' + ev.id, 'tl-item-photos'));
   }
   return html`<article class="axis-day"><span class="axis-dot"></span><div class="tl-card">${card}</div></article>`;
 }
@@ -2818,7 +2870,6 @@ function renderTimeline(box, more) {
   const prev = timelineShown.get(box) || 0;
   const shown = Math.min(days.length, more ? prev + TIMELINE_PAGE : Math.max(prev, TIMELINE_PAGE));
   timelineShown.set(box, shown);
-  const gid = { n: 0 };
   render(
     box,
     html`<div class="axis">
@@ -2826,10 +2877,10 @@ function renderTimeline(box, more) {
       ${timelineYears(days.slice(0, shown)).map(
         y => html`<section class="axis-year">
           <h3 class="axis-year-label">${y.year}</h3>
-          ${y.days.map(d => memoryDayHtml(d, gid))}
+          ${y.days.map(d => memoryDayHtml(d))}
         </section>`
       )}
-      ${shown < days.length ? html`<div class="axis-more" data-axis-more></div>` : ''}
+      ${shown < days.length || axisHasMore() ? html`<div class="axis-more" data-axis-more aria-hidden="true"><span class="axis-dot"></span><div class="tl-card sk"></div></div>` : ''}
     </div>`
   );
   hydratePhotoImgs(box);
@@ -2851,7 +2902,15 @@ if (typeof IntersectionObserver === 'function') {
       for (const e of entries) {
         if (!e.isIntersecting) continue;
         timelineObserver.unobserve(e.target);
-        renderTimeline(e.target.closest('[data-axis]'), true);
+        const box = e.target.closest('[data-axis]');
+        // Локально показано всё — дочитываем прошлое из Firestore (NV-96).
+        // Ошибка: метка остаётся неотслеживаемой до следующей перерисовки
+        // (живое обновление, возврат на Главную) — без бесконечных повторов.
+        if ((timelineShown.get(box) || 0) < memoryByDay().length) renderTimeline(box, true);
+        else
+          loadAxisPage()
+            .then(() => renderTimeline(box, true))
+            .catch(() => notify('Не удалось догрузить прошлое — проверь интернет.', true));
       }
     },
     { rootMargin: '600px 0px' }
