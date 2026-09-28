@@ -397,6 +397,78 @@ async function checkKeyboard(page, log) {
   return ok;
 }
 
+// L11/L12: перерисовка сетки при отметке фото не должна сдвигать плитку (scroll
+// anchoring в Chrome ломается от синхронного focus() сразу после render) и не должна
+// терять фокус с кнопки ○/✓. touch=true — телефон 390 с тапами, иначе десктоп 1280 с
+// клавиатурой. Отметка первая и снятие последней
+// (панель выбора меняет высоту страницы).
+async function checkSelectNoJump(browser, log, touch) {
+  const label = touch ? 'телефон 390, тап' : 'десктоп 1280, Space';
+  const ctx = await browser.newContext(touch ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } : { viewport: { width: 1280, height: 600 } });
+  const page = await ctx.newPage();
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => window.__demoReady === true, null, { timeout: 15000 });
+  // Стартовый showView('home') идёт настоящим View Transition; его колбэк, запоздав,
+  // перекрасил бы экран обратно на Главную поверх нашего go('photos').
+  await page.waitForTimeout(800);
+  await page.evaluate(() => {
+    document.startViewTransition = undefined;
+    closeOverlay('dateInviteOverlay');
+    // Длинная галерея: на телефоне сдвиг заметен только когда под плиткой много строк
+    for (let i = 0; i < 40; i++) db.photos.push({ id: 'jp' + i, title: 'p' + i, order: 100 + i, labels: [] });
+    go('photos');
+    photoReorderMode = false;
+    photoSelectMode = true;
+    selectedPhotos.clear();
+    renderPhotosNow();
+  });
+  await page.waitForFunction(() => document.getElementById('view-photos').classList.contains('active'), null, { timeout: 5000 });
+  await page.waitForTimeout(400);
+  // плитка (на десктопе четвёртая, на телефоне одиннадцатая — там, где сдвиг виден),
+  // проскроллена так, чтобы её верх был на 180px от верха окна; прокрутка мгновенная
+  // (html{scroll-behavior:smooth})
+  const id = await page.evaluate(idx => {
+    const t = document.querySelectorAll('#photosGrid .photo img[data-photo]')[idx];
+    window.scrollTo({ top: window.scrollY + t.getBoundingClientRect().top - 180, behavior: 'instant' });
+    return t.dataset.photo;
+  }, touch ? 10 : 3);
+  await page.waitForTimeout(200);
+  const top = () => page.evaluate(id => document.querySelector('#photosGrid [data-photo="' + id + '"]').getBoundingClientRect().top, id);
+  const toggle = async () => {
+    if (touch) {
+      const box = await page.evaluate(id => {
+        const r = document.querySelector('#photosGrid [data-photo="' + id + '"]').getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      }, id);
+      await page.touchscreen.tap(box.x, box.y);
+    } else {
+      await page.evaluate(id => document.querySelector('#photosGrid [data-photo="' + id + '"]').focus({ preventScroll: true }), id);
+      await page.keyboard.press('Space');
+    }
+    await page.waitForTimeout(250);
+  };
+  const t0 = await top();
+  await toggle();
+  const t1 = await top();
+  const picked = await page.evaluate(id => selectedPhotos.has(id), id); // тап/Space действительно отметили фото, иначе смещать было нечему
+  await toggle();
+  const t2 = await top();
+  const okJump = picked && Math.abs(t1 - t0) < 1 && Math.abs(t2 - t1) < 1;
+  log.push((okJump ? 'OK' : 'FAIL') + ' выбор фото (' + label + '): плитка не смещается, top ' + t0.toFixed(1) + ' → ' + t1.toFixed(1) + ' → ' + t2.toFixed(1));
+  let ok = okJump;
+  if (!touch) {
+    // L12: кнопка ○/✓ — фокус остаётся на ней после перерисовки
+    await page.evaluate(id => document.querySelector('[data-sel-photo="' + id + '"]').focus({ preventScroll: true }), id);
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(250);
+    const keptSel = await page.evaluate(id => document.activeElement.dataset.selPhoto === id, id);
+    log.push((keptSel ? 'OK' : 'FAIL') + ' выбор фото: Enter на кнопке ○/✓ — фокус остаётся на кнопке');
+    ok = ok && keptSel;
+  }
+  await ctx.close();
+  return ok;
+}
+
 (async () => {
   const log = [];
   const scriptErrors = [];
@@ -443,6 +515,8 @@ async function checkKeyboard(page, log) {
     allOk = (await checkPhotoContextMenuRace(page, log)) && allOk;
     allOk = (await checkLightboxOffscreen(page, log)) && allOk;
     allOk = (await checkKeyboard(page, log)) && allOk;
+    allOk = (await checkSelectNoJump(browser, log, false)) && allOk;
+    allOk = (await checkSelectNoJump(browser, log, true)) && allOk;
     allOk = (await checkSheetSwipe(browser, log)) && allOk;
   } catch (e) {
     allOk = false;

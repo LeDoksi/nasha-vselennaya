@@ -5513,14 +5513,26 @@ function renderPhotosNow() {
   // photo-sk, не photo: обработчики галереи ищут .photo[data-id]).
   const skeleton = photosCursor && list.length ? html`${[0, 1, 2].map(() => html`<div class="photo-sk sk" aria-hidden="true"></div>`)}` : '';
   // render() пересоздаёт плитки целиком — сфокусированная умерла бы, и фокус
-  // ушёл бы в <body> (L1). Запоминаем её id и возвращаем фокус на новую плитку.
+  // ушёл бы в <body> (L1). Запоминаем, что было в фокусе (плитку или кнопку ○/✓
+  // отметки, L12), и возвращаем фокус на новый узел с тем же id.
   const ae = document.activeElement;
-  const focusId = ae && ae.dataset && ae.dataset.photo && grid.contains && grid.contains(ae) ? ae.dataset.photo : null;
+  const inGrid = ae && ae.dataset && grid.contains && grid.contains(ae);
+  const focusAttr = inGrid ? (ae.dataset.photo ? 'data-photo' : ae.dataset.selPhoto ? 'data-sel-photo' : null) : null;
+  const focusId = focusAttr ? ae.dataset[focusAttr === 'data-photo' ? 'photo' : 'selPhoto'] : null;
   render(grid, html`${cards}${skeleton}<div id="photosSentinel" aria-hidden="true" style="grid-column:1/-1;height:1px"></div>`);
   if (focusId) {
     const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(focusId) : focusId;
-    const tile = grid.querySelector('[data-photo="' + esc + '"]');
-    if (tile && tile.focus) tile.focus({ preventScroll: true });
+    const restore = () => {
+      const cur = document.activeElement;
+      if (cur && cur !== document.body && cur.isConnected) return; // фокус успел уйти в другое место — не трогаем
+      const node = grid.querySelector('[' + focusAttr + '="' + esc + '"]');
+      if (node && node.focus) node.focus({ preventScroll: true });
+    };
+    // Не синхронно: focus() сразу после render() заставляет Chrome считать layout,
+    // пока старый якорь прокрутки уже удалён, — и отмеченная плитка «прыгает»
+    // (L11: 57px на десктопе при первой/последней отметке, 5px за тап на телефоне).
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(restore);
+    else restore();
   }
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
   freshPhotoIds.clear();
