@@ -246,7 +246,9 @@ function unlockApp() {
   document.body.classList.remove('auth');
   setTheme(getTheme());
   renderSettings();
-  go('home');
+  // Прямая ссылка (#/calendar) переживает вход; неизвестный экран — Главная.
+  const wanted = hashView();
+  go(wanted && $('#view-' + resolveView(wanted)) ? wanted : 'home');
   maybeShowDateInvitePopup(); // неотвеченные приглашения на свидание — сразу видно, не только листая вниз
   // Облако фото (Yandex Object Storage, см. src/95-photos-cloud.js): после
   // входа выгружаем свои фото / скачиваем недостающие. Данные (события,

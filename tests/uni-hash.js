@@ -273,6 +273,35 @@ function tick() {
     process.exit(1);
   }
 
+  // Ревью раунда 1 (завершает NV-119): unlockApp() после входа звал go('home')
+  // безусловно — прямая ссылка #/calendar возвращалась на Главную. Теперь
+  // садимся на запрошенный экран; неизвестный (нет секции) — Главная.
+  try {
+    const ctx = makeCtx('#/calendar', false);
+    vm.createContext(ctx);
+    vm.runInContext(src, ctx, { filename: file });
+    await tick();
+    vm.runInContext('showView("home")', ctx); // как до входа: гейт закрывал приложение на Главной
+    vm.runInContext('unlockApp()', ctx);
+    const av = vm.runInContext('activeView', ctx);
+    if (av !== 'calendar') throw new Error('после unlockApp() по ссылке #/calendar активна «' + av + '», ожидали «calendar»');
+    console.log('OK: unlockApp() оставляет на запрошенном экране #/calendar');
+
+    const ctx2 = makeCtx('#/memory', false);
+    const qs = ctx2.document.querySelector;
+    ctx2.document.querySelector = sel => (sel === '#view-memory' ? null : qs(sel));
+    vm.createContext(ctx2);
+    vm.runInContext(src, ctx2, { filename: file });
+    await tick();
+    vm.runInContext('unlockApp()', ctx2);
+    const av2 = vm.runInContext('activeView', ctx2);
+    if (av2 !== 'home') throw new Error('после unlockApp() по неизвестной ссылке активна «' + av2 + '», ожидали «home»');
+    console.log('OK: unlockApp() по неизвестной ссылке — Главная');
+  } catch (e) {
+    console.log('FAIL: ' + e.message);
+    process.exit(1);
+  }
+
   // #/settings — тот же TDZ (PUSH_CONFIG, 96-push.js), но renderSettings()
   // зовёт renderPushSettings() — async function — без await. Синхронный
   // ReferenceError внутри async function не всплывает наверх и не рвёт
