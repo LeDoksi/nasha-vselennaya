@@ -337,6 +337,7 @@ h3{font-weight:800}
 .date-info{flex:1;display:flex;flex-direction:column;gap:2px;font-size:var(--text-base);min-width:0}
 .date-info b{font-weight:800}
 .date-info span{color:var(--ink-2);font-size:var(--text-base);overflow-wrap:break-word}
+.date-info .date-time{color:var(--ink)}
 .date-side{display:flex;flex-direction:column;gap:6px;flex:none;align-items:flex-end}
 .resp-row{display:flex;gap:10px;font-size:var(--text-sm);color:var(--ink-2);font-weight:700}
 .resp-me{color:var(--star-ink);font-weight:800}
@@ -1074,6 +1075,7 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
   background:var(--sky-2);border:1px solid var(--line);
   border-radius:var(--radius-pill);padding:6px 12px;font-size:var(--text-sm);font-weight:700;color:var(--ink);
 }
+.hs-chip .nav-icon{width:1em;height:1em}
 
 /* Хотелки — чип с прогрессом исполненных */
 .hs-wish{display:inline-flex;align-items:center;gap:6px}

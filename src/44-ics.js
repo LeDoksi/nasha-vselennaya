@@ -45,7 +45,7 @@ function buildEventsIcs() {
 }
 function exportEventsIcs() {
   if (!db.events || !db.events.length) {
-    alert('Пока нет ни одной памятной даты — нечего экспортировать 💜');
+    alert('Пока нет ни одной памятной даты — нечего экспортировать');
     return;
   }
   const blob = new Blob([buildEventsIcs()], { type: 'text/calendar;charset=utf-8' });

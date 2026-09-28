@@ -173,7 +173,7 @@ async function syncPhotos() {
       console.warn('[photo-sync] хранилище фото недоступно', e);
       if (!cloudDownNotified) {
         cloudDownNotified = true;
-        notify('Фото не синхронизируются: хранилище недоступно. Проверь интернет или VPN 💜', true);
+        notify('Фото не синхронизируются: хранилище недоступно. Проверь интернет или VPN', true);
       }
       stats.retry = true;
       return; // finally поставит повтор — сеть может вернуться сама
@@ -282,7 +282,7 @@ async function syncPhotos() {
       }
     });
     if (stats.failed) {
-      notify('Часть фото не синхронизировалась — проверь интернет, повторю через минуту 💜', true);
+      notify('Часть фото не синхронизировалась — проверь интернет, повторю через минуту', true);
     }
   } catch (e) {
     console.warn('[photo-sync] сверка фото не удалась', e);

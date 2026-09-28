@@ -35,7 +35,7 @@ const store = {
       localStorage.setItem(key, val);
       return true;
     } catch (e) {
-      notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true);
+      notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз', true);
       return false;
     }
   },
@@ -110,7 +110,7 @@ function notify(msg, isError) {
   }, 5000);
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
-  window.addEventListener('error', e => notify('Что-то пошло не так — данные не потеряны, перезагрузи страницу 💜', true));
+  window.addEventListener('error', e => notify('Что-то пошло не так — данные не потеряны, перезагрузи страницу', true));
   // Сбои сохранения показывают свой тост (store.set / save), поэтому здесь только
   // логируем. Раньше любой «безобидный» rejection (например, отменённый View
   // Transition при входе) пугал ложным «Не удалось сохранить — попробуй ещё раз».

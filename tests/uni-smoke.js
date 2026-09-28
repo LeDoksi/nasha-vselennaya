@@ -466,9 +466,11 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   );
   const datesHtml = registry['#dates'].innerHTML;
   assert(datesHtml.includes('приглашение от Гоши'), 'date card: from gosha');
-  assert(datesHtml.includes('Гоша: 💌 позвал'), 'date card: inviter status');
+  assert(datesHtml.includes('Гоша: позвал'), 'date card: inviter status');
   assert(!datesHtml.includes('data-answer-date'), 'inviter has no answer buttons');
-  assert(datesHtml.includes('Даша: ⏳'), 'date card: dasha pending');
+  assert(datesHtml.includes('Даша: ещё не решила'), 'date card: dasha pending, женский род (L7)');
+  assert(!/[👍👎⏳💌🕐📍💬✅❌]/u.test(datesHtml), 'карточка свидания: хром без эмодзи (L0)');
+  assert(datesHtml.includes('Парк') && datesHtml.includes('Пикник') && datesHtml.includes('19:00'), 'карточка свидания: время, место и заметка остались');
 
   // --- Смена пользователя перекрашивает «моего» отвечающего ---
   w('(s)=>s.setUser("dasha")');
@@ -578,6 +580,8 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(hisWish.includes('hs-wish') && hisWish.includes('2/3'), 'статистика показывает прогресс хотелок 2/3');
   assert(hisWish.includes('width:67%'), 'полоска прогресса хотелок заполнена на 67%');
   w('(s)=>{s.db.wishlist.push({id:"w4",text:"К4",done:false,owner:"gosha"});s.renderProgressRing();return 1;}');
+  assert(!/[📸📅💘📝🎁✨]/u.test(registry['#progressRing'].innerHTML), 'блок истории: чипы без эмодзи (L0)');
+  assert(registry['#progressRing'].innerHTML.includes('#icon-photos') && registry['#progressRing'].innerHTML.includes('#icon-wishlist'), 'блок истории: чипы с иконками спрайта (L0)');
   assert(registry['#progressRing'].innerHTML.includes('2/4'), 'прогресс хотелок обновляется при изменении списка');
   w('(s)=>{s.db.wishlist=[];s.renderProgressRing();return 1;}');
   assert(registry['#progressRing'].innerHTML.includes('пока пусто'), 'без хотелок чип показывает «пока пусто»');
@@ -596,6 +600,9 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(calHtml.includes('💘'), 'calendar has date marker');
   w('(s)=>{s.selectedDate=s.iso(' + dateIn3Days.getFullYear() + ',' + dateIn3Days.getMonth() + ',' + dateIn3Days.getDate() + ');s.renderDayPanel();}');
   assert(registry['#dayPanel'].innerHTML.includes('Свидания'), 'date in day panel');
+  w('(s)=>{s.db.dates.find(d=>d.id==="d1").done=true;s.renderDayPanel();return 1;}');
+  assert(!/[🕐✅]/u.test(registry['#dayPanel'].innerHTML) && registry['#dayPanel'].innerHTML.includes('#icon-check'), 'панель дня: время без 🕐, «прошло» — иконка, не ✅ (L0)');
+  w('(s)=>{s.db.dates.find(d=>d.id==="d1").done=false;s.renderDayPanel();return 1;}');
 
   // --- Редактирование события календаря ---
   w('(s)=>{s.db.events.push({id:"e1",title:"Годовщина",date:s.iso(2026,8,1),emoji:"💜",repeat:true});}');

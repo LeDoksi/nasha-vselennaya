@@ -154,7 +154,7 @@ async function unlockWithKey(key) {
 async function tryEnterWithUser(user) {
   if (!user || !user.email || !ALLOWED_EMAILS.includes(user.email)) {
     if (user) {
-      showGateErr('Этот Google-аккаунт не имеет доступа сюда. Выйди и попробуй другим аккаунтом 💜');
+      showGateErr('Этот Google-аккаунт не имеет доступа сюда. Выйди и попробуй другим аккаунтом');
       try {
         await firebase.auth(fbApp).signOut();
       } catch (e) {}
@@ -171,7 +171,7 @@ async function tryEnterWithUser(user) {
   } catch (e) {
     showBootSkeleton(false);
     console.warn('[gate] вход не завершился', e);
-    showGateErr('Что-то пошло не так при загрузке данных. Обнови страницу и попробуй ещё раз 💜');
+    showGateErr('Что-то пошло не так при загрузке данных. Обнови страницу и попробуй ещё раз');
   }
 }
 

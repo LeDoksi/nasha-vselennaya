@@ -2,7 +2,7 @@
 let evPhotoData = [];
 function setEvPhotoCount() {
   const c = $('#evPhotoCount');
-  if (c) c.textContent = evPhotoData.length ? `✅ фото: ${evPhotoData.length}` : '';
+  if (c) c.textContent = evPhotoData.length ? `Фото: ${evPhotoData.length}` : '';
 }
 function openEventModal(id) {
   const t = new Date();
@@ -54,12 +54,12 @@ function saveEventFromModal() {
   const title = $('#evTitle').value.trim();
   const date = $('#evDate').value;
   if (!title || !date) {
-    alert('Напиши название и выбери дату 💜');
+    alert('Напиши название и выбери дату');
     return;
   }
   const endDate = $('#evEnd').value || null;
   if (endDate && endDate < date) {
-    alert('Конец события не может быть раньше начала 💜');
+    alert('Конец события не может быть раньше начала');
     return;
   }
   const data = { title, date, endDate, emoji: $('#evEmoji').value.trim() || '💜', repeat: $('#evRepeat').checked && !endDate };

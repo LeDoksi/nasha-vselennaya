@@ -259,7 +259,7 @@ function reportRepoFailure(e) {
   const now = Date.now();
   if (now - lastRepoFailureAlertAt < 5000) return;
   lastRepoFailureAlertAt = now;
-  if (typeof alert === 'function') alert('Не сохранилось: пропала сеть или отказал доступ. Проверь соединение и повтори действие 💜');
+  if (typeof alert === 'function') alert('Не сохранилось: пропала сеть или отказал доступ. Проверь соединение и повтори действие');
 }
 
 async function repoSet(coll, obj) {

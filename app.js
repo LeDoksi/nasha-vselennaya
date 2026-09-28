@@ -35,7 +35,7 @@ const store = {
       localStorage.setItem(key, val);
       return true;
     } catch (e) {
-      notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз 💜', true);
+      notify('Хранилище переполнено — удали лишние фото и попробуй ещё раз', true);
       return false;
     }
   },
@@ -110,7 +110,7 @@ function notify(msg, isError) {
   }, 5000);
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
-  window.addEventListener('error', e => notify('Что-то пошло не так — данные не потеряны, перезагрузи страницу 💜', true));
+  window.addEventListener('error', e => notify('Что-то пошло не так — данные не потеряны, перезагрузи страницу', true));
   // Сбои сохранения показывают свой тост (store.set / save), поэтому здесь только
   // логируем. Раньше любой «безобидный» rejection (например, отменённый View
   // Transition при входе) пугал ложным «Не удалось сохранить — попробуй ещё раз».
@@ -508,7 +508,7 @@ async function unlockWithKey(key) {
 async function tryEnterWithUser(user) {
   if (!user || !user.email || !ALLOWED_EMAILS.includes(user.email)) {
     if (user) {
-      showGateErr('Этот Google-аккаунт не имеет доступа сюда. Выйди и попробуй другим аккаунтом 💜');
+      showGateErr('Этот Google-аккаунт не имеет доступа сюда. Выйди и попробуй другим аккаунтом');
       try {
         await firebase.auth(fbApp).signOut();
       } catch (e) {}
@@ -525,7 +525,7 @@ async function tryEnterWithUser(user) {
   } catch (e) {
     showBootSkeleton(false);
     console.warn('[gate] вход не завершился', e);
-    showGateErr('Что-то пошло не так при загрузке данных. Обнови страницу и попробуй ещё раз 💜');
+    showGateErr('Что-то пошло не так при загрузке данных. Обнови страницу и попробуй ещё раз');
   }
 }
 
@@ -960,7 +960,7 @@ function reportRepoFailure(e) {
   const now = Date.now();
   if (now - lastRepoFailureAlertAt < 5000) return;
   lastRepoFailureAlertAt = now;
-  if (typeof alert === 'function') alert('Не сохранилось: пропала сеть или отказал доступ. Проверь соединение и повтори действие 💜');
+  if (typeof alert === 'function') alert('Не сохранилось: пропала сеть или отказал доступ. Проверь соединение и повтори действие');
 }
 
 async function repoSet(coll, obj) {
@@ -2418,8 +2418,8 @@ function fmtDateLong(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' });
 }
-function fmtResp(r) {
-  return r === 'yes' ? '✅ да' : r === 'no' ? '❌ нет' : '⏳ ещё не решил';
+function fmtResp(r, p) {
+  return r === 'yes' ? 'да' : r === 'no' ? 'нет' : p === 'dasha' ? 'ещё не решила' : 'ещё не решил';
 }
 function renderDates() {
   const box = $('#dates');
@@ -2448,7 +2448,7 @@ function renderDates() {
             const resp = d.responses || {};
             const from = d.from;
             // Пригласивший уже согласился — ему кнопки «Да/Нет» не нужны
-            const status = p => (from === p ? (p === 'gosha' ? '💌 позвал' : '💌 позвала') : fmtResp(resp[p]));
+            const status = p => (from === p ? (p === 'gosha' ? 'позвал' : 'позвала') : fmtResp(resp[p], p));
             // canAnswer: не только «не я позвал», но и «ещё не ответил» — иначе
             // кнопки Да/Нет остаются после ответа и по ним можно кликать бесконечно (NV-11)
             const canAnswer = (!from || from === 'both' || from !== who) && !resp[who];
@@ -2457,8 +2457,8 @@ function renderDates() {
                 <div class="date-emoji">${d.emoji || '💘'}</div>
                 <div class="date-info">
                   <b>${fmtDateLong(d.date)}${o.days === 0 ? html`<span class="tag tag-today">сегодня</span>` : o.days === 1 ? html`<span class="tag">завтра</span>` : ''}</b>
-                  ${from ? html`<span class="date-from">${from === 'both' ? '💜 вместе' : from === 'gosha' ? '💌 приглашение от Гоши' : '💌 приглашение от Даши'}</span>` : ''}
-                  ${d.time ? html`<span>🕐 ${d.time}</span>` : ''} ${d.place ? html`<span>📍 ${d.place}</span>` : ''} ${d.note ? html`<span>💬 ${d.note}</span>` : ''}
+                  ${from ? html`<span class="date-from">${from === 'both' ? 'вместе' : from === 'gosha' ? 'приглашение от Гоши' : 'приглашение от Даши'}</span>` : ''}
+                  ${d.time ? html`<span class="date-time">${d.time}</span>` : ''} ${d.place ? html`<span>${d.place}</span>` : ''} ${d.note ? html`<span>${d.note}</span>` : ''}
                 </div>
                 <div class="date-side">
                   <div class="resp-row">
@@ -2469,8 +2469,8 @@ function renderDates() {
                   ${
                     canAnswer
                       ? html`<div class="resp-btns">
-                          <button class="resp-btn ${resp[who] === 'yes' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="yes">Да 👍</button>
-                          <button class="resp-btn no ${resp[who] === 'no' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="no">Нет 👎</button>
+                          <button class="resp-btn ${resp[who] === 'yes' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="yes">Да</button>
+                          <button class="resp-btn no ${resp[who] === 'no' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="no">Нет</button>
                         </div>`
                       : ''
                   }
@@ -2498,13 +2498,13 @@ function dateInviteCardHTML(d) {
     <div class="date-emoji">${d.emoji || '💘'}</div>
     <div class="date-info">
       <b>${fmtDateLong(d.date)}</b>
-      <span class="date-from">💌 приглашение от ${fromName}</span>
-      ${d.time ? html`<span>🕐 ${d.time}</span>` : ''} ${d.place ? html`<span>📍 ${d.place}</span>` : ''} ${d.note ? html`<span>💬 ${d.note}</span>` : ''}
+      <span class="date-from">приглашение от ${fromName}</span>
+      ${d.time ? html`<span class="date-time">${d.time}</span>` : ''} ${d.place ? html`<span>${d.place}</span>` : ''} ${d.note ? html`<span>${d.note}</span>` : ''}
     </div>
     <div class="date-side">
       <div class="resp-btns">
-        <button class="resp-btn" data-answer-date="${d.id}" data-answer="yes">Да 👍</button>
-        <button class="resp-btn no" data-answer-date="${d.id}" data-answer="no">Нет 👎</button>
+        <button class="resp-btn" data-answer-date="${d.id}" data-answer="yes">Да</button>
+        <button class="resp-btn no" data-answer-date="${d.id}" data-answer="no">Нет</button>
       </div>
     </div>
   </div>`;
@@ -2586,7 +2586,7 @@ $('#addDateBtn').addEventListener('click', () => openDateModal());
 function saveDateFromModal() {
   const date = $('#dtDate').value;
   if (!date) {
-    alert('Выбери дату свидания 💘');
+    alert('Выбери дату свидания');
     return;
   }
   const existing = editingDateId ? db.dates.find(x => x.id === editingDateId) : null;
@@ -2605,7 +2605,7 @@ function saveDateFromModal() {
     return;
   }
   const from = getUser();
-  // Пригласивший уже согласен по смыслу (UI показывает «💌 позвал/позвала» без
+  // Пригласивший уже согласен по смыслу (UI показывает «позвал/позвала» без
   // кнопок ответа — canAnswer это и запрещает), поэтому его responses[from]
   // должен быть 'yes' сразу. Раньше оба поля стартовали null и приглашающий
   // никогда не мог ответить сам — bothYes/celebrate() требовали 'yes' от
@@ -2773,21 +2773,21 @@ function renderProgressRing(at) {
   const wishTotal = db.wishlist.length;
   const wishPct = wishTotal ? Math.round((wishDone / wishTotal) * 100) : 0;
   const wishLabel = wishTotal ? wishDone + '/' + wishTotal : 'пока пусто';
-  const wishTitle = wishTotal ? 'Исполнено ' + wishDone + ' из ' + wishTotal + ' хотелок' : 'Хотелок пока нет — загадай желание 💜';
+  const wishTitle = wishTotal ? 'Исполнено ' + wishDone + ' из ' + wishTotal + ' хотелок' : 'Хотелок пока нет — загадай желание';
   const stats = html`${[
-    ['📸', db.photos.length, 'фото', 'фото', 'фото'],
-    ['📅', db.events.length, 'событие', 'события', 'событий'],
-    ['💘', db.dates.length, 'свидание', 'свидания', 'свиданий'],
-    ['📝', db.notes.length, 'заметка', 'заметки', 'заметок']
-  ].map(a => html`<span class="hs-chip">${a[0]} ${a[1]} ${plural(a[1], a[2], a[3], a[4])}</span>`)}<span class="hs-chip hs-wish" title="${wishTitle}"
-      >🎁 ${wishLabel}<span class="hs-bar"><i style="width:${wishPct}%"></i></span></span
+    ['photos', db.photos.length, 'фото', 'фото', 'фото'],
+    ['calendar', db.events.length, 'событие', 'события', 'событий'],
+    ['heart', db.dates.length, 'свидание', 'свидания', 'свиданий'],
+    ['notes', db.notes.length, 'заметка', 'заметки', 'заметок']
+  ].map(a => html`<span class="hs-chip">${navIconHtml(a[0])} ${a[1]} ${plural(a[1], a[2], a[3], a[4])}</span>`)}<span class="hs-chip hs-wish" title="${wishTitle}"
+      >${navIconHtml('wishlist')} ${wishLabel}<span class="hs-bar"><i style="width:${wishPct}%"></i></span></span
     >`;
   // «В этот день» (только когда есть события/свидания прошлых лет): чипы под кольцом.
   // Фото «в этот день» используются в галерее (фаза 6) — здесь только события и свидания, без дублей.
   const otdEvents = onThisDayItems(at || new Date()).filter(it => it.kind === 'event' || it.kind === 'date');
   const otdRow = otdEvents.length
     ? html`<div class="history-otd">
-        <span class="history-otd-label">✨ В этот день</span>${otdEvents.map(
+        <span class="history-otd-label">В этот день</span>${otdEvents.map(
           ev => html`<span class="hs-chip hs-otd-chip" title="${ev.title} — ${otdYear(ev.date)}">${ev.emoji} ${ev.title} <small>· ${String(ev.date).slice(0, 4)}</small></span>`
         )}
       </div>`
@@ -3181,7 +3181,7 @@ function renderDayPanel() {
           ? html`<div class="day-sub">Свидания</div>
             ${dts.map(
               dt => html`<div class="day-event date-evt${dt.done ? ' date-done' : ''}">
-                ${dt.emoji || '💘'} <span>${dt.time ? html`🕐 ${dt.time} · ` : ''}${dt.place || dt.note || 'Свидание'}${dt.done ? ' ✅' : ''}</span>${dtThumbs(dt)}
+                ${dt.emoji || '💘'} <span>${dt.time ? html`${dt.time} · ` : ''}${dt.place || dt.note || 'Свидание'}${dt.done ? html` ${navIconHtml('check')}` : ''}</span>${dtThumbs(dt)}
                 <button class="mini-x" data-edit-date="${dt.id}" title="Изменить" aria-label="Изменить">${navIconHtml('pencil')}</button>
                 <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}" aria-label="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${navIconHtml(dt.done ? 'heart' : 'check')}</button>
                 <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото" aria-label="Добавить фото">${navIconHtml('photos')}</button>
@@ -3839,7 +3839,7 @@ document.addEventListener('keydown', onDatePopDocEscape);
 let evPhotoData = [];
 function setEvPhotoCount() {
   const c = $('#evPhotoCount');
-  if (c) c.textContent = evPhotoData.length ? `✅ фото: ${evPhotoData.length}` : '';
+  if (c) c.textContent = evPhotoData.length ? `Фото: ${evPhotoData.length}` : '';
 }
 function openEventModal(id) {
   const t = new Date();
@@ -3891,12 +3891,12 @@ function saveEventFromModal() {
   const title = $('#evTitle').value.trim();
   const date = $('#evDate').value;
   if (!title || !date) {
-    alert('Напиши название и выбери дату 💜');
+    alert('Напиши название и выбери дату');
     return;
   }
   const endDate = $('#evEnd').value || null;
   if (endDate && endDate < date) {
-    alert('Конец события не может быть раньше начала 💜');
+    alert('Конец события не может быть раньше начала');
     return;
   }
   const data = { title, date, endDate, emoji: $('#evEmoji').value.trim() || '💜', repeat: $('#evRepeat').checked && !endDate };
@@ -3983,7 +3983,7 @@ function buildEventsIcs() {
 }
 function exportEventsIcs() {
   if (!db.events || !db.events.length) {
-    alert('Пока нет ни одной памятной даты — нечего экспортировать 💜');
+    alert('Пока нет ни одной памятной даты — нечего экспортировать');
     return;
   }
   const blob = new Blob([buildEventsIcs()], { type: 'text/calendar;charset=utf-8' });
@@ -4589,7 +4589,7 @@ $('#wishPhoto').addEventListener('change', async e => {
 async function saveWishFromModal() {
   const text = $('#wishText').value.trim();
   if (!text) {
-    alert('Напиши, что хочешь 💜');
+    alert('Напиши, что хочешь');
     return;
   }
   let photoId = null;
@@ -7053,7 +7053,7 @@ async function syncPhotos() {
       console.warn('[photo-sync] хранилище фото недоступно', e);
       if (!cloudDownNotified) {
         cloudDownNotified = true;
-        notify('Фото не синхронизируются: хранилище недоступно. Проверь интернет или VPN 💜', true);
+        notify('Фото не синхронизируются: хранилище недоступно. Проверь интернет или VPN', true);
       }
       stats.retry = true;
       return; // finally поставит повтор — сеть может вернуться сама
@@ -7162,7 +7162,7 @@ async function syncPhotos() {
       }
     });
     if (stats.failed) {
-      notify('Часть фото не синхронизировалась — проверь интернет, повторю через минуту 💜', true);
+      notify('Часть фото не синхронизировалась — проверь интернет, повторю через минуту', true);
     }
   } catch (e) {
     console.warn('[photo-sync] сверка фото не удалась', e);

@@ -112,7 +112,7 @@ $('#wishPhoto').addEventListener('change', async e => {
 async function saveWishFromModal() {
   const text = $('#wishText').value.trim();
   if (!text) {
-    alert('Напиши, что хочешь 💜');
+    alert('Напиши, что хочешь');
     return;
   }
   let photoId = null;

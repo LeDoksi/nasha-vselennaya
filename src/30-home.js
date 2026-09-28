@@ -164,8 +164,8 @@ function fmtDateLong(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' });
 }
-function fmtResp(r) {
-  return r === 'yes' ? '✅ да' : r === 'no' ? '❌ нет' : '⏳ ещё не решил';
+function fmtResp(r, p) {
+  return r === 'yes' ? 'да' : r === 'no' ? 'нет' : p === 'dasha' ? 'ещё не решила' : 'ещё не решил';
 }
 function renderDates() {
   const box = $('#dates');
@@ -194,7 +194,7 @@ function renderDates() {
             const resp = d.responses || {};
             const from = d.from;
             // Пригласивший уже согласился — ему кнопки «Да/Нет» не нужны
-            const status = p => (from === p ? (p === 'gosha' ? '💌 позвал' : '💌 позвала') : fmtResp(resp[p]));
+            const status = p => (from === p ? (p === 'gosha' ? 'позвал' : 'позвала') : fmtResp(resp[p], p));
             // canAnswer: не только «не я позвал», но и «ещё не ответил» — иначе
             // кнопки Да/Нет остаются после ответа и по ним можно кликать бесконечно (NV-11)
             const canAnswer = (!from || from === 'both' || from !== who) && !resp[who];
@@ -203,8 +203,8 @@ function renderDates() {
                 <div class="date-emoji">${d.emoji || '💘'}</div>
                 <div class="date-info">
                   <b>${fmtDateLong(d.date)}${o.days === 0 ? html`<span class="tag tag-today">сегодня</span>` : o.days === 1 ? html`<span class="tag">завтра</span>` : ''}</b>
-                  ${from ? html`<span class="date-from">${from === 'both' ? '💜 вместе' : from === 'gosha' ? '💌 приглашение от Гоши' : '💌 приглашение от Даши'}</span>` : ''}
-                  ${d.time ? html`<span>🕐 ${d.time}</span>` : ''} ${d.place ? html`<span>📍 ${d.place}</span>` : ''} ${d.note ? html`<span>💬 ${d.note}</span>` : ''}
+                  ${from ? html`<span class="date-from">${from === 'both' ? 'вместе' : from === 'gosha' ? 'приглашение от Гоши' : 'приглашение от Даши'}</span>` : ''}
+                  ${d.time ? html`<span class="date-time">${d.time}</span>` : ''} ${d.place ? html`<span>${d.place}</span>` : ''} ${d.note ? html`<span>${d.note}</span>` : ''}
                 </div>
                 <div class="date-side">
                   <div class="resp-row">
@@ -215,8 +215,8 @@ function renderDates() {
                   ${
                     canAnswer
                       ? html`<div class="resp-btns">
-                          <button class="resp-btn ${resp[who] === 'yes' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="yes">Да 👍</button>
-                          <button class="resp-btn no ${resp[who] === 'no' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="no">Нет 👎</button>
+                          <button class="resp-btn ${resp[who] === 'yes' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="yes">Да</button>
+                          <button class="resp-btn no ${resp[who] === 'no' ? 'on' : ''}" data-answer-date="${d.id}" data-answer="no">Нет</button>
                         </div>`
                       : ''
                   }
@@ -244,13 +244,13 @@ function dateInviteCardHTML(d) {
     <div class="date-emoji">${d.emoji || '💘'}</div>
     <div class="date-info">
       <b>${fmtDateLong(d.date)}</b>
-      <span class="date-from">💌 приглашение от ${fromName}</span>
-      ${d.time ? html`<span>🕐 ${d.time}</span>` : ''} ${d.place ? html`<span>📍 ${d.place}</span>` : ''} ${d.note ? html`<span>💬 ${d.note}</span>` : ''}
+      <span class="date-from">приглашение от ${fromName}</span>
+      ${d.time ? html`<span class="date-time">${d.time}</span>` : ''} ${d.place ? html`<span>${d.place}</span>` : ''} ${d.note ? html`<span>${d.note}</span>` : ''}
     </div>
     <div class="date-side">
       <div class="resp-btns">
-        <button class="resp-btn" data-answer-date="${d.id}" data-answer="yes">Да 👍</button>
-        <button class="resp-btn no" data-answer-date="${d.id}" data-answer="no">Нет 👎</button>
+        <button class="resp-btn" data-answer-date="${d.id}" data-answer="yes">Да</button>
+        <button class="resp-btn no" data-answer-date="${d.id}" data-answer="no">Нет</button>
       </div>
     </div>
   </div>`;
@@ -332,7 +332,7 @@ $('#addDateBtn').addEventListener('click', () => openDateModal());
 function saveDateFromModal() {
   const date = $('#dtDate').value;
   if (!date) {
-    alert('Выбери дату свидания 💘');
+    alert('Выбери дату свидания');
     return;
   }
   const existing = editingDateId ? db.dates.find(x => x.id === editingDateId) : null;
@@ -351,7 +351,7 @@ function saveDateFromModal() {
     return;
   }
   const from = getUser();
-  // Пригласивший уже согласен по смыслу (UI показывает «💌 позвал/позвала» без
+  // Пригласивший уже согласен по смыслу (UI показывает «позвал/позвала» без
   // кнопок ответа — canAnswer это и запрещает), поэтому его responses[from]
   // должен быть 'yes' сразу. Раньше оба поля стартовали null и приглашающий
   // никогда не мог ответить сам — bothYes/celebrate() требовали 'yes' от

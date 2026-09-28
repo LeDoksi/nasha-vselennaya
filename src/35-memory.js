@@ -140,21 +140,21 @@ function renderProgressRing(at) {
   const wishTotal = db.wishlist.length;
   const wishPct = wishTotal ? Math.round((wishDone / wishTotal) * 100) : 0;
   const wishLabel = wishTotal ? wishDone + '/' + wishTotal : 'пока пусто';
-  const wishTitle = wishTotal ? 'Исполнено ' + wishDone + ' из ' + wishTotal + ' хотелок' : 'Хотелок пока нет — загадай желание 💜';
+  const wishTitle = wishTotal ? 'Исполнено ' + wishDone + ' из ' + wishTotal + ' хотелок' : 'Хотелок пока нет — загадай желание';
   const stats = html`${[
-    ['📸', db.photos.length, 'фото', 'фото', 'фото'],
-    ['📅', db.events.length, 'событие', 'события', 'событий'],
-    ['💘', db.dates.length, 'свидание', 'свидания', 'свиданий'],
-    ['📝', db.notes.length, 'заметка', 'заметки', 'заметок']
-  ].map(a => html`<span class="hs-chip">${a[0]} ${a[1]} ${plural(a[1], a[2], a[3], a[4])}</span>`)}<span class="hs-chip hs-wish" title="${wishTitle}"
-      >🎁 ${wishLabel}<span class="hs-bar"><i style="width:${wishPct}%"></i></span></span
+    ['photos', db.photos.length, 'фото', 'фото', 'фото'],
+    ['calendar', db.events.length, 'событие', 'события', 'событий'],
+    ['heart', db.dates.length, 'свидание', 'свидания', 'свиданий'],
+    ['notes', db.notes.length, 'заметка', 'заметки', 'заметок']
+  ].map(a => html`<span class="hs-chip">${navIconHtml(a[0])} ${a[1]} ${plural(a[1], a[2], a[3], a[4])}</span>`)}<span class="hs-chip hs-wish" title="${wishTitle}"
+      >${navIconHtml('wishlist')} ${wishLabel}<span class="hs-bar"><i style="width:${wishPct}%"></i></span></span
     >`;
   // «В этот день» (только когда есть события/свидания прошлых лет): чипы под кольцом.
   // Фото «в этот день» используются в галерее (фаза 6) — здесь только события и свидания, без дублей.
   const otdEvents = onThisDayItems(at || new Date()).filter(it => it.kind === 'event' || it.kind === 'date');
   const otdRow = otdEvents.length
     ? html`<div class="history-otd">
-        <span class="history-otd-label">✨ В этот день</span>${otdEvents.map(
+        <span class="history-otd-label">В этот день</span>${otdEvents.map(
           ev => html`<span class="hs-chip hs-otd-chip" title="${ev.title} — ${otdYear(ev.date)}">${ev.emoji} ${ev.title} <small>· ${String(ev.date).slice(0, 4)}</small></span>`
         )}
       </div>`

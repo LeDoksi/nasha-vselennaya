@@ -119,7 +119,7 @@ function renderDayPanel() {
           ? html`<div class="day-sub">Свидания</div>
             ${dts.map(
               dt => html`<div class="day-event date-evt${dt.done ? ' date-done' : ''}">
-                ${dt.emoji || '💘'} <span>${dt.time ? html`🕐 ${dt.time} · ` : ''}${dt.place || dt.note || 'Свидание'}${dt.done ? ' ✅' : ''}</span>${dtThumbs(dt)}
+                ${dt.emoji || '💘'} <span>${dt.time ? html`${dt.time} · ` : ''}${dt.place || dt.note || 'Свидание'}${dt.done ? html` ${navIconHtml('check')}` : ''}</span>${dtThumbs(dt)}
                 <button class="mini-x" data-edit-date="${dt.id}" title="Изменить" aria-label="Изменить">${navIconHtml('pencil')}</button>
                 <button class="mini-x" data-done-date="${dt.id}" title="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}" aria-label="${dt.done ? 'Снять отметку — свидание не прошло' : 'Свидание прошло — отметить'}">${navIconHtml(dt.done ? 'heart' : 'check')}</button>
                 <button class="mini-x" data-photo-date="${dt.id}" title="Добавить фото" aria-label="Добавить фото">${navIconHtml('photos')}</button>
