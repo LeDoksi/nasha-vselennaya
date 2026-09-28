@@ -777,6 +777,16 @@ async function loadHotSet() {
 
   photosCursor = photos.docs.length ? photos.docs[photos.docs.length - 1] : null;
   loadedMonths = new Set([monthKey(now.getFullYear(), now.getMonth())]);
+  // Ось (NV-96): loadHotSet() подменяет db.events/db.photos свежим горячим
+  // набором — без сброса этих флагов повторный вызов (importData(), новый
+  // вход в той же сессии) оставил бы ось думать, что прошлое уже дочитано,
+  // хотя в свежем db его снова нет. axisLoading НЕ трогаем: если в этот
+  // момент уже летит другой loadAxisPage(), его finally сам снимет флаг —
+  // обнулить его отсюда означало бы разрешить второй параллельный запрос
+  // поверх незавершённого первого.
+  axisEventsLoaded = false;
+  axisPhotosCursor = null;
+  axisPhotosDone = false;
 }
 
 // Одно и то же событие приходит и запросом повторяющихся, и запросом окна —

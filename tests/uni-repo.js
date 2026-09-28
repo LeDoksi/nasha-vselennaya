@@ -625,6 +625,17 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   await w('(s)=>s.loadAxisPage()');
   assert(mock._colGetCount === getsEnd, 'дочитанная ось больше не ходит в Firestore');
 
+  // РЕВЬЮ задачи 11 (раунд 1, Important): loadHotSet() резетит photosCursor,
+  // но не axis-флаги — второй loadHotSet() в той же сессии (например,
+  // importData() в src/80-settings.js) подменяет db.events/db.photos свежим
+  // горячим набором, а ось продолжает думать, что прошлое уже дочитано,
+  // и молча перестаёт его предлагать.
+  await w('(s)=>s.loadHotSet()');
+  assert(!w('(s)=>s.db.events.some(e=>e.id==="old1")'), 'после повторного loadHotSet старое разовое событие снова не в горячем наборе');
+  assert(w('(s)=>s.axisHasMore()') === true, 'loadHotSet сбросил axis-флаги — оси снова есть что дочитать');
+  await w('(s)=>s.loadAxisPage()');
+  assert(w('(s)=>s.db.events.some(e=>e.id==="old1")'), 'дочитка после повторного loadHotSet снова приносит старое разовое событие');
+
   // РЕВЬЮ задачи 10 (Important, повторное ревью): дозагрузка по scroll
   // тупиковала, если галерея умещалась в экран без прокрутки (scroll ни разу
   // не всплывал). Заменена на IntersectionObserver над меткой #photosSentinel.
