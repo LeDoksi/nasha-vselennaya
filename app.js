@@ -5469,7 +5469,7 @@ function renderPhotosNow() {
         const url = photoSrc(p);
         return html`
     <div class="photo${p.pinned ? ' pinned' : ''}${!photoReorderMode && (p.pinned || bigIds.has(p.id)) ? ' photo--big' : ''}${selectedPhotos.has(p.id) ? ' selected' : ''}${freshPhotoIds.has(p.id) ? ' photo--fresh' : ''}" data-id="${p.id}">
-      <img${url ? html` src="${url}"` : html` data-photo-src="${p.id}"`} alt="${p.title}" data-photo="${p.id}" loading="lazy" tabindex="0" role="button"${p.title ? '' : raw(' aria-label="Фото"')}>
+      <img${url ? html` src="${url}"` : html` data-photo-src="${p.id}"`} alt="${p.title}" data-photo="${p.id}" loading="lazy"${photoReorderMode ? '' : photoSelectMode ? html` tabindex="0" role="button" aria-pressed="${String(selectedPhotos.has(p.id))}"` : raw(' tabindex="0" role="button"')}${p.title ? '' : raw(' aria-label="Фото"')}>
       ${
         photoSelectMode
           ? html`<button class="sel-photo${selectedPhotos.has(p.id) ? ' active' : ''}" data-sel-photo="${p.id}" title="${selectedPhotos.has(p.id) ? 'Снять выбор' : 'Выбрать'}">${selectedPhotos.has(p.id) ? '✓' : '○'}</button>`
@@ -5500,7 +5500,16 @@ function renderPhotosNow() {
   // Пока есть следующая страница — в конце сетки скелетон-плитки (класс
   // photo-sk, не photo: обработчики галереи ищут .photo[data-id]).
   const skeleton = photosCursor && list.length ? html`${[0, 1, 2].map(() => html`<div class="photo-sk sk" aria-hidden="true"></div>`)}` : '';
+  // render() пересоздаёт плитки целиком — сфокусированная умерла бы, и фокус
+  // ушёл бы в <body> (L1). Запоминаем её id и возвращаем фокус на новую плитку.
+  const ae = document.activeElement;
+  const focusId = ae && ae.dataset && ae.dataset.photo && grid.contains && grid.contains(ae) ? ae.dataset.photo : null;
   render(grid, html`${cards}${skeleton}<div id="photosSentinel" aria-hidden="true" style="grid-column:1/-1;height:1px"></div>`);
+  if (focusId) {
+    const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(focusId) : focusId;
+    const tile = grid.querySelector('[data-photo="' + esc + '"]');
+    if (tile && tile.focus) tile.focus({ preventScroll: true });
+  }
   hydratePhotoImgs(grid); // миниатюры из photoStore — заполняем src после рендера каркаса
   freshPhotoIds.clear();
   // render() каждый раз пересоздаёт разметку целиком — старая метка
@@ -5648,8 +5657,8 @@ if (photosGridEl && photosGridEl.addEventListener) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const img = e.target.closest && e.target.closest('[data-photo]');
     if (!img) return;
+    if (photoReorderMode) return; // плитка в этом режиме не кнопка: Space пусть скроллит как обычно
     e.preventDefault();
-    if (photoReorderMode) return;
     if (photoSelectMode) {
       const id = img.dataset.photo;
       if (selectedPhotos.has(id)) selectedPhotos.delete(id);

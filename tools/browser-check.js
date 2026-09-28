@@ -272,6 +272,34 @@ async function checkKeyboard(page, log) {
   });
   await page.keyboard.press('ArrowRight');
   out.push(['«Наше»: стрелка переключает на Списки', await page.evaluate(() => activeView === 'lists' && document.activeElement.dataset.our === 'lists')]);
+  // Roving tabindex: в Tab-порядке ровно одна вкладка «Наше» (m2 — убрать b.tabIndex в showView)
+  out.push(['«Наше»: roving tabindex — в Tab-порядке одна вкладка', await page.evaluate(() => [...document.querySelectorAll('.our-tab')].map(t => t.tabIndex).join() === '-1,0,-1')]);
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  out.push(['«Наше»: ArrowLeft с первой вкладки заворачивает на последнюю', await page.evaluate(() => activeView === 'wishlist' && document.activeElement.dataset.our === 'wishlist')]);
+  // Орбита: aria-label не пропадает (m4 — убрать атрибут целиком)
+  await page.evaluate(() => {
+    go('home');
+    renderHome();
+  });
+  out.push(['орбита: у кольца есть aria-label про годовщину', await page.evaluate(() => /годовщин/i.test(document.querySelector('#progressRing .orbit-ring').getAttribute('aria-label') || ''))]);
+  // Ось: Enter на фото открывает лайтбокс, Esc возвращает фокус на него (m1 — убрать keydown оси)
+  await page.evaluate(() => {
+    db.photos.push({ id: 'kb1', title: 'kb', takenAt: Date.now() - 5 * 86400000, labels: [], order: 999 });
+    setThumbUrl('kb1', 'data:image/gif;base64,R0lGODlhAQABAAAAACw=');
+    renderHome();
+    document.querySelector('[data-lightbox="kb1"]').focus();
+  });
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(150);
+  out.push(['ось: Enter на фото открывает лайтбокс', await page.evaluate(() => !document.getElementById('lightbox').hidden)]);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  out.push(['ось: Esc закрывает лайтбокс, фокус возвращается на фото', await page.evaluate(() => document.getElementById('lightbox').hidden && document.activeElement.dataset.lightbox === 'kb1')]);
+  await page.evaluate(() => {
+    db.photos = db.photos.filter(p => p.id !== 'kb1');
+    renderHome();
+  });
   // Галерея (ревью раунд 1): Enter на плитке открывает лайтбокс, Esc закрывает
   // и возвращает фокус на неё же (lbFlyBack, NV-97).
   await page.evaluate(() => go('photos'));
@@ -297,6 +325,39 @@ async function checkKeyboard(page, log) {
     'галерея: Esc закрывает лайтбокс, фокус возвращается на плитку',
     await page.evaluate(() => document.getElementById('lightbox').hidden && document.activeElement.hasAttribute('data-photo'))
   ]);
+  // Режим выбора (L1, m3): Space переключает выбор, фокус остаётся на той же плитке
+  // после перерисовки сетки, состояние объявлено через aria-pressed.
+  await page.evaluate(() => {
+    photoReorderMode = false;
+    photoSelectMode = true;
+    selectedPhotos.clear();
+    renderPhotosNow();
+    document.querySelector('#photosGrid .photo img[data-photo]').focus();
+  });
+  const firstId = await page.evaluate(() => document.activeElement.dataset.photo);
+  const selState = () => page.evaluate(id => ({ sel: selectedPhotos.has(id), focus: document.activeElement.dataset.photo === id, pressed: document.activeElement.getAttribute('aria-pressed') }), firstId);
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(150);
+  const s1 = await selState();
+  out.push(['выбор: Space отмечает фото, фокус остаётся на плитке, aria-pressed=true', s1.sel && s1.focus && s1.pressed === 'true']);
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(150);
+  const s2 = await selState();
+  out.push(['выбор: второй Space снимает отметку, фокус на месте, aria-pressed=false', !s2.sel && s2.focus && s2.pressed === 'false']);
+  // Режим порядка (L4): плитка не кнопка, Space на ней не глотается
+  const ro = await page.evaluate(() => {
+    photoSelectMode = false;
+    selectedPhotos.clear();
+    photoReorderMode = true;
+    renderPhotosNow();
+    const img = document.querySelector('#photosGrid .photo img[data-photo]');
+    const notPrevented = img.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+    const r = { tab: img.hasAttribute('tabindex'), role: img.hasAttribute('role'), notPrevented };
+    photoReorderMode = false;
+    renderPhotosNow();
+    return r;
+  });
+  out.push(['порядок: у плитки нет tabindex и role=button, Space не подавляется', !ro.tab && !ro.role && ro.notPrevented]);
   let ok = true;
   for (const [name, pass] of out) {
     log.push((pass ? 'OK' : 'FAIL') + ' клавиатура: ' + name);
