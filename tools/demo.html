@@ -149,12 +149,18 @@
                 if (op === '==') return v === val;
                 if (op === '>=') return v >= val;
                 if (op === '<=') return v <= val;
-                return true;
+                if (op === '<') return v < val;
+                throw new Error('demo: оператор ' + op + ' не поддержан');
               });
             });
             if (f.order) {
               var field2 = f.order[0],
                 dir = f.order[1];
+              // Как в Firestore: orderBy выкидывает документы без поля (null остаётся) —
+              // иначе стенд не воспроизводит догрузку оси по takenAt (M7).
+              rows = rows.filter(function (r) {
+                return r.d[field2] !== undefined;
+              });
               rows.sort(function (a, b) {
                 var av = a.d[field2],
                   bv = b.d[field2];

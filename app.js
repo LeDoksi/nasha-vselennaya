@@ -723,6 +723,21 @@ function docsToArray(snap) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
+// Офлайн .get() отвечает из локального кэша — частичного или пустого. Такой
+// ответ не доказывает, что дальше ничего нет: флаги «загружено/дочитано» и
+// курсоры по нему не двигаем, иначе прошлое до конца сессии считалось бы
+// прочитанным (K6).
+function fromCache(snap) {
+  return !!(snap && snap.metadata && snap.metadata.fromCache);
+}
+
+// Курсор страницы: неполная страница — последняя, null сразу (без лишнего
+// чтения пустой страницы, K1). Из кэша — только курсор, без вывода о конце.
+function pageCursor(snap) {
+  const n = snap.docs.length;
+  return n && (n === PHOTO_PAGE || fromCache(snap)) ? snap.docs[n - 1] : null;
+}
+
 // Firestore не гарантирует порядок документов ни между вызовами .get(), ни
 // между срабатываниями onSnapshot — без этого элементы вроде лейблов или
 // списков прыгают местами от захода к заходу и при каждом live-обновлении
@@ -775,7 +790,7 @@ async function loadHotSet() {
   const s = settings.exists ? settings.data() : {};
   db.pushSubs = s.pushSubs || {};
 
-  photosCursor = photos.docs.length ? photos.docs[photos.docs.length - 1] : null;
+  photosCursor = pageCursor(photos);
   loadedMonths = new Set([monthKey(now.getFullYear(), now.getMonth())]);
   // Ось (NV-96): loadHotSet() подменяет db.events/db.photos свежим горячим
   // набором — без сброса этих флагов повторный вызов (importData(), новый
@@ -810,7 +825,7 @@ async function loadMonth(year, month) {
   const [fromIso, toIso] = monthRange(year, month);
   const snap = await fsCol('events').where('date', '>=', fromIso).where('date', '<=', toIso).get();
   db.events = mergeById(db.events, docsToArray(snap));
-  loadedMonths.add(key);
+  if (!fromCache(snap)) loadedMonths.add(key);
 }
 
 // Следующая страница галереи. Возвращает, сколько фото добавилось (0 — конец).
@@ -823,9 +838,12 @@ async function loadMorePhotos() {
   photosLoadingMore = true;
   try {
     const snap = await fsCol('photos').orderBy('order', 'asc').startAfter(photosCursor).limit(PHOTO_PAGE).get();
+    // Из кэша — 0: ни данных, ни курсора; метка останется на месте и
+    // дочитает страницу, когда сеть вернётся (K6).
+    if (fromCache(snap)) return 0;
     const rows = docsToArray(snap);
     db.photos = mergeById(db.photos, rows);
-    photosCursor = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
+    photosCursor = pageCursor(snap);
     return rows.length;
   } finally {
     photosLoadingMore = false;
@@ -834,37 +852,70 @@ async function loadMorePhotos() {
 
 // Ось времени (NV-96): прошлое, которого нет в горячем наборе. События — один
 // раз все разовые раньше окна текущего месяца (их единицы-десятки, документы
-// маленькие); фото — страницами по дате съёмки, от новых к старым. Фото без
-// takenAt Firestore в такой выборке не отдаёт — на ось они и так не попадают
-// (memoryByDay). Дочитанные фото ложатся в тот же db.photos: галерея
-// сортирует по order и покажет их на своём месте раньше, чем до них дойдёт её
-// собственная страница, — это не дубль (mergeById), а ранний показ.
+// маленькие); фото — страницами по дате съёмки, от новых к старым. orderBy
+// выкидывает только документы БЕЗ поля takenAt (фото, прикреплённые в
+// календаре, src/41-calendar-photos.js), а takenAt:null (загрузка без EXIF,
+// src/70-photos.js) приходит хвостом выборки по убыванию — дойдя до него,
+// дальше по дате съёмки ничего нет (M5). Фото событий и свиданий без takenAt
+// дотягиваются по id (loadAttachedPhotos). Дочитанные фото ложатся в тот же
+// db.photos: галерея сортирует по order и покажет их на своём месте раньше,
+// чем до них дойдёт её собственная страница, — это не дубль (mergeById), а
+// ранний показ.
 function axisHasMore() {
   return fsReady && (!axisEventsLoaded || !axisPhotosDone);
 }
+
+// Водяной знак оси (K4): до какой даты прошлое уже прочитано. Пока фото не
+// дочитаны, ось рисует только дни не старше него (src/36-timeline.js,
+// axisDays) — иначе человек пролистал бы старые дни без их фото, а фото потом
+// приехали бы выше экрана. До первой страницы — начало окна горячего набора,
+// дальше — дата съёмки последнего фото страницы. '' — ограничения нет.
+function axisWatermark() {
+  if (!fsReady || axisPhotosDone) return '';
+  if (axisPhotosCursor) return isoFromMs(axisPhotosCursor.data().takenAt) || '';
+  const now = new Date();
+  return monthRange(now.getFullYear(), now.getMonth())[0];
+}
+
+// Фото событий и свиданий, которых нет в db.photos, — по id документа (K4).
+// Строки со «/» — старые data-URL прямо в ev.photos, не id документа.
+async function loadAttachedPhotos() {
+  const have = new Set(db.photos.map(p => p.id));
+  const ids = new Set();
+  for (const item of db.events.concat(db.dates)) {
+    for (const id of item.photos || []) if (typeof id === 'string' && id && !id.includes('/') && !have.has(id)) ids.add(id);
+  }
+  const snaps = await Promise.all([...ids].map(id => fsCol('photos').doc(id).get()));
+  db.photos = mergeById(
+    db.photos,
+    snaps.filter(d => d.exists).map(d => ({ id: d.id, ...d.data() }))
+  );
+}
+
 async function loadAxisPage() {
   if (!axisHasMore() || axisLoading) return 0;
   axisLoading = true;
   try {
-    let added = 0;
+    const before = db.events.length + db.photos.length;
     if (!axisEventsLoaded) {
       const now = new Date();
       const [fromIso] = monthRange(now.getFullYear(), now.getMonth());
       const snap = await fsCol('events').where('date', '<', fromIso).get();
-      const before = db.events.length;
+      // Бросаем — наблюдатель оси покажет тост «Не удалось догрузить прошлое» (K6).
+      if (fromCache(snap)) throw new Error('ось: события из офлайн-кэша');
       db.events = mergeById(db.events, docsToArray(snap));
-      added += db.events.length - before;
+      await loadAttachedPhotos();
       axisEventsLoaded = true;
     }
     let q = fsCol('photos').orderBy('takenAt', 'desc');
     if (axisPhotosCursor) q = q.startAfter(axisPhotosCursor);
     const snap = await q.limit(PHOTO_PAGE).get();
-    const before = db.photos.length;
-    db.photos = mergeById(db.photos, docsToArray(snap));
-    added += db.photos.length - before;
+    if (fromCache(snap)) throw new Error('ось: фото из офлайн-кэша');
+    const rows = docsToArray(snap);
+    db.photos = mergeById(db.photos, rows);
     if (snap.docs.length) axisPhotosCursor = snap.docs[snap.docs.length - 1];
-    if (snap.docs.length < PHOTO_PAGE) axisPhotosDone = true;
-    return added;
+    if (snap.docs.length < PHOTO_PAGE || rows.some(r => r.takenAt == null)) axisPhotosDone = true;
+    return db.events.length + db.photos.length - before;
   } finally {
     axisLoading = false;
   }
@@ -2863,10 +2914,20 @@ function memoryDayHtml(day) {
   return html`<article class="axis-day"><span class="axis-dot"></span><div class="tl-card">${card}</div></article>`;
 }
 
-function renderTimeline(box, more) {
-  if (!box) return;
+// Дни оси до водяного знака (K4, axisWatermark в src/04-repo.js): пока фото
+// страницами не дочитаны, более старые дни ждут своей страницы.
+function axisDays() {
+  const wm = axisWatermark();
   const days = memoryByDay();
-  if (!days.length) {
+  return wm ? days.filter(d => d.date >= wm) : days;
+}
+
+function renderTimeline(box, more, days) {
+  if (!box) return;
+  days = days || axisDays();
+  // Пустой экран — только когда и в Firestore больше нечего дочитать (K5):
+  // иначе рисуем ось из одной метки, и она сама дочитает прошлое.
+  if (!days.length && !axisHasMore()) {
     // Пустая ось: старая метка [data-axis-more] из прошлого рендера уже не в DOM —
     // отписываем её от observer'а, иначе он копит наблюдателей на удалённых узлах (утечка).
     const prevSentinel = timelineSentinel.get(box);
@@ -2890,7 +2951,7 @@ function renderTimeline(box, more) {
           ${y.days.map(d => memoryDayHtml(d))}
         </section>`
       )}
-      ${shown < days.length || axisHasMore() ? html`<div class="axis-more" data-axis-more aria-hidden="true"><span class="axis-dot"></span><div class="tl-card sk"></div></div>` : ''}
+      ${shown < days.length || axisHasMore() ? html`<div class="axis-more" data-axis-more aria-hidden="true"><span class="axis-dot"></span><div class="sk axis-sk"></div></div>` : ''}
     </div>`
   );
   hydratePhotoImgs(box);
@@ -2905,27 +2966,33 @@ function renderTimeline(box, more) {
   if (sentinel && timelineObserver) timelineObserver.observe(sentinel);
 }
 
-let timelineObserver = null;
-if (typeof IntersectionObserver === 'function') {
-  timelineObserver = new IntersectionObserver(
-    entries => {
-      for (const e of entries) {
-        if (!e.isIntersecting) continue;
-        timelineObserver.unobserve(e.target);
-        const box = e.target.closest('[data-axis]');
-        // Локально показано всё — дочитываем прошлое из Firestore (NV-96).
-        // Ошибка: метка остаётся неотслеживаемой до следующей перерисовки
-        // (живое обновление, возврат на Главную) — без бесконечных повторов.
-        if ((timelineShown.get(box) || 0) < memoryByDay().length) renderTimeline(box, true);
-        else
-          loadAxisPage()
-            .then(() => renderTimeline(box, true))
-            .catch(() => notify('Не удалось догрузить прошлое — проверь интернет.', true));
-      }
-    },
-    { rootMargin: '600px 0px' }
-  );
+// Именованная, а не инлайн — тест дёргает её напрямую (в песочнице нет IO).
+function onAxisSentinel(entries) {
+  let days = null;
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    if (timelineObserver) timelineObserver.unobserve(e.target);
+    const box = e.target.closest('[data-axis]');
+    days = days || axisDays();
+    if ((timelineShown.get(box) || 0) < days.length) renderTimeline(box, true, days);
+    // Локально показано всё — дочитываем прошлое из Firestore (NV-96). Если
+    // страница уже летит — ничего: её собственный .then перерисует ось и
+    // подпишет новую метку. Перерисовка отсюда дала бы новую метку, IO снова,
+    // и так каждый кадр до ответа сервера (K2).
+    else if (!axisLoading)
+      loadAxisPage()
+        .then(() => renderTimeline(box, true))
+        .catch(() => {
+          // Ошибка: скелетон «грузится» не должен висеть (M6) — убираем метку,
+          // следующая перерисовка (живое обновление, возврат на Главную) вернёт
+          // её. Без бесконечных повторов.
+          box.querySelectorAll('[data-axis-more]').forEach(n => n.remove());
+          notify('Не удалось догрузить прошлое — проверь интернет.', true);
+        });
+  }
 }
+let timelineObserver = null;
+if (typeof IntersectionObserver === 'function') timelineObserver = new IntersectionObserver(onAxisSentinel, { rootMargin: '600px 0px' });
 
 // Высота липкой шапки → --header-h: под ней прилипают метки годов. Шапка
 // меняет высоту (перенос кнопок на узком десктопе, плашка «нет сети»).
@@ -5395,18 +5462,20 @@ function renderPhotosNow() {
 // IntersectionObserver есть не везде (песочница тестов, старые окружения) —
 // тогда наблюдатель просто не создаётся, а пагинация (loadMorePhotos)
 // тестируется напрямую.
-let photosObserver = null;
-if (typeof IntersectionObserver === 'function') {
-  photosObserver = new IntersectionObserver(entries => {
-    if (!entries.some(e => e.isIntersecting)) return;
-    if (activeView !== 'photos' || !db.photos.length || !photosCursor) return;
-    loadMorePhotos()
-      .then(added => {
-        if (added) renderPhotos();
-      })
-      .catch(() => notify('Не удалось догрузить фото. Проверь интернет — продолжу, когда прокрутишь ещё раз.', true));
-  });
+// Именованная, а не инлайн — тест дёргает её напрямую (в песочнице нет IO).
+function onPhotosSentinel(entries) {
+  if (!entries.some(e => e.isIntersecting)) return;
+  if (activeView !== 'photos' || !db.photos.length || !photosCursor) return;
+  loadMorePhotos()
+    .then(added => {
+      // Пустая последняя страница тоже перерисовывает: курсор стал null —
+      // скелетон-плитки в конце сетки должны уйти (K1).
+      if (added || !photosCursor) renderPhotos();
+    })
+    .catch(() => notify('Не удалось догрузить фото. Проверь интернет — продолжу, когда прокрутишь ещё раз.', true));
 }
+let photosObserver = null;
+if (typeof IntersectionObserver === 'function') photosObserver = new IntersectionObserver(onPhotosSentinel);
 // Витрина «📅 События»: кнопки «год → месяц → событие» появляются по мере выбора
 function eventPhotosCount(year, month, title) {
   let n = 0;

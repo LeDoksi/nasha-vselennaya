@@ -35,10 +35,20 @@ function memoryDayHtml(day) {
   return html`<article class="axis-day"><span class="axis-dot"></span><div class="tl-card">${card}</div></article>`;
 }
 
-function renderTimeline(box, more) {
-  if (!box) return;
+// Дни оси до водяного знака (K4, axisWatermark в src/04-repo.js): пока фото
+// страницами не дочитаны, более старые дни ждут своей страницы.
+function axisDays() {
+  const wm = axisWatermark();
   const days = memoryByDay();
-  if (!days.length) {
+  return wm ? days.filter(d => d.date >= wm) : days;
+}
+
+function renderTimeline(box, more, days) {
+  if (!box) return;
+  days = days || axisDays();
+  // Пустой экран — только когда и в Firestore больше нечего дочитать (K5):
+  // иначе рисуем ось из одной метки, и она сама дочитает прошлое.
+  if (!days.length && !axisHasMore()) {
     // Пустая ось: старая метка [data-axis-more] из прошлого рендера уже не в DOM —
     // отписываем её от observer'а, иначе он копит наблюдателей на удалённых узлах (утечка).
     const prevSentinel = timelineSentinel.get(box);
@@ -62,7 +72,7 @@ function renderTimeline(box, more) {
           ${y.days.map(d => memoryDayHtml(d))}
         </section>`
       )}
-      ${shown < days.length || axisHasMore() ? html`<div class="axis-more" data-axis-more aria-hidden="true"><span class="axis-dot"></span><div class="tl-card sk"></div></div>` : ''}
+      ${shown < days.length || axisHasMore() ? html`<div class="axis-more" data-axis-more aria-hidden="true"><span class="axis-dot"></span><div class="sk axis-sk"></div></div>` : ''}
     </div>`
   );
   hydratePhotoImgs(box);
@@ -77,27 +87,33 @@ function renderTimeline(box, more) {
   if (sentinel && timelineObserver) timelineObserver.observe(sentinel);
 }
 
-let timelineObserver = null;
-if (typeof IntersectionObserver === 'function') {
-  timelineObserver = new IntersectionObserver(
-    entries => {
-      for (const e of entries) {
-        if (!e.isIntersecting) continue;
-        timelineObserver.unobserve(e.target);
-        const box = e.target.closest('[data-axis]');
-        // Локально показано всё — дочитываем прошлое из Firestore (NV-96).
-        // Ошибка: метка остаётся неотслеживаемой до следующей перерисовки
-        // (живое обновление, возврат на Главную) — без бесконечных повторов.
-        if ((timelineShown.get(box) || 0) < memoryByDay().length) renderTimeline(box, true);
-        else
-          loadAxisPage()
-            .then(() => renderTimeline(box, true))
-            .catch(() => notify('Не удалось догрузить прошлое — проверь интернет.', true));
-      }
-    },
-    { rootMargin: '600px 0px' }
-  );
+// Именованная, а не инлайн — тест дёргает её напрямую (в песочнице нет IO).
+function onAxisSentinel(entries) {
+  let days = null;
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    if (timelineObserver) timelineObserver.unobserve(e.target);
+    const box = e.target.closest('[data-axis]');
+    days = days || axisDays();
+    if ((timelineShown.get(box) || 0) < days.length) renderTimeline(box, true, days);
+    // Локально показано всё — дочитываем прошлое из Firestore (NV-96). Если
+    // страница уже летит — ничего: её собственный .then перерисует ось и
+    // подпишет новую метку. Перерисовка отсюда дала бы новую метку, IO снова,
+    // и так каждый кадр до ответа сервера (K2).
+    else if (!axisLoading)
+      loadAxisPage()
+        .then(() => renderTimeline(box, true))
+        .catch(() => {
+          // Ошибка: скелетон «грузится» не должен висеть (M6) — убираем метку,
+          // следующая перерисовка (живое обновление, возврат на Главную) вернёт
+          // её. Без бесконечных повторов.
+          box.querySelectorAll('[data-axis-more]').forEach(n => n.remove());
+          notify('Не удалось догрузить прошлое — проверь интернет.', true);
+        });
+  }
 }
+let timelineObserver = null;
+if (typeof IntersectionObserver === 'function') timelineObserver = new IntersectionObserver(onAxisSentinel, { rootMargin: '600px 0px' });
 
 // Высота липкой шапки → --header-h: под ней прилипают метки годов. Шапка
 // меняет высоту (перенос кнопок на узком десктопе, плашка «нет сети»).

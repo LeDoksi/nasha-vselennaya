@@ -1099,7 +1099,9 @@ input[type=password]:focus-visible,textarea:focus-visible,select:focus-visible{
 .axis-day{position:relative;margin-bottom:24px}
 /* Метка догрузки оси — она же скелетон следующего дня (виден, только если сеть медленная) */
 .axis-more{position:relative;margin-bottom:24px}
-.axis-more .tl-card{height:96px}
+/* Свой класс, не .tl-card: фон .tl-card и стекла (ниже, та же специфичность)
+   перебивал градиент .sk — скелетон не мерцал (K3). */
+.axis-sk{height:96px}
 .tl-card{background:var(--sky-1);border:1px solid var(--line);border-radius:var(--radius-card);padding:14px;box-shadow:0 2px 12px oklch(from var(--night) l c h / .06);text-align:left}
 .tl-date{font-weight:800;color:var(--star-ink);margin-bottom:8px;font-size:var(--text-base)}
 .tl-photos{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;padding:2px 0}

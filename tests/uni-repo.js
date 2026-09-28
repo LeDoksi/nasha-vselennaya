@@ -192,6 +192,12 @@ function __TEST__(s){
   s.monthKey = monthKey; s.monthRange = monthRange;
   s.loadHotSet = loadHotSet; s.loadMonth = loadMonth; s.loadMorePhotos = loadMorePhotos;
   s.loadAxisPage = loadAxisPage; s.axisHasMore = axisHasMore;
+  // Фикс-волна фазы 9 (K1–K6, M5, M6): ось и галерея через свои метки догрузки.
+  s.axisDays = axisDays; s.renderTimeline = renderTimeline;
+  s.onAxisSentinel = onAxisSentinel; s.onPhotosSentinel = onPhotosSentinel;
+  Object.defineProperty(s, 'activeView', { get: () => activeView, set: v => { activeView = v; }, configurable: true });
+  Object.defineProperty(s, 'axisLoading', { get: () => axisLoading, set: v => { axisLoading = v; }, configurable: true });
+  Object.defineProperty(s, 'photosCursor', { get: () => photosCursor, configurable: true });
   s.repoSet = repoSet; s.repoDelete = repoDelete; s.repoBatch = repoBatch; s.repoMeta = repoMeta;
   // Тестовый сброс антиспам-таймера алертов о провале записи (NV-12) — без
   // него порядок тестов в этом файле влияет на то, покажется ли alert (окно
@@ -595,13 +601,14 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   // с одним и тем же (ещё не обновлённым) курсором и оба реально сходили бы
   // в Firestore за одной и той же страницей.
   Object.keys(mock._store).forEach(k => delete mock._store[k]);
-  for (let i = 0; i < 5; i++) mock._store['couples/main/photos/race' + i] = { order: i, ts: i };
+  // K1: 61 фото — горячий набор берёт 60, на гонку остаётся ровно одна страница из одного фото.
+  for (let i = 0; i < 61; i++) mock._store['couples/main/photos/race' + String(i).padStart(2, '0')] = { order: i, ts: i };
   w('(s)=>{ s.db = s.defaultDB(); return 1; }');
   await w('(s)=>s.loadHotSet()');
-  assert(w('(s)=>s.db.photos.length') === 5, 'горячий набор подтянул все 5 фото для теста гонки');
+  assert(w('(s)=>s.db.photos.length') === 60, 'горячий набор подтянул первую страницу (60) для теста гонки');
   const getsBefore = mock._colGetCount;
   const raceResults = await w('(s)=>Promise.all([s.loadMorePhotos(), s.loadMorePhotos()])');
-  assert(JSON.stringify(raceResults) === '[0,0]', 'обе параллельные догрузки вернули 0 (курсор уже в конце коллекции)');
+  assert(JSON.stringify(raceResults) === '[1,0]', 'первая догрузка принесла последнее фото, вторая параллельная вернула 0');
   assert(mock._colGetCount - getsBefore === 1, 'photosLoadingMore не дал второму параллельному вызову прочитать ту же страницу — реальное чтение Firestore случилось только одно');
   assert(w('(s)=>s.photosLoadingMore') === false, 'после завершения обеих догрузок флаг снова снят');
 
@@ -635,6 +642,156 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(w('(s)=>s.axisHasMore()') === true, 'loadHotSet сбросил axis-флаги — оси снова есть что дочитать');
   await w('(s)=>s.loadAxisPage()');
   assert(w('(s)=>s.db.events.some(e=>e.id==="old1")'), 'дочитка после повторного loadHotSet снова приносит старое разовое событие');
+
+  // ===== Фикс-волна фазы 9 (ревью ветки: K1–K6, M5, M6, M8) =====
+  const tick = () => new Promise(r => setTimeout(r, 10));
+  const clearStore = () => Object.keys(mock._store).forEach(k => delete mock._store[k]);
+  // Контейнер оси без DOM: считает перерисовки, отдаёт одну метку [data-axis-more].
+  function fakeAxisBox() {
+    const box = {
+      renders: 0,
+      html: '',
+      set innerHTML(v) {
+        this.renders++;
+        this.html = v;
+      },
+      get innerHTML() {
+        return this.html;
+      },
+      querySelectorAll: sel => (sel === '[data-axis-more]' ? [box.node] : []),
+      closest: () => box
+    };
+    box.node = {
+      removed: false,
+      remove() {
+        this.removed = true;
+      },
+      closest: () => box
+    };
+    return box;
+  }
+  const hit = name => `(s)=>{ s.onAxisSentinel([{ isIntersecting: true, target: s.${name}.node }]); return 1; }`;
+
+  // K5 + M8(a): локальных дней нет, но прошлое в Firestore не дочитано —
+  // рисуется оболочка оси с меткой догрузки, а не пустой экран.
+  clearStore();
+  w('(s)=>{ s.db = s.defaultDB(); return 1; }');
+  await w('(s)=>s.loadHotSet()');
+  mock._store['couples/main/events/k5old'] = { title: 'Старое', date: '2020-02-02', repeat: false };
+  sandbox._k5 = fakeAxisBox();
+  w('(s)=>{ s.renderTimeline(s._k5); return 1; }');
+  assert(sandbox._k5.html.includes('data-axis-more') && !sandbox._k5.html.includes('empty-state'), 'K5: пустая локальная ось с недочитанным прошлым — метка догрузки, а не пустой экран');
+  assert(sandbox._k5.html.includes('axis-sk') && !sandbox._k5.html.includes('tl-card'), 'K3: скелетон метки — свой .axis-sk, не .tl-card (его фон перебивал шиммер)');
+  w(hit('_k5'));
+  await tick();
+  assert(sandbox._k5.html.includes('Старое'), 'K5: метка пустой оси дочитала прошлое и показала его');
+  clearStore();
+  await w('(s)=>s.loadHotSet()');
+  await w('(s)=>s.loadAxisPage()');
+  w('(s)=>{ s.renderTimeline(s._k5); return 1; }');
+  assert(sandbox._k5.html.includes('empty-state'), 'K5: прошлое дочитано и пусто — пустой экран');
+
+  // K2: пока страница оси в полёте, срабатывание метки не перерисовывает ось
+  // (иначе новая метка → IO снова → цикл рендеров на всё время запроса).
+  clearStore();
+  await w('(s)=>s.loadHotSet()');
+  sandbox._k2 = fakeAxisBox();
+  const getsK2 = mock._colGetCount;
+  w('(s)=>{ s.axisLoading = true; return 1; }');
+  w(hit('_k2'));
+  await tick();
+  assert(sandbox._k2.renders === 0 && mock._colGetCount === getsK2, 'K2: страница оси в полёте — метка не перерисовывает ось и не читает Firestore');
+  w('(s)=>{ s.axisLoading = false; return 1; }');
+
+  // M6: упавшая страница оси не оставляет скелетон «грузится».
+  sandbox._m6 = fakeAxisBox();
+  mock._failNextGet('events');
+  w(hit('_m6'));
+  await tick();
+  assert(sandbox._m6.node.removed, 'M6: упавшая страница оси убирает скелетон-метку');
+  assert(String(w('(s)=>s.toastText')).includes('Не удалось догрузить прошлое'), 'M6: и объясняет тостом');
+
+  // K4: водяной знак. 70 фото с датой съёмки 1 янв – 10 мар 2024; горячий
+  // набор (по order) приносит 60 самых СТАРЫХ, первая страница оси — 60 самых
+  // новых по takenAt. Дни старше последнего фото страницы ждут следующую.
+  clearStore();
+  for (let i = 0; i < 70; i++) mock._store['couples/main/photos/wm' + String(i).padStart(2, '0')] = { order: i, ts: i, takenAt: new Date(2024, 0, 1 + i, 12).getTime() };
+  // Фото, прикреплённое в календаре (src/41-calendar-photos.js): takenAt нет вовсе.
+  mock._store['couples/main/photos/calPh'] = { order: 500, ts: 0, labels: ['📅 События'] };
+  mock._store['couples/main/events/wmEv'] = { title: 'Поход', date: '2025-05-12', repeat: false, photos: ['calPh', 'ghost', 'data:image/jpeg;base64,AA/BB=='] };
+  w('(s)=>{ s.db = s.defaultDB(); return 1; }');
+  await w('(s)=>s.loadHotSet()');
+  assert(w('(s)=>s.db.photos.some(p=>p.id==="wm00")'), 'K4: в горячем наборе есть старые фото 2024 года');
+  assert(w('(s)=>s.axisDays().length') === 0, 'K4: до первой страницы оси дни старше окна горячего набора не рисуются');
+  await w('(s)=>s.loadAxisPage()');
+  assert(w(`(s)=>s.axisDays().length > 0 && s.axisDays().every(d => d.date >= '2024-01-11')`), 'K4: после первой страницы — только дни не старше водяного знака (takenAt последнего фото страницы)');
+  assert(!w(`(s)=>s.axisDays().some(d => d.date === '2024-01-05')`), 'K4: день из горячего набора старше водяного знака пока скрыт');
+  assert(
+    w(`(s)=>s.axisDays().some(d => d.date === '2025-05-12' && d.events[0].photos.some(p => p.id === 'calPh'))`),
+    'K4: фото старого события без takenAt дотянуто по id документа и лежит в его карточке'
+  );
+  assert(!w('(s)=>s.db.photos.some(p=>p.id==="ghost")'), 'K4: несуществующий id пропущен');
+  await w('(s)=>s.loadAxisPage()');
+  assert(w(`(s)=>s.axisDays().some(d => d.date === '2024-01-01')`), 'K4: последняя страница снимает водяной знак — видны все дни');
+
+  // M5: фото без EXIF (takenAt:null) идут в хвосте выборки по убыванию —
+  // дойдя до них, дальше по дате съёмки ничего нет.
+  clearStore();
+  for (let i = 0; i < 59; i++) mock._store['couples/main/photos/m5d' + String(i).padStart(2, '0')] = { order: i, ts: i, takenAt: new Date(2023, 0, 1 + i).getTime() };
+  for (let i = 0; i < 5; i++) mock._store['couples/main/photos/m5n' + i] = { order: 100 + i, ts: 0, takenAt: null };
+  await w('(s)=>s.loadHotSet()');
+  await w('(s)=>s.loadAxisPage()');
+  assert(w('(s)=>s.axisHasMore()') === false, 'M5: страница дошла до фото с takenAt:null — ось дочитана');
+
+  // K6: офлайн .get() отвечает из кэша (metadata.fromCache) — это не
+  // доказательство конца данных: флаги и курсоры не двигаются.
+  clearStore();
+  await w('(s)=>s.loadHotSet()');
+  mock._nextGetFromCache('events');
+  await w('(s)=>s.loadMonth(2031, 0)');
+  const getsK6 = mock._colGetCount;
+  await w('(s)=>s.loadMonth(2031, 0)');
+  assert(mock._colGetCount === getsK6 + 1, 'K6: месяц из офлайн-кэша не считается загруженным — следующий заход читает его снова');
+  for (let i = 0; i < 61; i++) mock._store['couples/main/photos/c6_' + String(i).padStart(2, '0')] = { order: i, ts: i };
+  await w('(s)=>s.loadHotSet()');
+  const curK6 = w('(s)=>s.photosCursor && s.photosCursor.id');
+  mock._nextGetFromCache('photos');
+  const addedCached = await w('(s)=>s.loadMorePhotos()');
+  assert(addedCached === 0 && w('(s)=>s.photosCursor && s.photosCursor.id') === curK6, 'K6: страница галереи из кэша не двигает курсор');
+  assert((await w('(s)=>s.loadMorePhotos()')) === 1, 'K6: онлайн та же страница дочитывается');
+  let rejK6 = false;
+  mock._nextGetFromCache('events');
+  await w('(s)=>s.loadAxisPage()').catch(() => (rejK6 = true));
+  assert(rejK6 && w('(s)=>s.axisHasMore()') === true, 'K6: события оси из кэша — отказ (тост), ось не считается дочитанной');
+  rejK6 = false;
+  mock._nextGetFromCache('photos');
+  await w('(s)=>s.loadAxisPage()').catch(() => (rejK6 = true));
+  assert(rejK6 && w('(s)=>s.axisHasMore()') === true, 'K6: фото оси из кэша — отказ, ось не считается дочитанной');
+  await w('(s)=>s.loadAxisPage()');
+  assert(w('(s)=>s.axisHasMore()') === false, 'K6: онлайн ось дочитывается');
+
+  // K1 + M8(b): жизненный цикл скелетона галереи.
+  w('(s)=>{ s.activeView = "photos"; return 1; }');
+  clearStore();
+  for (let i = 0; i < 5; i++) mock._store['couples/main/photos/k1a' + i] = { order: i, ts: i };
+  await w('(s)=>s.loadHotSet()');
+  assert(w('(s)=>s.photosCursor') === null, 'K1: страница короче PHOTO_PAGE — последняя, курсор сразу null (лишнего чтения нет)');
+  w('(s)=>{ s.renderPhotos(); return 1; }');
+  assert(!registry['#photosGrid'].innerHTML.includes('photo-sk'), 'K1: единственная неполная страница — без скелетона');
+  clearStore();
+  for (let i = 0; i < 60; i++) mock._store['couples/main/photos/k1b' + String(i).padStart(2, '0')] = { order: i, ts: i };
+  await w('(s)=>s.loadHotSet()');
+  w('(s)=>{ s.renderPhotos(); return 1; }');
+  assert(registry['#photosGrid'].innerHTML.includes('photo-sk'), 'K1: ровно 60 фото — конец неизвестен, скелетон есть');
+  w('(s)=>{ s.onPhotosSentinel([{ isIntersecting: true }]); return 1; }');
+  await tick();
+  assert(w('(s)=>s.photosCursor') === null && !registry['#photosGrid'].innerHTML.includes('photo-sk'), 'K1: пустая следующая страница — скелетон уходит');
+  mock._store['couples/main/photos/k1c'] = { order: 60, ts: 60 };
+  await w('(s)=>s.loadHotSet()');
+  w('(s)=>{ s.renderPhotos(); s.onPhotosSentinel([{ isIntersecting: true }]); return 1; }');
+  await tick();
+  assert(w('(s)=>s.photosCursor') === null && !registry['#photosGrid'].innerHTML.includes('photo-sk'), 'K1: последняя страница из одного фото — курсор null, скелетон уходит');
+  w('(s)=>{ s.activeView = "home"; return 1; }');
 
   // РЕВЬЮ задачи 10 (Important, повторное ревью): дозагрузка по scroll
   // тупиковала, если галерея умещалась в экран без прокрутки (scroll ни разу

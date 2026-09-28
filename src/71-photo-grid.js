@@ -139,18 +139,20 @@ function renderPhotosNow() {
 // IntersectionObserver есть не везде (песочница тестов, старые окружения) —
 // тогда наблюдатель просто не создаётся, а пагинация (loadMorePhotos)
 // тестируется напрямую.
-let photosObserver = null;
-if (typeof IntersectionObserver === 'function') {
-  photosObserver = new IntersectionObserver(entries => {
-    if (!entries.some(e => e.isIntersecting)) return;
-    if (activeView !== 'photos' || !db.photos.length || !photosCursor) return;
-    loadMorePhotos()
-      .then(added => {
-        if (added) renderPhotos();
-      })
-      .catch(() => notify('Не удалось догрузить фото. Проверь интернет — продолжу, когда прокрутишь ещё раз.', true));
-  });
+// Именованная, а не инлайн — тест дёргает её напрямую (в песочнице нет IO).
+function onPhotosSentinel(entries) {
+  if (!entries.some(e => e.isIntersecting)) return;
+  if (activeView !== 'photos' || !db.photos.length || !photosCursor) return;
+  loadMorePhotos()
+    .then(added => {
+      // Пустая последняя страница тоже перерисовывает: курсор стал null —
+      // скелетон-плитки в конце сетки должны уйти (K1).
+      if (added || !photosCursor) renderPhotos();
+    })
+    .catch(() => notify('Не удалось догрузить фото. Проверь интернет — продолжу, когда прокрутишь ещё раз.', true));
 }
+let photosObserver = null;
+if (typeof IntersectionObserver === 'function') photosObserver = new IntersectionObserver(onPhotosSentinel);
 // Витрина «📅 События»: кнопки «год → месяц → событие» появляются по мере выбора
 function eventPhotosCount(year, month, title) {
   let n = 0;

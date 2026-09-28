@@ -13,6 +13,7 @@ function makeFsMock() {
   let forcedUpdateError = null; // { path, code } — одноразовая подмена ошибки update(), чтобы проверить проброс НЕ-not-found ошибок из repoMeta
   let forcedWriteError = null; // { path, code } — то же самое для set()/delete() (repoSet/repoDelete/repoBatch), NV-12
   let forcedGetError = null; // имя коллекции — одноразовый отказ colRef.get() (NV-62: догрузка месяца календаря)
+  let cachedGet = null; // имя коллекции — одноразовый ответ «из офлайн-кэша» (metadata.fromCache, K6)
 
   const clone = v => JSON.parse(JSON.stringify(v));
   const notify = () => listeners.forEach(l => l.fire());
@@ -118,6 +119,10 @@ function makeFsMock() {
           forcedGetError = null;
           throw new Error('offline (мок)');
         }
+        if (cachedGet && path.endsWith('/' + cachedGet)) {
+          cachedGet = null;
+          return { docs: run(), metadata: { fromCache: true } };
+        }
         return { docs: run() };
       },
       onSnapshot(cb) {
@@ -148,6 +153,8 @@ function makeFsMock() {
       }
       if (query.order) {
         const [f, dir] = query.order;
+        // Как в Firestore: orderBy выкидывает документы без поля (null — остаётся).
+        rows = rows.filter(r => r._raw[f] !== undefined);
         rows.sort((a, b) => (a._raw[f] > b._raw[f] ? 1 : a._raw[f] < b._raw[f] ? -1 : 0) * (dir === 'desc' ? -1 : 1));
       }
       if (query.after) {
@@ -201,6 +208,9 @@ function makeFsMock() {
     },
     _failNextGet(collection) {
       forcedGetError = collection;
+    },
+    _nextGetFromCache(collection) {
+      cachedGet = collection;
     }
   };
 }
