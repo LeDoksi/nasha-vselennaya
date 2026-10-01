@@ -112,6 +112,8 @@
 - **NV-122** — миниатюры календаря (`src/41-calendar-photos.js`) и хотелок
   (`src/61-wishes.js`) открывают лайтбокс только мышью: нужны `tabindex`,
   `role=button`, `aria-label`, Enter/Space и кольцо фокуса.
+- **NV-123** — шкала отступов `--sp-*` заведена, но не применена: padding/margin/gap
+  в `styles.css` — px по месту; перевести и дать стража в `tests/uni-tokens.js`.
 
 **Перформанс (NV-97, NV-63).** `onThisDayItems` на 312 фото ≈ 0.4 мс при
 перерисовке галереи — не мемоизируем. Стенд, desktop / mobile Performance
