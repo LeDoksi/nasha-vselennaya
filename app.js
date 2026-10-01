@@ -2103,6 +2103,8 @@ function showView(view) {
   const inOur = OUR_TABS.includes(view);
   if (inOur) store.set(OUR_KEY, view);
   const apply = () => {
+    // L13: колбэк перехода может запоздать — если за это время открыли другую вкладку, не рисуем старую поверх
+    if (view !== activeView) return;
     $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
     $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view || (inOur && b.dataset.view === 'our')));
     const sw = $('#ourSwitch');

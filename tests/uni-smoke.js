@@ -1582,6 +1582,21 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   w('(s)=>{delete s.document.startViewTransition; return 1;}');
   w('(s)=>{s.go("notes"); return 1;}');
   assert(w('(s)=>s.activeView') === 'notes', 'без startViewTransition — мгновенное переключение');
+  // L13: колбэк отложенного перехода не перерисовывает старую вкладку поверх более новой
+  // (apply календаря сбрасывает calY на текущий год — по нему и видно, отработал ли старый колбэк)
+  assert(
+    w(`(s)=>{
+    const queued = [];
+    s.document.startViewTransition = cb => { queued.push(cb); return { finished: Promise.resolve() }; };
+    s.go('calendar');
+    delete s.document.startViewTransition;
+    s.go('photos');
+    s.calY = 1999;
+    queued.forEach(cb => cb());
+    return s.activeView === 'photos' && s.calY === 1999;
+  }`),
+    'запоздавший колбэк перехода не рисует старую вкладку поверх новой (L13)'
+  );
 
   // --- Фаза C: светбокс 2.0 (стрелки, зум, счётчик) ---
   w('(s)=>{s.openLightbox(["phA","phB","phC"], 1); return 1;}');

@@ -408,9 +408,8 @@ async function checkSelectNoJump(browser, log, touch) {
   const page = await ctx.newPage();
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__demoReady === true, null, { timeout: 15000 });
-  // Стартовый showView('home') идёт настоящим View Transition; его колбэк, запоздав,
-  // перекрасил бы экран обратно на Главную поверх нашего go('photos').
-  await page.waitForTimeout(800);
+  // Стартовый showView('home') идёт настоящим View Transition; его запоздавший колбэк
+  // больше не перекрашивает экран поверх нашего go('photos') — showView проверяет activeView (L13).
   await page.evaluate(() => {
     document.startViewTransition = undefined;
     closeOverlay('dateInviteOverlay');
