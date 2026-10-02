@@ -31,8 +31,8 @@
   `innerHTML` и `esc()` только через `html` и `render()` (`src/00-html.js`),
   ноль обработчиков `scroll`; `tests/uni-motion.js` — `listFlipAnimate` и
   `celebrate()`. Плюс `tests/uni-smoke.js` (459 проверок), `uni-repo` 132,
-  `uni-photo-sync` 50, `repro-event-btn` 15, `uni-dnd` 33, `uni-hash`+`uni-sync`
-  11, `uni-sw`, линт — тот же `npm run check` гоняет pre-commit хук.
+  `uni-photo-sync` 50, `repro-event-btn` 15, `uni-dnd` 33, `uni-sync` 11,
+  `uni-hash` (отдельные OK-строки без счётчика), `uni-sw`, линт — тот же `npm run check` гоняет pre-commit хук.
 - **Стенд и снимки** — `tools/`: `serve.js` (статический сервер, порт 8090,
   поднять отдельно), `demo.html` + `demo-boot.js` + `demo-fixtures.js`
   (приложение с заглушкой входа и базы, без Firebase), `shots.js <папка>` (40
@@ -58,9 +58,12 @@
   «в этот день» — крупные 2×2, и это тоже задумано.
 - **Один акцентный цвет — янтарь `--star`**; первичное действие `.btn`, всё
   повторяющееся и второстепенное — `.btn.btn-ghost`; фиолетовый `--night` —
-  только фон и декор, розовый — только праздник. Вторичное в `--star` не красить.
+  только фон и декор; праздник — эмодзи-сердечки и конфетти, отдельного
+  розового цвета нет. Вторичное в `--star` не красить.
 - **Эмодзи-политика (L0 фикс-волны).** Эмодзи нет в хроме: заголовки, подписи
-  кнопок, подсказки, статусы, тосты, `alert()`, ошибки входа. Вместо них иконки
+  кнопок, подсказки, статусы, тосты, `alert()`, ошибки входа, подписи
+  служебных лейблов на плитках фото («События»/«Свидания»; ключи
+  `EVENT_LABEL`/`DATE_LABEL` с эмодзи — данные, не менять). Вместо них иконки
   спрайта (`navIconHtml`; чипы Главной `.hs-chip .nav-icon{width:1em;height:1em}`,
   отметка «прошло» в календаре — `navIconHtml('check')`). **Остаются:** эмодзи
   пользователя (событие, свидание, отсчёт «до «…»»), «💞 Мы идём на свидание!»,
@@ -81,8 +84,8 @@
 - **Лайтбокс листает в визуальном порядке** (`openLightboxFrom`,
   `src/85-lightbox.js`): сортировка по `top`/`left` плиток `.photo` (rect берётся
   у `.photo`, не у `<img>` — из-за `content-visibility`). При закрытии, если
-  фокус потерян, он идёт на плитку с тем же `data-photo` (`lbTileFor`,
-  `closeOverlayNow` в `src/62-global-clicks.js`).
+  фокус потерян, он идёт на плитку с тем же `data-photo` (`lbTileFor` в
+  `src/85-lightbox.js`, вызывается из `closeOverlayNow` в `src/62-global-clicks.js`).
 - **Возврат фокуса по id в `requestAnimationFrame`** (L11, `renderPhotosNow`,
   `src/71-photo-grid.js`): `render()` пересоздаёт плитки, фокус запоминается по
   `data-photo`/`data-sel-photo` и ставится на новый узел не синхронно —

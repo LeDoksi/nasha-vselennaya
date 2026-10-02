@@ -736,6 +736,9 @@ const w = f => new Function('sandbox', 'return (' + f + ')(sandbox)')(sandbox);
   assert(w('(s)=>s.db.labels.some(l=>l.name==="Поездка в горы")') === false, 'лейбл-название события больше не создаётся');
   assert(w(`(s)=>JSON.stringify(s.db.photos.find(p=>p.id==="${evPhId}").labels)`) === '["📅 События"]', 'фото события подписано общим лейблом');
   assert(w(`(s)=>s.db.photos.find(p=>p.id==="${evPhId}").title`) === 'Поездка в горы', 'название события остаётся подписью фото');
+  w('(s)=>{s.currentLabel="";s.renderPhotosNow();}');
+  const gridLabels = registry['#photosGrid'].innerHTML;
+  assert(gridLabels.includes('>События</span>') && !gridLabels.includes('📅'), 'плитка показывает служебный лейбл без эмодзи — ключ данных не меняется');
   await new Promise(r => setTimeout(r, 20)); // даём фоновой записи в photoStore завершиться
   assert(w(`(s)=>s.db.photos.find(p=>p.id==="${evPhId}").data`) === undefined, 'данные фото события убраны из памяти после записи в store');
   assert(w(`(s)=>s.photoStore.getMeta("${evPhId}")`) !== null, 'фото события записано в photoStore');

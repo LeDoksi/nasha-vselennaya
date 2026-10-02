@@ -99,7 +99,7 @@ function renderPhotosNow() {
               const sys = id === EVENT_LABEL || id === DATE_LABEL;
               const tag = sys ? null : labelById(id);
               if (!sys && !tag) return ''; // ссылка на удалённый лейбл — не рисуем
-              const name = sys ? id : tag.name;
+              const name = sys ? (id === EVENT_LABEL ? 'События' : 'Свидания') : tag.name; // ключ данных с эмодзи, на экране — как у чипов фильтра
               return html`<span class="photo-label">${sys ? '' : html`<span class="label-dot" style="background:${tag.color}"></span>`}${name}</span>`;
             })}</div>`
           : ''
